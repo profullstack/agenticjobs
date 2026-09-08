@@ -372,12 +372,20 @@ export function pageRoutes(): Hono<AppEnv> {
     if (viewer instanceof Response) return viewer;
 
     const orgs = await listOrgsForUser(pool, viewer.id);
-    const jobs = orgs.length === 0 ? { items: [] } : await searchJobs(
-      pool,
-      { ...parseQuery(new URLSearchParams()), limit: 50 },
-      { includeUnpublished: true },
+    // Queried per employer rather than fetched board-wide and filtered here.
+    // The board-wide version read every other employer's unpublished drafts
+    // into this process and relied on a JS filter to keep them off the page,
+    // which is one refactor away from being a leak.
+    const pages = await Promise.all(
+      orgs.map((org) =>
+        searchJobs(
+          pool,
+          { ...parseQuery(new URLSearchParams()), org: org.slug, limit: 50 },
+          { includeUnpublished: true },
+        ),
+      ),
     );
-    const mine = jobs.items.filter((job) => orgs.some((org) => org.id === job.org.id));
+    const mine = pages.flatMap((page) => page.items);
     const applications = await pool.query<{
       job_title: string;
       job_slug: string;
