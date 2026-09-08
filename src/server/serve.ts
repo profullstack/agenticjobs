@@ -17,9 +17,24 @@ export interface Running {
   stop: () => Promise<void>;
 }
 
+/** Never print a password into a log that gets shipped somewhere. */
+function redact(databaseUrl: string): string {
+  try {
+    const url = new URL(databaseUrl);
+    return `${url.protocol}//${url.hostname}:${url.port || '5432'}${url.pathname}`;
+  } catch {
+    return 'the database';
+  }
+}
+
 export async function startServer(overrides: Partial<Config> = {}): Promise<Running> {
   const config = { ...loadConfig(), ...overrides };
   const pool = getPool(config.databaseUrl);
+
+  // Said before the work starts, not after. Migrating against a cold database
+  // can take a few seconds, and a container that prints nothing at all in that
+  // window looks hung rather than busy.
+  console.log(`${config.boardName} starting: migrating ${redact(config.databaseUrl)}`);
 
   const migrated = await migrate(pool);
   if (migrated.applied.length > 0) {

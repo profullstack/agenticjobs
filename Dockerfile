@@ -6,6 +6,11 @@
 FROM node:24-slim AS build
 WORKDIR /app
 
+# pnpm asks before purging node_modules and refuses when there is no TTY, which
+# is every image build. Without this the production install step fails with
+# ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY and nothing else explains why.
+ENV CI=true
+
 # pnpm comes from corepack rather than npm install, so the version in
 # packageManager is the version that runs.
 RUN corepack enable
