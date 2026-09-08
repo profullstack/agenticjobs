@@ -9,12 +9,13 @@
  */
 
 import type pg from 'pg';
-import type {
-  AgentDisclosure,
-  Application,
-  ApplicationStatus,
-  ApplySchema,
-  Job,
+import {
+  APPLICATION_STATUSES,
+  type AgentDisclosure,
+  type Application,
+  type ApplicationStatus,
+  type ApplySchema,
+  type Job,
 } from '../schema/index.ts';
 import { clean } from '../schema/text.ts';
 
@@ -25,6 +26,7 @@ interface ApplicationRow {
   agent: AgentDisclosure | null;
   status: string;
   created_at: string;
+  submitted_at?: string | null;
 }
 
 function toApplication(row: ApplicationRow): Application {
@@ -33,9 +35,10 @@ function toApplication(row: ApplicationRow): Application {
     jobId: row.job_id,
     answers: row.answers ?? {},
     agent: row.agent,
-    status: (['new', 'reviewing', 'rejected', 'hired'] as string[]).includes(row.status)
+    status: (APPLICATION_STATUSES as readonly string[]).includes(row.status)
       ? (row.status as ApplicationStatus)
       : 'new',
+    submittedAt: row.submitted_at ?? null,
     createdAt: row.created_at,
   };
 }
@@ -142,20 +145,75 @@ function parseDisclosure(value: unknown): AgentDisclosure | null {
   return { name, supervised: record['supervised'] === true };
 }
 
+/**
+ * Create an application, sent or held.
+ *
+ * `submit: false` writes a draft: an agent has prepared it and the candidate
+ * has not released it yet. A draft is not an application - the employer never
+ * sees one - which is the point. It is the same seam a job posting has, where
+ * an employer's agent writes the listing and a person publishes it.
+ */
 export async function createApplication(
   pool: pg.Pool,
   jobId: string,
   value: ValidatedApplication,
+  options: { submit?: boolean } = {},
 ): Promise<Application> {
+  const submit = options.submit !== false;
   const result = await pool.query<ApplicationRow>(
-    `insert into applications (job_id, answers, agent)
-     values ($1, $2::jsonb, $3::jsonb)
-     returning id, job_id, answers, agent, status, created_at`,
-    [jobId, JSON.stringify(value.answers), value.agent === null ? null : JSON.stringify(value.agent)],
+    `insert into applications (job_id, answers, agent, status, submitted_at)
+     values ($1, $2::jsonb, $3::jsonb, $4, case when $5 then now() else null end)
+     returning id, job_id, answers, agent, status, created_at, submitted_at`,
+    [
+      jobId,
+      JSON.stringify(value.answers),
+      value.agent === null ? null : JSON.stringify(value.agent),
+      submit ? 'new' : 'draft',
+      submit,
+    ],
   );
   const row = result.rows[0];
   if (row === undefined) throw new Error('application insert returned no row');
   return toApplication(row);
+}
+
+/**
+ * Release a draft the candidate has read.
+ *
+ * Scoped to the owner and to the draft state in one statement, so a second
+ * click cannot send it twice and nobody can release someone else's.
+ */
+export async function submitApplication(
+  pool: pg.Pool,
+  id: string,
+  userId: string,
+): Promise<boolean> {
+  const result = await pool.query(
+    `update applications
+        set status = 'new', submitted_at = now()
+      where id = $1 and user_id = $2 and submitted_at is null`,
+    [id, userId],
+  );
+  return (result.rowCount ?? 0) > 0;
+}
+
+export async function listDraftApplications(
+  pool: pg.Pool,
+  userId: string,
+): Promise<(Application & { jobTitle: string; jobSlug: string })[]> {
+  const result = await pool.query<ApplicationRow & { job_title: string; job_slug: string }>(
+    `select a.id, a.job_id, a.answers, a.agent, a.status, a.created_at, a.submitted_at,
+            j.title as job_title, j.slug as job_slug
+       from applications a join jobs j on j.id = a.job_id
+      where a.user_id = $1 and a.submitted_at is null
+      order by a.created_at desc limit 100`,
+    [userId],
+  );
+  return result.rows.map((row) => ({
+    ...toApplication(row),
+    jobTitle: row.job_title,
+    jobSlug: row.job_slug,
+  }));
 }
 
 export async function listApplications(
@@ -164,9 +222,9 @@ export async function listApplications(
   limit = 100,
 ): Promise<Application[]> {
   const result = await pool.query<ApplicationRow>(
-    `select id, job_id, answers, agent, status, created_at
+    `select id, job_id, answers, agent, status, created_at, submitted_at
        from applications
-      where job_id = $1
+      where job_id = $1 and submitted_at is not null
       order by created_at desc
       limit $2`,
     [jobId, Math.min(500, Math.max(1, limit))],
@@ -200,6 +258,7 @@ export async function recentApplicationCount(
     `select count(*)::bigint as count
        from applications
       where created_at > now() - ($2 || ' minutes')::interval
+        and submitted_at is not null
         and lower(answers ->> 'email') = lower($1)`,
     [email, String(withinMinutes)],
   );

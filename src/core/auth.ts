@@ -254,11 +254,23 @@ export type DevicePoll =
  */
 export async function pollDeviceAuth(pool: pg.Pool, deviceCode: string): Promise<DevicePoll> {
   const hash = hashToken(deviceCode);
+  // The token has to be read as it was BEFORE the update, and Postgres
+  // RETURNING gives post-update values - so a plain
+  // `update ... set token = null ... returning token` hands back the null it
+  // just wrote and the terminal waits forever. The CTE holds the old row (and
+  // locks it, so two polls cannot both claim), and RETURNING reads from that.
   const claimed = await pool.query<{ token: string | null }>(
-    `update device_codes
+    `with claimed as (
+       select device_code_hash, token
+         from device_codes
+        where device_code_hash = $1 and status = 'approved' and token is not null
+        for update
+     )
+     update device_codes d
         set token = null, status = 'collected'
-      where device_code_hash = $1 and status = 'approved' and token is not null
-      returning token`,
+       from claimed
+      where d.device_code_hash = claimed.device_code_hash
+      returning claimed.token`,
     [hash],
   );
   const token = claimed.rows[0]?.token;

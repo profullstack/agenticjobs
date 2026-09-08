@@ -1,0 +1,22 @@
+import type pg from 'pg';
+import type { Config } from '../config.ts';
+import type { Viewer } from '../core/auth.ts';
+
+export interface Deps {
+  pool: pg.Pool;
+  config: Config;
+}
+
+/**
+ * Hono's per-request bag.
+ *
+ * `viewer` is resolved once by middleware and read everywhere else. Resolving
+ * it per handler is how a page ends up doing four session lookups, and how one
+ * handler forgets to and renders a signed-in person as a stranger.
+ */
+export interface AppEnv {
+  Variables: {
+    viewer: Viewer | null;
+    deps: Deps;
+  };
+}

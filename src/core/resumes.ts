@@ -1,0 +1,227 @@
+/**
+ * Resume CRUD.
+ *
+ * The Markdown column is the only thing anyone writes. `parsed` and `search`
+ * are both recomputed from it on every save - `parsed` here, `search` by the
+ * trigger - so there is no path by which the structured view and the document
+ * can disagree.
+ */
+
+import type pg from 'pg';
+import { parseResume, resumeTemplate, type OpenResume } from '../markup/resume.ts';
+import { clean, slugify, suffix } from '../schema/text.ts';
+
+export const VISIBILITIES = ['private', 'link', 'public'] as const;
+export type Visibility = (typeof VISIBILITIES)[number];
+
+export function isVisibility(value: unknown): value is Visibility {
+  return typeof value === 'string' && (VISIBILITIES as readonly string[]).includes(value);
+}
+
+export interface Resume {
+  id: string;
+  userId: string;
+  slug: string;
+  title: string;
+  markdown: string;
+  parsed: OpenResume | null;
+  visibility: Visibility;
+  sourceName: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface ResumeRow {
+  id: string;
+  user_id: string;
+  slug: string;
+  title: string;
+  markdown: string;
+  parsed: OpenResume | null;
+  visibility: string;
+  source_name: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+function toResume(row: ResumeRow): Resume {
+  return {
+    id: row.id,
+    userId: row.user_id,
+    slug: row.slug,
+    title: row.title,
+    markdown: row.markdown,
+    parsed: row.parsed,
+    visibility: isVisibility(row.visibility) ? row.visibility : 'private',
+    sourceName: row.source_name,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+// The source bytes are never in the default projection: they are megabytes of
+// PDF that no page needs, and selecting them by habit is how a list endpoint
+// starts moving 40MB.
+const SELECT = `select id, user_id, slug, title, markdown, parsed, visibility, source_name,
+                       created_at, updated_at from resumes`;
+
+export async function listResumes(pool: pg.Pool, userId: string): Promise<Resume[]> {
+  const result = await pool.query<ResumeRow>(
+    `${SELECT} where user_id = $1 order by updated_at desc`,
+    [userId],
+  );
+  return result.rows.map(toResume);
+}
+
+export async function getResume(
+  pool: pg.Pool,
+  userId: string,
+  slug: string,
+): Promise<Resume | null> {
+  const result = await pool.query<ResumeRow>(`${SELECT} where user_id = $1 and slug = $2`, [
+    userId,
+    slug,
+  ]);
+  const row = result.rows[0];
+  return row === undefined ? null : toResume(row);
+}
+
+export async function getResumeById(pool: pg.Pool, id: string): Promise<Resume | null> {
+  const result = await pool.query<ResumeRow>(`${SELECT} where id = $1`, [id]);
+  const row = result.rows[0];
+  return row === undefined ? null : toResume(row);
+}
+
+/** For a shared link: only resumes the owner has opened up. */
+export async function getSharedResume(pool: pg.Pool, id: string): Promise<Resume | null> {
+  const result = await pool.query<ResumeRow>(
+    `${SELECT} where id = $1 and visibility in ('link', 'public')`,
+    [id],
+  );
+  const row = result.rows[0];
+  return row === undefined ? null : toResume(row);
+}
+
+export interface SaveResume {
+  title?: string;
+  markdown: string;
+  visibility?: Visibility;
+  source?: { name: string; mime: string; bytes: Buffer } | null;
+}
+
+async function uniqueSlug(pool: pg.Pool, userId: string, title: string): Promise<string> {
+  const base = slugify(title);
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    const candidate = attempt === 0 ? base : `${base}-${suffix(4)}`;
+    const taken = await pool.query(`select 1 from resumes where user_id = $1 and slug = $2`, [
+      userId,
+      candidate,
+    ]);
+    if (taken.rows.length === 0) return candidate;
+  }
+  return `${base}-${Date.now().toString(36)}`;
+}
+
+export async function createResume(
+  pool: pg.Pool,
+  userId: string,
+  input: SaveResume,
+): Promise<Resume> {
+  const markdown = clean(input.markdown, 200_000);
+  const parsed = parseResume(markdown);
+  // The document's own h1 is a better title than "Resume", and it is what the
+  // candidate would have typed anyway.
+  const title = clean(input.title, 120) || parsed.name || 'Resume';
+  const slug = await uniqueSlug(pool, userId, title);
+
+  const result = await pool.query<ResumeRow>(
+    `insert into resumes (user_id, slug, title, markdown, parsed, visibility,
+                          source_name, source_mime, source_bytes)
+     values ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9)
+     returning id, user_id, slug, title, markdown, parsed, visibility, source_name,
+               created_at, updated_at`,
+    [
+      userId,
+      slug,
+      title,
+      markdown,
+      JSON.stringify(parsed),
+      input.visibility ?? 'private',
+      input.source?.name ?? null,
+      input.source?.mime ?? null,
+      input.source?.bytes ?? null,
+    ],
+  );
+  const row = result.rows[0];
+  if (row === undefined) throw new Error('resume insert returned no row');
+  return toResume(row);
+}
+
+export async function updateResume(
+  pool: pg.Pool,
+  userId: string,
+  slug: string,
+  input: SaveResume,
+): Promise<Resume | null> {
+  const markdown = clean(input.markdown, 200_000);
+  const parsed = parseResume(markdown);
+  const result = await pool.query<ResumeRow>(
+    `update resumes
+        set markdown = $3,
+            parsed = $4::jsonb,
+            title = coalesce(nullif($5, ''), title),
+            visibility = coalesce($6, visibility)
+      where user_id = $1 and slug = $2
+      returning id, user_id, slug, title, markdown, parsed, visibility, source_name,
+                created_at, updated_at`,
+    [userId, slug, markdown, JSON.stringify(parsed), clean(input.title, 120), input.visibility ?? null],
+  );
+  const row = result.rows[0];
+  return row === undefined ? null : toResume(row);
+}
+
+export async function deleteResume(pool: pg.Pool, userId: string, slug: string): Promise<boolean> {
+  const result = await pool.query(`delete from resumes where user_id = $1 and slug = $2`, [
+    userId,
+    slug,
+  ]);
+  return (result.rowCount ?? 0) > 0;
+}
+
+/** The original upload, for re-converting a document that came out badly. */
+export async function getResumeSource(
+  pool: pg.Pool,
+  userId: string,
+  slug: string,
+): Promise<{ name: string; mime: string; bytes: Buffer } | null> {
+  const result = await pool.query<{
+    source_name: string | null;
+    source_mime: string | null;
+    source_bytes: Buffer | null;
+  }>(`select source_name, source_mime, source_bytes from resumes where user_id = $1 and slug = $2`, [
+    userId,
+    slug,
+  ]);
+  const row = result.rows[0];
+  if (row === undefined || row.source_bytes === null) return null;
+  return {
+    name: row.source_name ?? 'resume',
+    mime: row.source_mime ?? 'application/octet-stream',
+    bytes: row.source_bytes,
+  };
+}
+
+/** A first resume, so the editor is never an empty box. */
+export async function ensureFirstResume(
+  pool: pg.Pool,
+  userId: string,
+  name: string | null,
+): Promise<Resume> {
+  const existing = await listResumes(pool, userId);
+  const first = existing[0];
+  if (first !== undefined) return first;
+  return createResume(pool, userId, {
+    title: 'Resume',
+    markdown: resumeTemplate(name ?? 'Your Name'),
+  });
+}

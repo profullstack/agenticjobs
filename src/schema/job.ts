@@ -144,7 +144,11 @@ export const DEFAULT_APPLY_SCHEMA: ApplySchema = {
   ],
 };
 
-export const APPLICATION_STATUSES = ['new', 'reviewing', 'rejected', 'hired'] as const;
+/**
+ * `draft` is the candidate-side control point: an agent prepared it and the
+ * person has not released it yet. An employer never sees a draft.
+ */
+export const APPLICATION_STATUSES = ['draft', 'new', 'reviewing', 'rejected', 'hired'] as const;
 export type ApplicationStatus = (typeof APPLICATION_STATUSES)[number];
 
 export interface Application {
@@ -158,6 +162,8 @@ export interface Application {
    */
   agent: AgentDisclosure | null;
   status: ApplicationStatus;
+  /** Null while it is still a draft nobody has sent. */
+  submittedAt: string | null;
   createdAt: string;
 }
 
