@@ -18,6 +18,8 @@
     });
   }
 
+  registerPasskeyButton();
+
   var card = document.getElementById('passkey-card');
   var button = document.getElementById('passkey-login');
   var error = document.getElementById('passkey-error');
@@ -26,6 +28,75 @@
   // actually been asked, so nobody is offered a sign-in method that will throw.
   if (!card || !button || !window.PublicKeyCredential) return;
   card.hidden = false;
+
+  /* Adding a passkey from the "You" page, for an account that already exists. */
+  function registerPasskeyButton() {
+    var add = document.getElementById('passkey-add');
+    if (!add || !window.PublicKeyCredential) return;
+    add.hidden = false;
+
+    add.addEventListener('click', function () {
+      add.disabled = true;
+      var challenge = '';
+
+      fetch('/auth/passkey/register/start', { method: 'POST', headers: { accept: 'application/json' } })
+        .then(function (response) {
+          if (!response.ok) throw new Error('Could not start. Are you signed in?');
+          return response.json();
+        })
+        .then(function (options) {
+          challenge = options.challenge;
+          return navigator.credentials.create({
+            publicKey: {
+              challenge: decode(options.challenge),
+              rp: options.rp,
+              user: {
+                id: decode(options.user.id),
+                name: options.user.name,
+                displayName: options.user.displayName
+              },
+              pubKeyCredParams: options.pubKeyCredParams,
+              authenticatorSelection: options.authenticatorSelection,
+              excludeCredentials: (options.excludeCredentials || []).map(function (item) {
+                return { id: decode(item.id), type: 'public-key' };
+              }),
+              timeout: 60000
+            }
+          });
+        })
+        .then(function (credential) {
+          if (!credential) throw new Error('No passkey was created.');
+          return fetch('/auth/passkey/register/verify', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({
+              id: credential.id,
+              rawId: encode(credential.rawId),
+              type: credential.type,
+              challenge: challenge,
+              response: {
+                clientDataJSON: encode(credential.response.clientDataJSON),
+                attestationObject: encode(credential.response.attestationObject),
+                transports: credential.response.getTransports ? credential.response.getTransports() : []
+              }
+            })
+          });
+        })
+        .then(function (response) {
+          if (!response.ok) throw new Error('That passkey was not accepted.');
+          add.textContent = 'Passkey added';
+        })
+        .catch(function (problem) {
+          add.disabled = false;
+          if (problem && problem.name === 'NotAllowedError') return;
+          var note = document.getElementById('passkey-add-error');
+          if (note) {
+            note.textContent = problem && problem.message ? problem.message : 'That did not work.';
+            note.hidden = false;
+          }
+        });
+    });
+  }
 
   function decode(value) {
     var normal = value.replace(/-/g, '+').replace(/_/g, '/');

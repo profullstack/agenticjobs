@@ -1,0 +1,95 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        # Matches docker-compose.yml. A test suite that passes against a
+        # different major version than production is not evidence about
+        # production.
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: agenticjobs
+          POSTGRES_PASSWORD: agenticjobs
+          POSTGRES_DB: agenticjobs
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U agenticjobs"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    env:
+      DATABASE_URL: postgres://agenticjobs:agenticjobs@localhost:5432/agenticjobs
+      PGSSLMODE: disable
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.18.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm run typecheck
+
+      - name: Build
+        run: pnpm run build
+
+      - name: Test
+        # The API suite skips itself when no database is reachable, which is
+        # right on a laptop and wrong here: a silent skip in CI is a green
+        # check that proved nothing.
+        run: |
+          node --test "test/*.test.ts" 2>&1 | tee output.txt
+          grep -q "no database" output.txt && { echo "::error::the API suite skipped itself"; exit 1; }
+          exit 0
+
+      - name: The docs the board serves must exist
+        run: |
+          test -f docs/openjob.md
+          test -f docs/openresume.md
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the image
+        run: docker build -t agenticjobs:ci .
+      - name: It starts and answers
+        run: |
+          docker network create ci
+          docker run -d --name db --network ci \
+            -e POSTGRES_USER=agenticjobs -e POSTGRES_PASSWORD=agenticjobs -e POSTGRES_DB=agenticjobs \
+            postgres:17-alpine
+          for i in $(seq 1 30); do
+            docker exec db pg_isready -U agenticjobs && break
+            sleep 2
+          done
+          docker run -d --name app --network ci -p 8787:8787 \
+            -e DATABASE_URL=postgres://agenticjobs:agenticjobs@db:5432/agenticjobs \
+            -e PGSSLMODE=disable -e SECRET=ci-secret \
+            agenticjobs:ci
+          for i in $(seq 1 40); do
+            curl -fsS http://localhost:8787/api/v1/stats && break
+            sleep 2
+          done
+          curl -fsS http://localhost:8787/.well-known/agenticjobs
+          # pdftotext is what makes PDF resumes work; the image is wrong
+          # without it and nothing else would notice.
+          docker exec app sh -c 'command -v pdftotext'

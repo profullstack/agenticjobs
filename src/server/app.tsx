@@ -14,6 +14,7 @@ import { apiRoutes } from './routes/api.ts';
 import { pageRoutes } from './routes/pages.tsx';
 import { discoveryRoutes } from './routes/discovery.ts';
 import { mcpRoutes } from './routes/mcp.ts';
+import { passkeyRoutes } from './routes/passkey.ts';
 import { apiCors, securityHeaders, withViewer } from './middleware.ts';
 import { Layout } from '../views/layout.tsx';
 import type { AppEnv, Deps } from './deps.ts';
@@ -30,6 +31,7 @@ export function createApp(pool: pg.Pool, config: Config): Hono<AppEnv> {
   // The MCP tools call this same app, so the getter is resolved lazily: the
   // app does not exist yet at the point the routes are mounted on it.
   app.route('/api/mcp', mcpRoutes(() => app));
+  app.route('/auth/passkey', passkeyRoutes());
   app.route('/', discoveryRoutes());
   app.route('/', pageRoutes());
 

@@ -142,8 +142,14 @@ export const MePage: FC<{
           administrator.
         </p>
       </div>
-      <form method="post" action="/logout">
-        <button class="btn btn-secondary btn-sm" type="submit">
+      {/* Hidden until the script confirms the browser has WebAuthn, so nobody
+          is offered a sign-in method that will throw the moment they click. */}
+      <button class="btn btn-secondary btn-sm" type="button" id="passkey-add" hidden>
+        Add a passkey to this account
+      </button>
+      <p class="small error-text" id="passkey-add-error" hidden></p>
+      <form method="post" action="/logout" style="margin-top:.75rem">
+        <button class="btn btn-ghost btn-sm" type="submit">
           Sign out of this browser
         </button>
       </form>
