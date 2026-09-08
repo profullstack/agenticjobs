@@ -37,6 +37,12 @@ importers:
         specifier: ^5.9.2
         version: 5.9.3
 
+  myna-plugin:
+    dependencies:
+      '@profullstack/agenticjobs':
+        specifier: workspace:*
+        version: link:..
+
 packages:
 
   '@hexagon/base64@1.1.28':

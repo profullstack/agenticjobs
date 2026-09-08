@@ -112,7 +112,13 @@ export async function viewerFromToken(pool: pg.Pool, token: string): Promise<Vie
     id: row.id,
     email: row.email,
     name: row.name,
-    isAdmin: row.is_admin,
+    // A device-flow token is never an administrator, and that is enforced HERE
+    // rather than only at the routes: the token was typed into a terminal and
+    // lives in a file on disk, while a browser session was established in
+    // front of the person it belongs to. Reporting `isAdmin: true` for one and
+    // relying on every call site to also check `viaToken` is how the third
+    // call site gets it wrong.
+    isAdmin: row.is_admin && !row.via_token,
     viaToken: row.via_token,
   };
 }

@@ -240,7 +240,10 @@ function hrefFor(value: string): string | null {
   if (/^https?:\/\//i.test(value)) return value;
   if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) return `mailto:${value}`;
   if (/^\+?[\d\s().-]{7,}$/.test(value)) return `tel:${value.replace(/[^\d+]/g, '')}`;
-  if (/^(www\.|[a-z0-9-]+\.[a-z]{2,}\/)/i.test(value)) return `https://${value}`;
+  // A bare domain, with or without a path. "Web: example.com" is how most
+  // people write it, and an earlier version of this required a trailing slash
+  // and so linked none of them.
+  if (/^[a-z0-9-]+(\.[a-z0-9-]+)*\.[a-z]{2,24}(\/\S*)?$/i.test(value)) return `https://${value}`;
   return null;
 }
 

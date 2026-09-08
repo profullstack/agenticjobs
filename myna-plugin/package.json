@@ -1,0 +1,33 @@
+{
+  "name": "@profullstack/myna-plugin-agenticjobs",
+  "version": "0.1.0",
+  "description": "Post jobs to an agenticjobs board from myna. A job posting is a publication, not a status update, so it is never part of a fan-out.",
+  "license": "MIT",
+  "type": "module",
+  "main": "./index.js",
+  "exports": {
+    ".": "./index.js"
+  },
+  "files": [
+    "index.js",
+    "README.md"
+  ],
+  "keywords": [
+    "myna",
+    "myna-plugin",
+    "jobs",
+    "agenticjobs",
+    "hiring"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/profullstack/agenticjobs.git",
+    "directory": "myna-plugin"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "@profullstack/agenticjobs": "workspace:*"
+  }
+}

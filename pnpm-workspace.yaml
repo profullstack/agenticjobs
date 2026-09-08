@@ -1,2 +1,14 @@
+# Two packages: the board itself, and the myna plugin that posts to it.
+#
+# The plugin is separate because myna installs plugins by package name into its
+# own directory, and pulling the whole board (Postgres, Hono, the TUI) into a
+# social posting tool to reach four HTTP endpoints would be absurd. It depends
+# on the board's client export, which loads none of that.
+packages:
+  - '.'
+  - 'myna-plugin'
+
+# hqtui is published by us, often on the same day we depend on the new version.
+# pnpm 11 refuses packages younger than a day unless they are listed here.
 minimumReleaseAgeExclude:
-  - '@profullstack/hqtui@0.3.0'
+  - '@profullstack/hqtui'

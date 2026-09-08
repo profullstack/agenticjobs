@@ -39,6 +39,7 @@
     "dist",
     "web/public",
     "migrations",
+    "docs",
     "README.md",
     "LICENSE"
   ],
@@ -50,10 +51,11 @@
     "migrate": "node --env-file-if-exists=.env dist/db/migrate.js",
     "seed": "node --env-file-if-exists=.env dist/db/seed.js",
     "tui": "node --env-file-if-exists=.env dist/cli/index.js tui",
-    "test": "node --test \"dist/../test/*.test.js\"",
+    "test": "pnpm run build && node --test \"test/*.test.ts\"",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "format": "prettier --write .",
-    "prepublishOnly": "pnpm run clean && pnpm run build"
+    "prepublishOnly": "pnpm run clean && pnpm run build",
+    "test:only": "node --test \"test/*.test.ts\""
   },
   "dependencies": {
     "@hono/node-server": "^1.14.0",
@@ -67,5 +69,24 @@
     "@types/pg": "^8.11.10",
     "prettier": "^3.3.3",
     "typescript": "^5.9.2"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./client": {
+      "types": "./dist/client/index.d.ts",
+      "default": "./dist/client/index.js"
+    },
+    "./schema": {
+      "types": "./dist/schema/index.d.ts",
+      "default": "./dist/schema/index.js"
+    },
+    "./mcp": {
+      "types": "./dist/mcp/server.d.ts",
+      "default": "./dist/mcp/server.js"
+    },
+    "./package.json": "./package.json"
   }
 }
