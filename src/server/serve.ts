@@ -42,9 +42,9 @@ export async function startServer(overrides: Partial<Config> = {}): Promise<Runn
   }
 
   const app = createApp(pool, config);
-  const server = serve({ fetch: app.fetch, port: config.port, hostname: '0.0.0.0' });
+  const server = serve({ fetch: app.fetch, port: config.port, hostname: config.host });
 
-  console.log(`${config.boardName} on http://localhost:${config.port}`);
+  console.log(`${config.boardName} on http://localhost:${config.port} (bound ${config.host})`);
   console.log(`  public url  ${config.publicUrl}`);
   if (config.ephemeralSecret) {
     // Not a warning about style: every session and device code minted before a

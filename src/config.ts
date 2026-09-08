@@ -10,6 +10,8 @@ import { createHash, randomBytes } from 'node:crypto';
 export interface Config {
   databaseUrl: string;
   port: number;
+  /** Interface to bind. `::` accepts IPv6 and IPv4-mapped addresses alike. */
+  host: string;
   /** Public origin, no trailing slash. Every absolute URL is built from it. */
   publicUrl: string;
   boardName: string;
@@ -51,6 +53,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const directoryRaw = env['DIRECTORY_URL']?.trim() ?? '';
 
   return {
+    host: env['HOST']?.trim() || '0.0.0.0',
     databaseUrl:
       env['DATABASE_URL']?.trim() ||
       'postgres://agenticjobs:agenticjobs@localhost:5432/agenticjobs',
