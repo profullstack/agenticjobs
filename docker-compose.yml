@@ -1,0 +1,56 @@
+# Self-hosting, in one file.
+#
+#   docker compose up -d
+#   open http://localhost:8787
+#
+# The database is the only stateful piece. The app is a stateless container
+# that migrates on boot, so scaling it out is `--scale app=3` and nothing else
+# (the migration takes an advisory lock, so the extra copies wait rather than
+# race).
+
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: agenticjobs
+      POSTGRES_PASSWORD: agenticjobs
+      POSTGRES_DB: agenticjobs
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      # Published so psql and the CLI can reach it from the host. Override
+      # POSTGRES_PORT when something else on this machine already has 5432.
+      - '${POSTGRES_PORT:-5432}:5432'
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U agenticjobs -d agenticjobs']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  app:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://agenticjobs:agenticjobs@db:5432/agenticjobs
+      PGSSLMODE: disable
+      PORT: '8787'
+      PUBLIC_URL: ${PUBLIC_URL:-http://localhost:8787}
+      BOARD_NAME: ${BOARD_NAME:-Agentic Jobs}
+      BOARD_TAGLINE: ${BOARD_TAGLINE:-Jobs posted here, not scraped from somewhere else.}
+      BOARD_TOPICS: ${BOARD_TOPICS:-agentic,ai,engineering}
+      # Generate one and put it in .env before this reaches anything public.
+      SECRET: ${SECRET:-}
+      DIRECTORY_URL: ${DIRECTORY_URL:-https://agenticjobs.work}
+      ANNOUNCE: ${ANNOUNCE:-false}
+      DIRECTORY: ${DIRECTORY:-false}
+      SMTP_URL: ${SMTP_URL:-}
+      MAIL_FROM: ${MAIL_FROM:-jobs@localhost}
+    ports:
+      - '${PORT:-8787}:8787'
+
+volumes:
+  pgdata:

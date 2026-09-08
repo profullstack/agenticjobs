@@ -1,0 +1,36 @@
+{
+  "compilerOptions": {
+    "target": "ES2024",
+    "lib": ["ES2024", "DOM"],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+
+    // Source imports carry their real extension (`./x.ts`, `./views/job.tsx`)
+    // and tsc rewrites them to `.js` on the way out, so the same specifier is
+    // correct both for the type checker and for the file Node ends up loading.
+    "allowImportingTsExtensions": true,
+    "rewriteRelativeImportExtensions": true,
+
+    // Hono's JSX, not React's. Node cannot strip types from .tsx at all, which
+    // is why this repo has a build step where tsbb deliberately does not.
+    "jsx": "react-jsx",
+    "jsxImportSource": "hono/jsx",
+
+    "rootDir": "src",
+    "outDir": "dist",
+    "erasableSyntaxOnly": true,
+    "verbatimModuleSyntax": true,
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "exactOptionalPropertyTypes": false,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "declaration": true,
+    "sourceMap": true,
+    "types": ["node"]
+  },
+  "include": ["src/**/*.ts", "src/**/*.tsx"],
+  "exclude": ["node_modules", "**/node_modules", "dist", "test", "desktop", "web/node_modules"]
+}
