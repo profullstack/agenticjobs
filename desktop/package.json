@@ -1,0 +1,31 @@
+{
+  "name": "@agenticjobs/desktop",
+  "productName": "Agentic Jobs",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Your job boards in a window. The same boards the CLI is signed in to.",
+  "author": "Profullstack, Inc. <anthony@profullstack.com>",
+  "homepage": "https://agenticjobs.work",
+  "license": "MIT",
+  "main": "main.cjs",
+  "scripts": {
+    "dev": "electron .",
+    "build": "electron-builder --linux --publish never",
+    "build:mac": "electron-builder --mac --publish never",
+    "build:win": "electron-builder --win --publish never",
+    "pack": "electron-builder --dir --publish never"
+  },
+  "devDependencies": {
+    "electron": "^44.2.0",
+    "electron-builder": "^26.15.3"
+  },
+  "build": {
+    "appId": "work.agenticjobs.desktop",
+    "productName": "Agentic Jobs",
+    "copyright": "MIT (c) Profullstack, Inc.",
+    "files": ["main.cjs", "boards.html", "icon.png"],
+    "linux": { "target": ["AppImage", "deb"], "category": "Network" },
+    "mac": { "target": ["dmg"], "category": "public.app-category.business" },
+    "win": { "target": ["nsis"] }
+  }
+}
