@@ -1,0 +1,153 @@
+/*
+ * shadcn/ui design tokens, hand-ported.
+ *
+ * The names are shadcn's own - --background, --foreground, --card, --primary,
+ * --muted, --border, --input, --ring, --radius - so anyone who has read a
+ * shadcn theme can read this one, and a theme pasted out of the shadcn theme
+ * editor drops straight in.
+ *
+ * What is NOT here is Tailwind or the shadcn CLI. Pages render server-side
+ * through Hono's JSX and ship plain CSS, so the React components cannot be
+ * used directly; what is ported is their anatomy and their token vocabulary.
+ * See components.css, where each class mirrors a shadcn component.
+ *
+ * Theme resolution has three states and all three are handled:
+ *   - light lives on bare :root, so a page always has a complete palette
+ *   - dark is redefined under prefers-color-scheme for the default "system"
+ *     setting, guarded so an explicit light choice still wins
+ *   - dark is redefined again under [data-theme="dark"] so the toggle wins in
+ *     both directions
+ * A colour whose only definition sits inside a media query is a colour that
+ * disappears the moment somebody picks the other theme.
+ */
+
+:root {
+  --radius: 0.625rem;
+
+  --background: oklch(0.995 0.002 250);
+  --foreground: oklch(0.18 0.02 260);
+
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.18 0.02 260);
+
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.18 0.02 260);
+
+  /* Deep green: hiring, not alerting. Passes AA on white at 5.4:1. */
+  --primary: oklch(0.52 0.13 165);
+  --primary-foreground: oklch(0.99 0.01 165);
+
+  --secondary: oklch(0.965 0.006 250);
+  --secondary-foreground: oklch(0.28 0.03 260);
+
+  --muted: oklch(0.965 0.006 250);
+  --muted-foreground: oklch(0.53 0.02 258);
+
+  --accent: oklch(0.955 0.015 175);
+  --accent-foreground: oklch(0.28 0.05 175);
+
+  --destructive: oklch(0.577 0.245 27.325);
+  --destructive-foreground: oklch(0.985 0 0);
+
+  --success: oklch(0.596 0.145 163.225);
+  --success-foreground: oklch(0.985 0 0);
+
+  --warning: oklch(0.681 0.162 75.834);
+  --warning-foreground: oklch(0.141 0.005 285.823);
+
+  --border: oklch(0.91 0.006 250);
+  --input: oklch(0.885 0.008 250);
+  --ring: oklch(0.52 0.13 165);
+
+  /* Board roles, layered on the shadcn palette rather than beside it. */
+  --agent-welcome: oklch(0.596 0.145 163);
+  --agent-disclose: oklch(0.681 0.162 76);
+  --agent-human: oklch(0.55 0.02 258);
+  --online: oklch(0.62 0.16 158);
+  --offline: oklch(0.6 0.02 258);
+
+  --font-sans: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto,
+    'Helvetica Neue', Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas,
+    'Liberation Mono', monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --background: oklch(0.16 0.012 260);
+    --foreground: oklch(0.96 0.004 250);
+
+    --card: oklch(0.205 0.014 260);
+    --card-foreground: oklch(0.96 0.004 250);
+
+    --popover: oklch(0.205 0.014 260);
+    --popover-foreground: oklch(0.96 0.004 250);
+
+    --primary: oklch(0.72 0.15 165);
+    --primary-foreground: oklch(0.16 0.03 165);
+
+    --secondary: oklch(0.27 0.015 260);
+    --secondary-foreground: oklch(0.96 0.004 250);
+
+    --muted: oklch(0.27 0.015 260);
+    --muted-foreground: oklch(0.71 0.015 256);
+
+    --accent: oklch(0.3 0.03 175);
+    --accent-foreground: oklch(0.96 0.004 250);
+
+    --destructive: oklch(0.704 0.191 22.216);
+    --destructive-foreground: oklch(0.98 0 0);
+
+    --success: oklch(0.696 0.17 162.48);
+    --warning: oklch(0.769 0.188 70.08);
+
+    --border: oklch(1 0 0 / 12%);
+    --input: oklch(1 0 0 / 18%);
+    --ring: oklch(0.72 0.15 165);
+
+    --agent-welcome: oklch(0.696 0.17 162);
+    --agent-disclose: oklch(0.769 0.188 70);
+    --agent-human: oklch(0.7 0.015 256);
+    --online: oklch(0.7 0.17 158);
+    --offline: oklch(0.6 0.02 258);
+  }
+}
+
+:root[data-theme='dark'] {
+  --background: oklch(0.16 0.012 260);
+  --foreground: oklch(0.96 0.004 250);
+
+  --card: oklch(0.205 0.014 260);
+  --card-foreground: oklch(0.96 0.004 250);
+
+  --popover: oklch(0.205 0.014 260);
+  --popover-foreground: oklch(0.96 0.004 250);
+
+  --primary: oklch(0.72 0.15 165);
+  --primary-foreground: oklch(0.16 0.03 165);
+
+  --secondary: oklch(0.27 0.015 260);
+  --secondary-foreground: oklch(0.96 0.004 250);
+
+  --muted: oklch(0.27 0.015 260);
+  --muted-foreground: oklch(0.71 0.015 256);
+
+  --accent: oklch(0.3 0.03 175);
+  --accent-foreground: oklch(0.96 0.004 250);
+
+  --destructive: oklch(0.704 0.191 22.216);
+  --destructive-foreground: oklch(0.98 0 0);
+
+  --success: oklch(0.696 0.17 162.48);
+  --warning: oklch(0.769 0.188 70.08);
+
+  --border: oklch(1 0 0 / 12%);
+  --input: oklch(1 0 0 / 18%);
+  --ring: oklch(0.72 0.15 165);
+
+  --agent-welcome: oklch(0.696 0.17 162);
+  --agent-disclose: oklch(0.769 0.188 70);
+  --agent-human: oklch(0.7 0.015 256);
+  --online: oklch(0.7 0.17 158);
+  --offline: oklch(0.6 0.02 258);
+}
