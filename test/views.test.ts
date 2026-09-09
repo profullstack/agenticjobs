@@ -10,6 +10,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { ResumeEditor } from '../dist/views/me.js';
 import { PostJobPage } from '../dist/views/post.js';
+import { DocsPage } from '../dist/views/docs.js';
 
 const resume = {
   id: 'r',
@@ -325,4 +326,46 @@ test('the post form can say a role is unpaid', () => {
     box(ticked).includes('checked'),
     `a rejected form comes back with the box still ticked, got ${box(ticked)}`,
   );
+});
+
+/**
+ * The two things a reader arrives at /docs wanting to do.
+ *
+ * Reading and applying were documented from the first day because they are
+ * what the board was built to show off. Getting listed and hiring were not,
+ * and the page read as though the board were only half usable. These assert
+ * the step that is actually easy to leave out of each: publishing a resume is
+ * a decision separate from saving one, and posting a job needs an employer
+ * before it needs a listing.
+ */
+const docs = () =>
+  String(
+    DocsPage({
+      publicUrl: 'https://example.test',
+      boardName: 'Example Board',
+      isDirectory: true,
+    }),
+  );
+
+test('the docs say how to get listed as a candidate, not only how to apply', () => {
+  const html = docs();
+  assert.match(html, /\/api\/v1\/resumes/, 'the endpoint that saves a resume');
+  assert.match(html, /visibility/, 'listing it is a separate decision, so it has to be named');
+  assert.match(html, /&quot;public&quot;|"public"/, 'and the value that lists it');
+  assert.match(html, /\/candidates/, 'where a listed resume ends up');
+  // Skills are the tags people browse by, and a resume with no such section
+  // is invisible to every one of those links. Documented or nobody knows.
+  assert.match(html, /## Skills/);
+});
+
+test('the docs say how to post a job, employer first', () => {
+  const html = docs();
+  const orgs = html.indexOf('/api/v1/orgs');
+  const post = html.indexOf('agenticjobs post job.md');
+  assert.ok(orgs !== -1, 'creating the employer has to be on the page');
+  assert.ok(post !== -1, 'and so does posting the listing');
+  assert.ok(orgs < post, 'in that order: a listing has nowhere to go without an employer');
+  assert.match(html, /agent_policy|agentPolicy/, 'the field this board exists for');
+  assert.match(html, /draft/i, 'a posted job is a draft until a person publishes it');
+  assert.match(html, /agenticjobs publish/);
 });
