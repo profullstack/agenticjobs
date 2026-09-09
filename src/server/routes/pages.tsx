@@ -364,11 +364,21 @@ export function pageRoutes(): Hono<AppEnv> {
    * on request and never stored. An uploaded original is the exception: if
    * somebody handed us a PDF, giving that back beats giving back a PDF we
    * regenerated from our parse of their PDF.
+   *
+   * ONE ROUTE PER EXTENSION, which is worth the four lines. This was written
+   * as a single `resume.:format{md|html|pdf|docx}`, and a literal prefix in
+   * the same path segment as a regex-constrained parameter does not survive
+   * `app.route('/', pages)`: requested straight off this router it matches,
+   * and mounted into the app it stops matching and every download 404s. The
+   * suite tests handlers rather than the mounted app, so nothing caught it and
+   * 0.6.0 shipped with its headline feature dead. Reproduced on hono 4.13.7.
    */
-  pages.get('/candidates/:slug/resume.:format{md|html|pdf|docx}', async (c) => {
+  const resumeFile = async (c: Ctx, format: 'md' | MediaFormat) => {
     const { pool, config } = c.get('deps');
-    const slug = c.req.param('slug');
-    const format = c.req.param('format') as 'md' | MediaFormat;
+    // Ctx is not tied to one path, so the parameter is optional to the type
+    // system even though every route below supplies it. An empty slug matches
+    // no resume and falls through to the 404 on the next line.
+    const slug = c.req.param('slug') ?? '';
 
     const resume = await getPublicResume(pool, slug);
     if (resume === null) return c.notFound();
@@ -416,7 +426,14 @@ export function pageRoutes(): Hono<AppEnv> {
       }
       throw error;
     }
-  });
+  };
+
+  // Spelled out rather than generated in a loop, so each URL this board serves
+  // appears literally in the source and grep finds it.
+  pages.get('/candidates/:slug/resume.md', (c) => resumeFile(c, 'md'));
+  pages.get('/candidates/:slug/resume.html', (c) => resumeFile(c, 'html'));
+  pages.get('/candidates/:slug/resume.pdf', (c) => resumeFile(c, 'pdf'));
+  pages.get('/candidates/:slug/resume.docx', (c) => resumeFile(c, 'docx'));
 
   pages.get('/employers', async (c) => {
     const { pool } = c.get('deps');
