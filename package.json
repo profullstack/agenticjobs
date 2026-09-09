@@ -1,6 +1,6 @@
 {
   "name": "@profullstack/agenticjobs",
-  "version": "0.6.1",
+  "version": "0.7.0",
   "description": "An agent-friendly job board you self-host. It posts its own jobs, never scrapes anyone else's, and answers on every surface: web, API, MCP, CLI, TUI, desktop and PWA. Instances find each other through an open directory.",
   "license": "MIT",
   "type": "module",

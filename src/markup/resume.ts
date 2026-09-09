@@ -320,3 +320,76 @@ export function resumeTemplate(name = 'Your Name'): string {
     '',
   ].join('\n');
 }
+
+/** What replaces the withheld bullets, so a redacted block says it is one. */
+export const CONTACT_WITHHELD = 'shared with signed-in members';
+
+/**
+ * The contact block, minus every way to actually reach the person.
+ *
+ * A published resume is a document its owner chose to make public, but the
+ * contact block inside it is the part worth harvesting on its own. An
+ * anonymous crawler that walks /candidates and follows each link gets a
+ * mailing list with phone numbers attached, and somebody who published a
+ * resume in order to be hired did not agree to that.
+ *
+ * The rule falls out of the parse rather than out of a list of key names,
+ * which is what keeps it from going stale as people invent new fields. A
+ * contact field that produced an `href` is a channel: mailto, tel, or a
+ * profile somewhere. One that did not is a plain fact, like "Location:
+ * Berlin" or "Work Authorization: EU Citizen", and those stay. The directory
+ * already prints the location on every card and filtering on it is the point,
+ * so withholding it here would be theatre.
+ *
+ * The withheld bullets are replaced by one saying so rather than removed
+ * silently. A caller that cannot tell a redacted document from a resume with
+ * no contact details will read the second as the first, and this is the one
+ * place where being quietly wrong is worse than being unhelpful.
+ *
+ * Markdown in, Markdown out. The caller re-parses the result instead of being
+ * handed a doctored parse, so the document and the parse of it can never
+ * disagree about what was withheld. That is the rule the rest of OpenResume
+ * runs on: the Markdown is the canonical copy.
+ */
+export function redactContactChannels(source: string): { markdown: string; redacted: boolean } {
+  const markdown = source.replace(/\r\n?/g, '\n');
+  const out: string[] = [];
+  let seenH1 = false;
+  let inPreamble = false;
+  let redacted = false;
+
+  for (const line of markdown.split('\n')) {
+    if (/^#\s+(.+?)\s*#*\s*$/.test(line)) {
+      if (!seenH1) {
+        seenH1 = true;
+        inPreamble = true;
+      }
+      out.push(line);
+      continue;
+    }
+
+    if (/^##\s+(.+?)\s*#*\s*$/.test(line)) {
+      inPreamble = false;
+      out.push(line);
+      continue;
+    }
+
+    if (inPreamble) {
+      const bullet = /^\s*[-*+]\s+(.*)$/.exec(line);
+      if (bullet !== null) {
+        const field = parseContact(bullet[1] ?? '');
+        if (field !== null && field.href !== null) {
+          // The first one withheld becomes the notice, so the block keeps its
+          // shape and its place instead of collapsing to nothing.
+          if (!redacted) out.push(`- **Contact**: ${CONTACT_WITHHELD}`);
+          redacted = true;
+          continue;
+        }
+      }
+    }
+
+    out.push(line);
+  }
+
+  return redacted ? { markdown: out.join('\n'), redacted } : { markdown, redacted };
+}

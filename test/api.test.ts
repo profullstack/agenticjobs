@@ -731,6 +731,68 @@ describe('the API', { skip: reason === '' ? false : `no database: ${reason}` }, 
       assert.match(html, /noindex/);
     });
 
+    test('contact channels are for signed-in callers, in every representation', async () => {
+      if (pool === null) return;
+      const { createSession, ensureUser } = await import('../dist/core/auth.js');
+      const { createResume, updateResume, ensurePublicSlug } = await import(
+        '../dist/core/resumes.js'
+      );
+      const user = await ensureUser(pool as never, `cand+${Date.now()}+gate@example.com`);
+      const token = await createSession(pool as never, user.id, { label: 't' });
+      const created = await createResume(pool as never, user.id, {
+        markdown: [
+          '# Reachable Person',
+          '',
+          '- **Email**: reachable@example.com',
+          '- **Phone**: +1 (408) 555-0142',
+          '- **Location**: Lisbon',
+          '',
+          '## Skills',
+          '',
+          '- Go',
+          '',
+        ].join('\n'),
+        title: 'Reachable',
+      });
+      const saved = await updateResume(pool as never, user.id, created.slug, {
+        markdown: created.markdown,
+        visibility: 'public',
+      });
+      const slug = await ensurePublicSlug(pool as never, saved);
+      const auth = { authorization: `Bearer ${token}` };
+
+      // Every representation renders the same Markdown, so each one is checked
+      // rather than assumed: gating the page and forgetting the PDF is how the
+      // address stays public while the board looks careful.
+      const json = (await (await get(`/api/v1/candidates/${slug}`)).json()) as {
+        markdown: string;
+        contactRedacted?: boolean;
+      };
+      assert.equal(json.contactRedacted, true, 'an agent is told the copy is partial');
+      assert.ok(!json.markdown.includes('reachable@example.com'), json.markdown);
+      assert.ok(!json.markdown.includes('555-0142'));
+      assert.ok(json.markdown.includes('Lisbon'), 'a location is a fact, not a channel');
+
+      const page = await (await get(`/candidates/${slug}`, { accept: 'text/html' })).text();
+      assert.ok(!page.includes('reachable@example.com'), 'not in the body and not in the sidebar');
+      assert.ok(!page.includes('555-0142'));
+
+      const md = await (await get(`/candidates/${slug}/resume.md`)).text();
+      assert.ok(!md.includes('reachable@example.com'), md);
+      const html = await (await get(`/candidates/${slug}/resume.html`)).text();
+      assert.ok(!html.includes('reachable@example.com'), 'the print rendering too');
+
+      // A session or a device token, either one, reads the whole document.
+      const member = (await (await get(`/api/v1/candidates/${slug}`, auth)).json()) as {
+        markdown: string;
+        contactRedacted?: boolean;
+      };
+      assert.equal(member.contactRedacted, undefined);
+      assert.ok(member.markdown.includes('reachable@example.com'));
+      const memberMd = await (await get(`/candidates/${slug}/resume.md`, auth)).text();
+      assert.ok(memberMd.includes('555-0142'), memberMd);
+    });
+
     test('a resume that lost its line breaks cannot become a paragraph-long URL', async () => {
       // A flattened resume parses as one h1 holding the whole document, so the
       // "name" is the entire CV. Unbounded, that produced a three thousand

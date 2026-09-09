@@ -63,7 +63,12 @@ import {
 } from '../../core/resumes.ts';
 import { importDocument, ImportProblem, MAX_UPLOAD_BYTES } from '../../core/import.ts';
 import { deliverMagicLink } from '../../core/mail.ts';
-import { tagsFrom, toCandidateSummary, withTags } from '../../core/candidates.ts';
+import {
+  resumeForViewer,
+  tagsFrom,
+  toCandidateSummary,
+  withTags,
+} from '../../core/candidates.ts';
 import {
   candidateSlugFor,
   deleteUpdate,
@@ -701,12 +706,23 @@ export function apiRoutes(): Hono<AppEnv> {
     if (resume === null) {
       return fail(c, 404, 'not_found', 'No such candidate, or that resume is not shared.');
     }
+    // Reading a resume is public; the contact block inside it is not. An
+    // anonymous caller gets the document with every channel withheld and is
+    // told so in the payload, because an agent that cannot see the difference
+    // will report "no contact details on file" and be wrong.
+    const shown = resumeForViewer(resume, c.get('viewer') !== null);
     return c.json({
       candidate: toCandidateSummary(resume),
       // The Markdown is the canonical document, so it travels whole rather
       // than only as the parse of it.
-      markdown: resume.markdown,
-      parsed: resume.parsed,
+      markdown: shown.markdown,
+      parsed: shown.parsed,
+      ...(shown.redacted
+        ? {
+            contactRedacted: true,
+            contactHint: 'Sign in, or send a token, to read the contact block.',
+          }
+        : {}),
       listed: resume.visibility === 'public',
       url: `${config.publicUrl}/candidates/${resume.publicSlug}`,
       spec: `${config.publicUrl}/docs/openresume`,

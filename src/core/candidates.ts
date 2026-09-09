@@ -9,6 +9,7 @@
 
 import type { Resume } from './resumes.ts';
 import type { CandidateSummary } from '../views/candidates.tsx';
+import { type OpenResume, parseResume, redactContactChannels } from '../markup/resume.ts';
 
 /** Contact keys that read as a place rather than an address. */
 const LOCATION_KEYS = /^(location|based|city|where|region)$/i;
@@ -81,6 +82,43 @@ export function nameOf(resume: Resume): string {
   if (parsed !== undefined && parsed !== '' && parsed.length <= NAME_MAX) return parsed;
   const title = resume.title.trim();
   return title === '' || title.length > NAME_MAX ? 'Candidate' : title;
+}
+
+/** One resume as a given viewer is allowed to see it. */
+export interface ResumeView {
+  markdown: string;
+  parsed: OpenResume | null;
+  /** True when contact channels were withheld from this copy. */
+  redacted: boolean;
+}
+
+/**
+ * The copy of a resume to serve, given whether anybody is signed in.
+ *
+ * Every representation goes through here: the page, the JSON, the RSS, and
+ * each of the four download formats. They all render the same Markdown, so
+ * gating in one of them and forgetting another is how the address ends up
+ * public in the PDF while the page looks careful.
+ *
+ * Signed in is the whole test, and it is deliberately not "signed in and
+ * approved". A person browsing with a session and an agent holding a device
+ * token are the same caller here, because an agent reading resumes on its
+ * owner's behalf is the traffic this board exists to serve. What changes is
+ * that there is now an account behind the read, which is the thing a scraper
+ * does not want to have.
+ */
+export function resumeForViewer(
+  resume: { markdown: string; parsed: OpenResume | null },
+  signedIn: boolean,
+): ResumeView {
+  if (signedIn) return { markdown: resume.markdown, parsed: resume.parsed, redacted: false };
+
+  const { markdown, redacted } = redactContactChannels(resume.markdown);
+  // Nothing to withhold: hand back the original parse rather than paying for
+  // a second one, and report honestly that this copy is whole.
+  if (!redacted) return { markdown: resume.markdown, parsed: resume.parsed, redacted: false };
+
+  return { markdown, parsed: parseResume(markdown), redacted: true };
 }
 
 export function toCandidateSummary(resume: Resume): CandidateSummary {
