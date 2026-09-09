@@ -99,6 +99,32 @@ after(async () => {
 });
 
 describe('the API', { skip: reason === '' ? false : `no database: ${reason}` }, () => {
+  test('every route the board serves is in the document it publishes', async () => {
+    // The next test checks the other direction, that nothing documented is
+    // missing. Nothing checked that nothing served was undocumented, and 13
+    // routes had drifted out: the whole of /candidates, the importer, and
+    // POST /orgs, which you must call before you can post a job at all. On a
+    // board that tells agents to read the JSON, an index missing a third of
+    // the API is the product failing rather than a docs chore.
+    const { readFileSync } = await import('node:fs');
+    const source = readFileSync(new URL('../src/server/routes/api.ts', import.meta.url), 'utf8');
+
+    const served = new Set();
+    for (const [, method, path] of source.matchAll(/api\.(get|post|patch|put|delete)\('([^']+)'/g)) {
+      const openapiPath = path.replace(/:(\w+)\{[^}]*\}/g, '{$1}').replace(/:(\w+)/g, '{$1}');
+      served.add(method.toUpperCase() + ' /api/v1' + openapiPath);
+    }
+
+    const doc = await (await get('/api/v1/openapi.json')).json();
+    const documented = new Set();
+    for (const [p, ops] of Object.entries(doc.paths)) {
+      for (const m of Object.keys(ops)) documented.add(m.toUpperCase() + ' ' + p);
+    }
+
+    const missing = [...served].filter((r) => !documented.has(r)).sort();
+    assert.deepEqual(missing, [], 'undocumented routes:\n' + missing.join('\n'));
+  });
+
   test('every documented GET path resolves', async () => {
     const document = (await (await get('/api/v1/openapi.json')).json()) as {
       paths: Record<string, Record<string, unknown>>;
@@ -117,12 +143,24 @@ describe('the API', { skip: reason === '' ? false : `no database: ${reason}` }, 
     const orgs = ((await (await get('/api/v1/orgs')).json()) as { items: { slug: string }[] }).items;
     const orgSlug = orgs[0]?.slug ?? 'example-works';
 
+    // A candidate slug is a third kind again, and there may be none: a board
+    // where nobody has published a resume is a normal board, not a broken
+    // route, so that path is skipped rather than failed.
+    const candidates = (
+      (await (await get('/api/v1/candidates')).json()) as { items: { slug: string }[] }
+    ).items;
+    const candidateSlug = candidates[0]?.slug ?? null;
+
     const checked: string[] = [];
     for (const [path, methods] of Object.entries(document.paths)) {
       if (!Object.hasOwn(methods, 'get')) continue;
-      const concrete = path
-        .replace('{slug}', path.startsWith('/api/v1/orgs') ? orgSlug : slug)
-        .replace('{id}', 'x');
+      if (path.startsWith('/api/v1/candidates/') && candidateSlug === null) continue;
+      const slugFor = path.startsWith('/api/v1/orgs')
+        ? orgSlug
+        : path.startsWith('/api/v1/candidates')
+          ? (candidateSlug as string)
+          : slug;
+      const concrete = path.replace('{slug}', slugFor).replace('{id}', 'x');
       const response = await get(concrete);
       // 401 is a pass: the route exists and asked for a credential.
       assert.notEqual(response.status, 404, `${concrete} is documented but 404s`);
