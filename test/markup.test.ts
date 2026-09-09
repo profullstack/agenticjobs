@@ -106,3 +106,30 @@ test('plain text strips markup and truncates on a word boundary', () => {
   assert.ok(text.endsWith('...'), text);
   assert.ok(text.length <= 21, text);
 });
+
+test('a description keeps the line breaks that are its structure', async () => {
+  // clean() flattened every control character, newlines included, so a job
+  // description posted from a Markdown file arrived as one paragraph and every
+  // heading and list in it was destroyed before it was ever rendered.
+  const { clean } = await import('../dist/schema/text.js');
+  const markdown = '# Role\n\n- one\n- two\n\nEnd.';
+
+  assert.equal(clean(markdown, 500, { multiline: true }), markdown);
+  // Single-line fields are unchanged: a title with a newline in it is not a
+  // title, and this is what keeps a slug on one line.
+  assert.equal(clean(markdown, 500), '# Role  - one - two  End.');
+
+  // Windows line endings normalise rather than doubling up.
+  assert.equal(clean('a\r\nb', 500, { multiline: true }), 'a\nb');
+
+  // Everything else below 0x20 still goes, including the ESC that starts an
+  // ANSI sequence, because the TUI prints this text.
+  assert.equal(clean('a\u001b[31mred\u0007b', 500, { multiline: true }), 'a [31mred b');
+  assert.ok(!clean('x\u0000y', 500, { multiline: true }).includes('\u0000'));
+});
+
+test('a multi-line description renders as the markdown it is', () => {
+  const html = renderMarkdown('# Role\n\n- one\n- two');
+  assert.match(html, /<h1[^>]*>Role<\/h1>/);
+  assert.match(html, /<li>one<\/li>/);
+});
