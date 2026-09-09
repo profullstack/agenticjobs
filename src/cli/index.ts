@@ -853,6 +853,11 @@ async function commandPost(args: Args): Promise<number> {
     if (value !== undefined) input[key] = value;
   }
 
+  // A flag rather than a value, because "unpaid" is a fact about the role and
+  // not a number. `salary_unpaid: true` in front matter already arrives on its
+  // own, camel-cased with every other key.
+  if (flagBool(args, 'salary-unpaid')) input['salaryUnpaid'] = true;
+
   if (input['org'] === undefined) {
     process.stderr.write('Which employer? Pass --org <slug>, or put "org:" in the front matter.\n');
     return 1;

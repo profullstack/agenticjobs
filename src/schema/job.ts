@@ -50,6 +50,17 @@ export interface Salary {
   currency: string;
   period: SalaryPeriod;
   equity: string | null;
+  /**
+   * The role pays nothing, and the employer is saying so.
+   *
+   * Distinct from a null range, which means only that nobody filled the field
+   * in. An unpaid internship and a listing whose author skipped the pay
+   * section rendered identically before this, so the honest employer looked
+   * like the careless one. The range stays null when this is set, which keeps
+   * unpaid work out of every salary filter and off the top of the salary
+   * sort without a special case anywhere.
+   */
+  unpaid: boolean;
 }
 
 export interface Organisation {

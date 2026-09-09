@@ -1,0 +1,12 @@
+-- An unpaid role, said out loud.
+--
+-- A null salary range already meant "the employer did not say", which is a
+-- different fact from "there is no pay". Unpaid internships and volunteer
+-- work had no way to be posted honestly: leaving the range empty made them
+-- look like every listing whose author could not be bothered, and putting 0
+-- in the range made them sort and filter as a paid job worth nothing.
+--
+-- A boolean rather than a zero for that reason. The range stays null when
+-- this is set, so every salary filter and the salary sort keep excluding
+-- these listings for free, and a reader is told rather than left guessing.
+alter table jobs add column if not exists salary_unpaid boolean not null default false;

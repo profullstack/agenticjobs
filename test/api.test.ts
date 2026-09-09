@@ -458,6 +458,61 @@ describe('the API', { skip: reason === '' ? false : `no database: ${reason}` }, 
     });
   });
 
+  describe('unpaid roles', () => {
+    test('an unpaid listing says so, and stays out of salary filters', async () => {
+      if (pool === null) return;
+      const { createSession, ensureUser } = await import('../dist/core/auth.js');
+      const { createOrg } = await import('../dist/core/orgs.js');
+      const stamp = `${Date.now()}${Math.random().toString(36).slice(2, 7)}`;
+      const user = await ensureUser(pool as never, `unpaid+${stamp}@example.com`, 'Unpaid Co');
+      const token = await createSession(pool as never, user.id, { label: 't' });
+      const org = await createOrg(pool as never, user.id, { name: `Unpaid ${stamp}` });
+      if (typeof org === 'string') throw new Error(org);
+      const auth = { authorization: `Bearer ${token}` };
+
+      const created = (await (
+        await post(
+          '/api/v1/jobs',
+          {
+            org: org.slug,
+            title: `Research Intern ${stamp}`,
+            description: 'An unpaid research internship, said out loud rather than left blank.',
+            employmentType: 'internship',
+            agentPolicy: 'welcome',
+            salaryUnpaid: true,
+            // Sent alongside on purpose: unpaid has to win, or a listing can
+            // claim both at once.
+            salaryMin: 40_000,
+            salaryMax: 60_000,
+          },
+          auth,
+        )
+      ).json()) as { job: { slug: string; salary: Record<string, unknown> } };
+
+      assert.equal(created.job.salary['unpaid'], true);
+      assert.equal(created.job.salary['min'], null, 'the range does not survive the tick');
+      assert.equal(created.job.salary['max'], null);
+
+      await post(`/api/v1/jobs/${created.job.slug}/publish`, {}, auth);
+
+      // It round-trips through the read path, not just the write response.
+      const read = (await (await get(`/api/v1/jobs/${created.job.slug}`)).json()) as {
+        job: { salary: Record<string, unknown> };
+      };
+      assert.equal(read.job.salary['unpaid'], true);
+
+      // And somebody filtering for paying work never sees it. This is the
+      // reason it is a boolean and not a zero in the range.
+      const filtered = (await (await get('/api/v1/jobs?salaryMin=1&limit=100')).json()) as {
+        items: { slug: string }[];
+      };
+      assert.ok(
+        !filtered.items.some((item) => item.slug === created.job.slug),
+        'an unpaid listing must not match a salary floor',
+      );
+    });
+  });
+
   describe('deciding on an application', () => {
     /**
      * An employer, a published listing, and one application sitting on it.

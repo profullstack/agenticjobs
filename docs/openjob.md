@@ -40,7 +40,8 @@ serves at `GET /api/v1/jobs/{slug}`.
     "max": 230000,
     "currency": "USD",
     "period": "year",
-    "equity": "0.1% - 0.4%"
+    "equity": "0.1% - 0.4%",
+    "unpaid": false
   },
   "tags": ["infrastructure", "agents"],
   "stack": ["typescript", "postgres", "rust"],
@@ -163,8 +164,16 @@ both - the JSON-LD for search engines, the OpenJob document for everything else.
 | `remoteRegions` | `applicantLocationRequirements` |
 | `location` | `jobLocation` |
 | `salary` | `baseSalary`, plus an annualised `estimatedSalary` |
+| `salary.unpaid` | nothing; schema.org has no vocabulary for it, so `baseSalary` is simply absent |
 | `expiresAt` | `validThrough` |
 | `apply.via === "board"` | `directApply: true` |
+
+`salary.unpaid` is the board's own field, and it exists because a null range and an
+unpaid role are different facts. A listing that says nothing about pay was probably
+written by somebody who could not be bothered; one that says `unpaid` is an internship
+or a volunteer post being honest about itself. Reading the first as the second is how
+an honest employer gets treated like a careless one. When it is set the range is null,
+so an unpaid listing never matches a salary floor and never rises up a salary sort.
 
 The two fields with no equivalent - `agentPolicy` and the address of the application
 schema - travel in `additionalProperty`, which is the vocabulary's own escape hatch

@@ -80,13 +80,22 @@ const SYMBOLS: Record<string, string> = {
   JPY: '\u00A5',
 };
 
-/** "$120k - $160k a year", or null when the employer did not say. */
+/**
+ * "$120k - $160k a year", "Unpaid", or null when the employer did not say.
+ *
+ * The three are different answers and the reader is owed the difference. A
+ * null here means the field was left empty; "Unpaid" means somebody ticked a
+ * box saying the role pays nothing, which is a thing an internship is allowed
+ * to be as long as it is not hidden.
+ */
 export function formatSalary(salary: {
   min: number | null;
   max: number | null;
   currency: string;
   period: string;
+  unpaid?: boolean;
 }): string | null {
+  if (salary.unpaid === true) return 'Unpaid';
   if (salary.min === null && salary.max === null) return null;
   const money = (amount: number): string => {
     const symbol = SYMBOLS[salary.currency.toUpperCase()] ?? `${salary.currency.toUpperCase()} `;
