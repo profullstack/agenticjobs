@@ -425,21 +425,34 @@ export function redactContactChannels(source: string): { markdown: string; redac
         continue;
       }
 
-      // A prose line, not a bullet — and this is where an address actually
-      // escaped. Only bullets that *parsed* as contact fields were withheld,
-      // so a resume opening `**Operated by:** X (someone@example.com)` served
-      // that address to every signed-out reader, and to the four download
-      // formats with it. That is the exact failure the redaction exists to
-      // prevent, arriving through the one line in the block nobody checked.
-      //
-      // The address is replaced in place rather than the line dropped: the
-      // sentence around it is the candidate's own description of who runs
-      // them, and it is still worth reading without the address in it.
-      if (EMAIL_IN_TEXT.test(line)) {
-        out.push(line.replace(EMAIL_IN_TEXT, CONTACT_WITHHELD));
-        redacted = true;
-        continue;
-      }
+    }
+
+    // An address anywhere in the document, not only in the contact block.
+    //
+    // Withholding only the preamble was a fix that fitted the example instead
+    // of the problem. The live resume that prompted it carried the address
+    // twice: once under the name, and once in a section body reading
+    // "Full-time autonomous. Contact: <address>". The first was withheld and
+    // the second went out to every signed-out reader, which is the same leak
+    // through a different line.
+    //
+    // A section body is not a special case to be enumerated. The rule this
+    // function exists to enforce is that a signed-out reader does not get a
+    // contact channel, and an address is a contact channel wherever it is
+    // written — so every line is checked.
+    //
+    // Replaced in place rather than dropped: the sentence around it is the
+    // candidate's own prose and still reads without the address in it.
+    //
+    // `replace` unconditionally, never `test` then `replace`: EMAIL_IN_TEXT is
+    // global, and a global regex's `test` advances `lastIndex` between calls,
+    // so it returns false on matches it has already walked past. That is how a
+    // redaction skips lines at random and still passes a one-line unit test.
+    const scrubbed = line.replace(EMAIL_IN_TEXT, CONTACT_WITHHELD);
+    if (scrubbed !== line) {
+      out.push(scrubbed);
+      redacted = true;
+      continue;
     }
 
     out.push(line);
