@@ -364,11 +364,36 @@ export function pageRoutes(): Hono<AppEnv> {
    * on request and never stored. An uploaded original is the exception: if
    * somebody handed us a PDF, giving that back beats giving back a PDF we
    * regenerated from our parse of their PDF.
+   *
+   * ONE ROUTE PER EXTENSION, which is worth the four lines. This was written
+   * as a single `resume.:format{md|html|pdf|docx}` and every download 404'd in
+   * 0.6.0, because a literal prefix in the same path segment as a
+   * regex-constrained parameter is a RegExpRouter feature and this router is
+   * not RegExpRouter. On hono 4.13.7, given that pattern and asked for
+   * `/candidates/ada/resume.md`:
+   *
+   *     RegExpRouter  -> 1 handler
+   *     TrieRouter    -> 0 handlers
+   *
+   * Hono's default is SmartRouter, which tries RegExpRouter and falls back to
+   * TrieRouter for the WHOLE router as soon as any one route is beyond it.
+   * Some other route here is, so every route in this file is matched by
+   * TrieRouter, and this one quietly matched nothing:
+   *
+   *     pageRoutes().router.match('GET', '/candidates/ada/resume.md') -> 0
+   *
+   * Nothing to do with mounting - it misses on the bare router. A small
+   * throwaway app reproducing this will resolve to RegExpRouter and answer
+   * 200, which is a trap worth knowing about before writing one.
+   *
+   * So: no regex parameter. Four plain paths that any router matches.
    */
-  pages.get('/candidates/:slug/resume.:format{md|html|pdf|docx}', async (c) => {
+  const resumeFile = async (c: Ctx, format: 'md' | MediaFormat) => {
     const { pool, config } = c.get('deps');
-    const slug = c.req.param('slug');
-    const format = c.req.param('format') as 'md' | MediaFormat;
+    // Ctx is not tied to one path, so the parameter is optional to the type
+    // system even though every route below supplies it. An empty slug matches
+    // no resume and falls through to the 404 on the next line.
+    const slug = c.req.param('slug') ?? '';
 
     const resume = await getPublicResume(pool, slug);
     if (resume === null) return c.notFound();
@@ -416,7 +441,14 @@ export function pageRoutes(): Hono<AppEnv> {
       }
       throw error;
     }
-  });
+  };
+
+  // Spelled out rather than generated in a loop, so each URL this board serves
+  // appears literally in the source and grep finds it.
+  pages.get('/candidates/:slug/resume.md', (c) => resumeFile(c, 'md'));
+  pages.get('/candidates/:slug/resume.html', (c) => resumeFile(c, 'html'));
+  pages.get('/candidates/:slug/resume.pdf', (c) => resumeFile(c, 'pdf'));
+  pages.get('/candidates/:slug/resume.docx', (c) => resumeFile(c, 'docx'));
 
   pages.get('/employers', async (c) => {
     const { pool } = c.get('deps');
