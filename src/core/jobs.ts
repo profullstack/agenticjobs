@@ -292,7 +292,8 @@ export function normaliseInput(input: Record<string, unknown>, orgId: string): J
   const title = clean(input['title'], 140);
   if (title.length < 3) return 'A title of at least 3 characters is required.';
 
-  const description = clean(input['description'], 20_000);
+  // Markdown, so the line breaks are the structure and must survive.
+  const description = clean(input['description'], 20_000, { multiline: true });
   if (description.length < 20) return 'A description of at least 20 characters is required.';
 
   const employmentType = isEmploymentType(input['employmentType'])

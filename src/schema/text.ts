@@ -11,13 +11,24 @@
  * printed into a terminal by the TUI and the CLI as well as escaped into HTML
  * by the views, and the escape that starts an ANSI sequence is exactly the
  * kind of character a source-level class is easy to get subtly wrong.
+ *
+ * `multiline` keeps newlines. Without it a job description posted from a
+ * Markdown file arrived as one paragraph, because a newline is a control
+ * character and this flattened it along with the rest: every heading, list and
+ * paragraph break in a description was silently destroyed on the way in, on a
+ * board that renders descriptions as Markdown. A newline cannot begin an
+ * escape sequence, so keeping it costs none of the safety this scan exists
+ * for. Everything else below 0x20, the ESC that starts an ANSI sequence
+ * included, still becomes a space.
  */
-export function clean(value: unknown, max: number): string {
+export function clean(value: unknown, max: number, options: { multiline?: boolean } = {}): string {
   if (typeof value !== 'string') return '';
+  const source = options.multiline === true ? value.replace(/\r\n?/g, '\n') : value;
   let out = '';
-  for (const char of value) {
+  for (const char of source) {
     const code = char.codePointAt(0) ?? 0;
-    out += code < 0x20 || code === 0x7f ? ' ' : char;
+    const keep = options.multiline === true && code === 0x0a;
+    out += !keep && (code < 0x20 || code === 0x7f) ? ' ' : char;
   }
   return out.trim().slice(0, max);
 }
