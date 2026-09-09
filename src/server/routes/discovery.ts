@@ -18,6 +18,7 @@ import { listOrgs } from '../../core/orgs.ts';
 import { listPublicResumes } from '../../core/resumes.ts';
 import { tagsFrom, toCandidateSummary, withTags } from '../../core/candidates.ts';
 import { parseQuery } from '../../schema/query.ts';
+import type { JobQuery } from '../../schema/index.ts';
 import { WELL_KNOWN_PATH } from '../../schema/instance.ts';
 import { jobPostingJsonLd } from '../../schema/jsonld.ts';
 import { escapeHtml } from '../../markup/escape.ts';
@@ -95,6 +96,21 @@ function rss(
     '</rss>',
   ].join('\n');
   return c.body(xml, 200, { 'content-type': 'application/rss+xml; charset=utf-8' });
+}
+
+
+/** The active filters in words, or null when nothing is filtered. */
+function describeQuery(query: JobQuery): string | null {
+  const parts: string[] = [];
+  if (query.q !== null) parts.push(`"${query.q}"`);
+  if (query.workplace !== null) parts.push(query.workplace);
+  if (query.employmentType !== null) parts.push(query.employmentType);
+  if (query.seniority !== null) parts.push(query.seniority);
+  if (query.agentPolicy !== null) parts.push(`agents: ${query.agentPolicy}`);
+  if (query.tags.length > 0) parts.push(query.tags.join(' + '));
+  if (query.salaryMin !== null) parts.push(`from ${query.salaryMin}`);
+  if (query.org !== null) parts.push(query.org);
+  return parts.length === 0 ? null : parts.join(', ');
 }
 
 export function discoveryRoutes(): Hono<AppEnv> {
@@ -180,7 +196,11 @@ export function discoveryRoutes(): Hono<AppEnv> {
 
   routes.get('/jobs.rss', async (c) => {
     const { pool, config } = c.get('deps');
-    const page = await searchJobs(pool, { ...parseQuery(new URLSearchParams()), limit: 100 });
+    // The same query the page takes. This built its query from an EMPTY
+    // URLSearchParams, so every filter a reader put in the address was thrown
+    // away and the feed answered with the whole board.
+    const query = { ...parseQuery(new URL(c.req.url).searchParams), limit: 100, offset: 0 };
+    const page = await searchJobs(pool, query);
     const items = page.items
       .map((job) => {
         const url = `${config.publicUrl}/jobs/${job.slug}`;
@@ -288,17 +308,37 @@ export function discoveryRoutes(): Hono<AppEnv> {
    */
   routes.get('/feed.rss', async (c) => {
     const { pool, config } = c.get('deps');
+    // Everything, and still filterable: the same query the jobs surfaces take,
+    // with its tags also narrowing the people. An employer is neither a job
+    // nor a skill, so a filtered feed drops them rather than pretending a
+    // company matches "remote".
+    const url = new URL(c.req.url);
+    const query = parseQuery(url.searchParams);
+    const filtered = url.search !== '' && url.search !== '?';
+    // Tags are the only filter that means the same thing on both halves of the
+    // board. Workplace, employment type, seniority, agent policy, a salary
+    // floor and an employer are questions about a job, and a person cannot
+    // answer them, so asking one of them is asking for jobs: carrying every
+    // candidate through would answer a narrow question with the whole roster.
+    const jobsOnly =
+      query.workplace !== null ||
+      query.employmentType !== null ||
+      query.seniority !== null ||
+      query.agentPolicy !== null ||
+      query.salaryMin !== null ||
+      query.org !== null ||
+      query.q !== null;
     const [page, orgs, candidates] = await Promise.all([
-      searchJobs(pool, { ...parseQuery(new URLSearchParams()), limit: 100 }),
+      searchJobs(pool, { ...query, limit: 100, offset: 0 }),
       listOrgs(pool, 100),
       listPublicResumes(pool, 100),
     ]);
 
     return rss(c, {
-      title: config.boardName,
-      link: config.publicUrl,
+      title: filtered ? `${config.boardName}: ${url.search.slice(1)}` : config.boardName,
+      link: config.publicUrl + url.search,
       description: config.boardTagline,
-      self: `${config.publicUrl}/feed.rss`,
+      self: `${config.publicUrl}/feed.rss${url.search}`,
       entries: [
         ...page.items.map((job) => ({
           title: `${job.title} at ${job.org.name}`,
@@ -307,14 +347,19 @@ export function discoveryRoutes(): Hono<AppEnv> {
           body: toPlainText(job.description, 500),
           category: 'Job',
         })),
-        ...orgs.map((org) => ({
-          title: `${org.name} is hiring on ${config.boardName}`,
-          url: `${config.publicUrl}/employers/${org.slug}`,
-          at: org.createdAt,
-          body: org.description ?? `${org.name} posts its openings on ${config.boardName}.`,
-          category: 'Employer',
-        })),
-        ...candidates.map(toCandidateSummary).map((summary) => ({
+        ...(filtered
+          ? []
+          : orgs.map((org) => ({
+              title: `${org.name} is hiring on ${config.boardName}`,
+              url: `${config.publicUrl}/employers/${org.slug}`,
+              at: org.createdAt,
+              body: org.description ?? `${org.name} posts its openings on ${config.boardName}.`,
+              category: 'Employer',
+            }))),
+        ...(jobsOnly
+          ? []
+          : withTags(candidates.map(toCandidateSummary), query.tags)
+        ).map((summary) => ({
           title: `${summary.name} is looking`,
           url: `${config.publicUrl}/candidates/${summary.slug}`,
           at: summary.updatedAt,
@@ -423,6 +468,92 @@ export function discoveryRoutes(): Hono<AppEnv> {
    * The point of this board is that a model does not have to guess, so this
    * says plainly what is here, what is not, and which two endpoints matter.
    */
+  /**
+   * The same listings as Markdown.
+   *
+   * A model handed HTML has to strip a page apart to find the job; handed
+   * Markdown it has the document. This is the same query as every other
+   * listing surface, so a filter written once works in the browser, the feed,
+   * the JSON and here.
+   */
+  routes.get('/jobs.md', async (c) => {
+    const { pool, config } = c.get('deps');
+    const url = new URL(c.req.url);
+    const query = { ...parseQuery(url.searchParams), limit: 100, offset: 0 };
+    const page = await searchJobs(pool, query);
+
+    const said = describeQuery(query);
+    const lines = [
+      `# ${config.boardName}`,
+      '',
+      config.boardTagline,
+      '',
+      said === null ? `${page.total} open.` : `${page.total} matching ${said}.`,
+      '',
+    ];
+    for (const job of page.items) {
+      const where = [job.workplace, job.location].filter((part) => part !== null).join(', ');
+      const badges = [...job.tags, ...job.stack].filter(
+        (item, index, all) =>
+          all.findIndex((other) => other.toLowerCase() === item.toLowerCase()) === index,
+      );
+      lines.push(
+        `## ${job.title}`,
+        '',
+        `- Employer: ${job.org.name}`,
+        `- Where: ${where}`,
+        `- Type: ${job.employmentType}`,
+        `- Agents: ${job.agentPolicy}`,
+        ...(badges.length === 0 ? [] : [`- Tags: ${badges.join(', ')}`]),
+        `- Apply: ${config.publicUrl}/api/v1/jobs/${job.slug}/apply-schema`,
+        `- Page: ${config.publicUrl}/jobs/${job.slug}`,
+        '',
+        toPlainText(job.description, 800),
+        '',
+      );
+    }
+    if (page.items.length === 0) {
+      lines.push('Nothing matches. Every listing here was posted by its employer, so an empty');
+      lines.push('result means nobody has posted that job, not that a crawler missed it.', '');
+    }
+    return c.text(lines.join('\n'), 200, {
+      'content-type': 'text/markdown; charset=utf-8',
+    });
+  });
+
+  /** The candidates, as Markdown, filtered by the same tags. */
+  routes.get('/candidates.md', async (c) => {
+    const { pool, config } = c.get('deps');
+    const tags = tagsFrom(new URL(c.req.url).searchParams);
+    const wanted = withTags((await listPublicResumes(pool, 100)).map(toCandidateSummary), tags);
+
+    const lines = [
+      `# ${config.boardName}: candidates`,
+      '',
+      'People who published a resume here. Every one chose to be listed.',
+      '',
+      tags.length === 0
+        ? `${wanted.length} listed.`
+        : `${wanted.length} listing all of ${tags.join(', ')}.`,
+      '',
+    ];
+    for (const candidate of wanted) {
+      lines.push(
+        `## ${candidate.name}`,
+        '',
+        ...(candidate.headline === null ? [] : [candidate.headline, '']),
+        ...(candidate.location === null ? [] : [`- Where: ${candidate.location}`]),
+        ...(candidate.skills.length === 0 ? [] : [`- Skills: ${candidate.skills.join(', ')}`]),
+        `- Resume: ${config.publicUrl}/api/v1/candidates/${candidate.slug}`,
+        `- Page: ${config.publicUrl}/candidates/${candidate.slug}`,
+        '',
+      );
+    }
+    return c.text(lines.join('\n'), 200, {
+      'content-type': 'text/markdown; charset=utf-8',
+    });
+  });
+
   routes.get('/llms.txt', async (c) => {
     const { pool, config } = c.get('deps');
     const counts = await countJobs(pool);
@@ -442,8 +573,19 @@ export function discoveryRoutes(): Hono<AppEnv> {
         '',
         `- [Instance descriptor](${config.publicUrl}${WELL_KNOWN_PATH}): what this board is and where everything lives`,
         `- [OpenAPI](${config.publicUrl}/api/v1/openapi.json): every endpoint`,
-        `- [Search](${config.publicUrl}/api/v1/jobs?q=): q, workplace, employmentType, seniority, agentPolicy, tag, salaryMin`,
-        `- [Feed](${config.publicUrl}/jobs.json): the 100 most recent, as JSON Feed`,
+        `- [Search](${config.publicUrl}/api/v1/jobs?q=): q, workplace, employmentType, seniority, agentPolicy, tags, salaryMin, org, sort`,
+        '',
+        'The same query works on every representation, so a filter written once',
+        'can be read as whichever of these suits you:',
+        '',
+        `- JSON: ${config.publicUrl}/api/v1/jobs?workplace=remote&tags=javascript`,
+        `- Markdown: ${config.publicUrl}/jobs.md?workplace=remote&tags=javascript`,
+        `- RSS: ${config.publicUrl}/feed?workplace=remote&tags=javascript`,
+        `- JSON Feed: ${config.publicUrl}/jobs.json?workplace=remote&tags=javascript`,
+        `- HTML: ${config.publicUrl}/?workplace=remote&tags=javascript`,
+        '',
+        `People are the same, filtered by tag: ${config.publicUrl}/candidates.md?tags=javascript,`,
+        `with ${config.publicUrl}/api/v1/candidates and ${config.publicUrl}/candidates/feed alongside.`,
         '',
         '## Applying',
         '',

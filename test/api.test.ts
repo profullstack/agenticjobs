@@ -882,6 +882,58 @@ describe('the API', { skip: reason === '' ? false : `no database: ${reason}` }, 
       assert.ok(comma.total > 0, `expected ${tag} to match something`);
     });
 
+    test('one query, every representation', async () => {
+      // A filter written once should work whichever way you read the board.
+      // /jobs.rss and /feed.rss built their query from an EMPTY
+      // URLSearchParams, so both answered with the whole board however it was
+      // filtered: a feed that looks filtered and is not.
+      const surfaces = [
+        '/api/v1/jobs',
+        '/jobs.json',
+        '/jobs.md',
+        '/feed',
+        '/jobs.rss',
+        '/feed.rss',
+      ];
+
+      // Something every seeded job is not, so a filter that works excludes all
+      // of them and one that is ignored does not.
+      const impossible = 'seniority=intern&workplace=onsite&employmentType=internship';
+      for (const path of surfaces) {
+        const response = await get(`${path}?${impossible}`);
+        assert.equal(response.status, 200, path);
+        const body = await response.text();
+        const items =
+          path.endsWith('.rss') || path === '/feed'
+            ? (body.match(/<item>/g) ?? []).length
+            : path.endsWith('.md')
+              ? (body.match(/^## /gm) ?? []).length
+              : ((JSON.parse(body) as { items: unknown[] }).items ?? []).length;
+        assert.equal(items, 0, `${path} ignored the filter and returned ${items}`);
+      }
+
+      // And unfiltered, every one of them still has the board in it.
+      for (const path of surfaces) {
+        const body = await (await get(path)).text();
+        const empty = body.includes('<item>') || body.includes('## ') || body.includes('"items"');
+        assert.ok(empty, `${path} returned nothing unfiltered`);
+      }
+    });
+
+    test('markdown is served as markdown, and carries what an agent needs', async () => {
+      const response = await get('/jobs.md');
+      assert.match(response.headers.get('content-type') ?? '', /text\/markdown/);
+      const body = await response.text();
+      // The apply schema is the thing an agent has to reach, so the document
+      // has to carry it rather than making them guess the URL.
+      assert.match(body, /apply-schema/);
+      assert.match(body, /^# /m);
+
+      const candidates = await get('/candidates.md');
+      assert.equal(candidates.status, 200);
+      assert.match(candidates.headers.get('content-type') ?? '', /text\/markdown/);
+    });
+
     test('the feed, sitemap and llms.txt all answer', async () => {
       for (const path of [
         '/jobs.json',
