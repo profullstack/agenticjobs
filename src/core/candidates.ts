@@ -93,3 +93,59 @@ export function toCandidateSummary(resume: Resume): CandidateSummary {
     updatedAt: resume.updatedAt,
   };
 }
+
+/**
+ * Read `tags=javascript,react,node.js` into a list.
+ *
+ * `skill=` is accepted as a one-tag alias, because that is what the first
+ * version of the badge links used and those URLs are already out there.
+ */
+export function tagsFrom(params: URLSearchParams): string[] {
+  const raw = params.get('tags') ?? params.get('skill') ?? '';
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const part of raw.split(',')) {
+    const tag = part.trim();
+    if (tag === '') continue;
+    const key = tag.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(tag);
+  }
+  return out;
+}
+
+/**
+ * The candidates who list ALL of these tags.
+ *
+ * Narrowing rather than widening: someone asking for javascript, react and
+ * node.js together is describing one person's skill set, not three separate
+ * searches. A single tag behaves the same either way.
+ *
+ * Matched on the whole tag rather than as a substring, because that is what
+ * the badge links to: "Go" must not match "MongoDB".
+ */
+export function withTags(candidates: CandidateSummary[], tags: string[]): CandidateSummary[] {
+  if (tags.length === 0) return candidates;
+  const wanted = tags.map((tag) => tag.toLowerCase());
+  return candidates.filter((candidate) => {
+    const has = new Set(candidate.skills.map((skill) => skill.toLowerCase()));
+    return wanted.every((tag) => has.has(tag));
+  });
+}
+
+/** Every tag anybody lists, most common first, for a browsable index. */
+export function allTags(candidates: CandidateSummary[]): { tag: string; count: number }[] {
+  const counts = new Map<string, { tag: string; count: number }>();
+  for (const candidate of candidates) {
+    for (const skill of candidate.skills) {
+      const key = skill.toLowerCase();
+      const seen = counts.get(key);
+      if (seen === undefined) counts.set(key, { tag: skill, count: 1 });
+      else seen.count += 1;
+    }
+  }
+  return [...counts.values()].sort(
+    (a, b) => b.count - a.count || a.tag.localeCompare(b.tag),
+  );
+}

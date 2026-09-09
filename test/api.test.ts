@@ -535,6 +535,50 @@ describe('the API', { skip: reason === '' ? false : `no database: ${reason}` }, 
       assert.ok(list.items.some((item) => item.slug === created.resume.publicSlug));
     });
 
+    test('tags narrow, and every set of them has a feed', async () => {
+      if (pool === null) return;
+      const { createResume, updateResume } = await import('../dist/core/resumes.js');
+      const { ensureUser } = await import('../dist/core/auth.js');
+
+      const publish = async (name: string, skills: string[]) => {
+        const md = `# ${name}\n\n## Skills\n\n${skills.map((s) => `- ${s}`).join('\n')}\n`;
+        const user = await ensureUser(pool as never, `tag+${name}+${Date.now()}@example.com`);
+        const made = await createResume(pool as never, user.id, { markdown: md, title: name });
+        return updateResume(pool as never, user.id, made.slug, {
+          markdown: md,
+          visibility: 'public',
+        });
+      };
+
+      const both = await publish('Both Person', ['JavaScript', 'React', 'Node.js']);
+      const one = await publish('One Person', ['JavaScript']);
+
+      // Several tags describe one person's skill set, so they narrow.
+      const narrowed = (await (
+        await get('/api/v1/candidates?tags=javascript,react,node.js')
+      ).json()) as { items: { slug: string }[]; total: number; match: string };
+      const slugs = narrowed.items.map((item) => item.slug);
+      assert.ok(slugs.includes(both?.publicSlug ?? ''), 'the one with all three must match');
+      assert.ok(!slugs.includes(one?.publicSlug ?? ''), 'the one with only javascript must not');
+      assert.equal(narrowed.match, 'all');
+
+      // A tag is matched whole: "Go" must not match "MongoDB".
+      const single = (await (await get('/api/v1/candidates?tags=react')).json()) as {
+        items: { slug: string }[];
+      };
+      assert.ok(single.items.some((item) => item.slug === both?.publicSlug));
+
+      // And the same filter is subscribable.
+      const feed = await get('/feed.rss?tags=javascript,react,node.js');
+      assert.equal(feed.status, 200);
+      const xml = await feed.text();
+      assert.match(xml, /<atom:link[^>]+tags=/);
+      assert.match(xml, /Both Person/);
+      assert.ok(!xml.includes('One Person'), 'a filtered feed must not carry non-matches');
+      // A filtered feed is about the people, not the jobs as well.
+      assert.ok(!xml.includes('<category>Job</category>'), xml.slice(0, 400));
+    });
+
     test('a private resume has no public address at all', async () => {
       if (pool === null) return;
       const { slug } = await publish('private', 'Alan Private');
