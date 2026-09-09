@@ -62,6 +62,7 @@ export const TOOLS: ToolDefinition[] = [
         description: 'Where the employer stands on applications written with an agent.',
       },
       tag: string('One tag or several, comma separated. Matches tags and stack.'),
+      tags: string('The same thing, spelled the way the site and its feeds spell it.'),
       salaryMin: integer('Minimum, compared against the top of each range.'),
       limit: integer('1-100, default 25.'),
       offset: integer('For paging.'),

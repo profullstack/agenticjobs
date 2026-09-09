@@ -76,6 +76,9 @@ export const Layout: FC<PropsWithChildren<PageProps>> = (props) => {
           href="/candidates/feed"
           title={`${boardName} candidates`}
         />
+        {/* The same listings as Markdown, for a reader that would rather have
+            the document than the page. */}
+        <link rel="alternate" type="text/markdown" href="/jobs.md" title={`${boardName} jobs`} />
         {/* The whole site, which is the one a feed directory should find. */}
         <link rel="alternate" type="application/rss+xml" href="/feed.rss" title={boardName} />
         {jsonld !== undefined && (
