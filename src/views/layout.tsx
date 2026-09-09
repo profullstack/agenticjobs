@@ -68,7 +68,14 @@ export const Layout: FC<PropsWithChildren<PageProps>> = (props) => {
         <link rel="manifest" href="/manifest.webmanifest" />
         <link rel="icon" href="/assets/icon.svg" type="image/svg+xml" />
         <link rel="alternate" type="application/json" href="/jobs.json" title={`${boardName} jobs`} />
-        <link rel="alternate" type="application/rss+xml" href="/jobs.rss" title={`${boardName} jobs`} />
+        {/* Jobs and candidates separately; both take ?tags=a,b. */}
+        <link rel="alternate" type="application/rss+xml" href="/feed" title={`${boardName} jobs`} />
+        <link
+          rel="alternate"
+          type="application/rss+xml"
+          href="/candidates/feed"
+          title={`${boardName} candidates`}
+        />
         {/* The whole site, which is the one a feed directory should find. */}
         <link rel="alternate" type="application/rss+xml" href="/feed.rss" title={boardName} />
         {jsonld !== undefined && (

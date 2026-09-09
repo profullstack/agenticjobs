@@ -542,6 +542,34 @@ legend {
   margin: 0;
 }
 
+/*
+ * The card used to be one big anchor, which is why its tags could not be
+ * links: an anchor cannot contain another. The title carries the link now, and
+ * this keeps the card feeling clickable while every tag on it is separately
+ * reachable.
+ */
+.job-card .job-title a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.job-card:hover {
+  border-color: color-mix(in oklab, var(--primary) 45%, var(--border));
+}
+
+.job-card .job-title a:hover {
+  text-decoration: underline;
+}
+
+/* A linked badge must not look like body copy that happens to be blue. */
+a.badge {
+  text-decoration: none;
+}
+
+a.badge:hover {
+  border-color: color-mix(in oklab, var(--primary) 55%, var(--border));
+}
+
 .job-card .job-org {
   color: var(--muted-foreground);
   font-size: 0.9rem;

@@ -147,8 +147,10 @@ export const CandidateList: FC<{
     )}
 
     <p class="small muted">
-      This page is also a feed: <a href={`${publicUrl}/feed.rss`}>/feed.rss</a>. Any set of
-      tags has one too, at <code>/feed.rss?tags=javascript,react</code>.
+      This page is a feed: <a href="/candidates/feed">/candidates/feed</a>. So is any set of
+      tags, at <code>/candidates/feed?tags=javascript,react</code>. Jobs have their own at{' '}
+      <a href="/feed">/feed</a>, and <a href={`${publicUrl}/feed.rss`}>/feed.rss</a> is
+      everything.
     </p>
   </div>
 );

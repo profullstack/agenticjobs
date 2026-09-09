@@ -9,6 +9,7 @@
  */
 
 import { Hono } from 'hono';
+import type { Context } from 'hono';
 import { readFile } from 'node:fs/promises';
 import { dirname, extname, join, normalize } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -38,6 +39,63 @@ const MIME: Record<string, string> = {
   '.txt': 'text/plain; charset=utf-8',
   '.json': 'application/json',
 };
+
+
+/** One entry in any of the board's feeds. */
+interface FeedEntry {
+  title: string;
+  url: string;
+  at: string;
+  body: string;
+  category: string;
+}
+
+/**
+ * The RSS envelope, written once.
+ *
+ * Three feeds share it: jobs, candidates and everything. They differ in what
+ * they list and in nothing else, and a channel carrying a self link on one
+ * feed but not another is the kind of drift a feed validator finds first.
+ */
+function rss(
+  c: Context<AppEnv>,
+  feed: { title: string; link: string; description: string; self: string; entries: FeedEntry[] },
+): Response {
+  const entries = [...feed.entries].sort((a, b) => Date.parse(b.at) - Date.parse(a.at));
+  const items = entries
+    .map((entry) =>
+      [
+        '    <item>',
+        `      <title>${escapeHtml(entry.title)}</title>`,
+        `      <link>${escapeHtml(entry.url)}</link>`,
+        `      <guid isPermaLink="true">${escapeHtml(entry.url)}</guid>`,
+        `      <category>${escapeHtml(entry.category)}</category>`,
+        `      <pubDate>${new Date(entry.at).toUTCString()}</pubDate>`,
+        `      <description>${escapeHtml(entry.body)}</description>`,
+        '    </item>',
+      ].join('\n'),
+    )
+    .join('\n');
+
+  // An empty feed is still a valid feed, so lastBuildDate falls back to now
+  // rather than to an invalid date parsed from an entry that is not there.
+  const newest = entries[0]?.at;
+  const xml = [
+    '<?xml version="1.0" encoding="UTF-8"?>',
+    '<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">',
+    '  <channel>',
+    `    <title>${escapeHtml(feed.title)}</title>`,
+    `    <link>${escapeHtml(feed.link)}</link>`,
+    `    <description>${escapeHtml(feed.description)}</description>`,
+    '    <language>en</language>',
+    `    <lastBuildDate>${new Date(newest === undefined ? Date.now() : Date.parse(newest)).toUTCString()}</lastBuildDate>`,
+    `    <atom:link href="${escapeHtml(feed.self)}" rel="self" type="application/rss+xml" />`,
+    items,
+    '  </channel>',
+    '</rss>',
+  ].join('\n');
+  return c.body(xml, 200, { 'content-type': 'application/rss+xml; charset=utf-8' });
+}
 
 export function discoveryRoutes(): Hono<AppEnv> {
   const routes = new Hono<AppEnv>();
@@ -163,77 +221,108 @@ export function discoveryRoutes(): Hono<AppEnv> {
    * Carries the channel metadata feed validators and directories ask for and
    * `/jobs.rss` never had: a self link, a build date and a language.
    */
-  routes.get('/feed.rss', async (c) => {
+  /**
+   * Jobs, filtered the same way the page is: /feed?tags=react,node.js
+   *
+   * The same query the search box builds, so any listing view has a feed
+   * behind it rather than only the unfiltered one.
+   */
+  routes.get('/feed', async (c) => {
     const { pool, config } = c.get('deps');
-    // `?skill=` narrows the feed to the candidates who list it, so every tag
-    // on the site is subscribable rather than only browsable.
-    const tags = tagsFrom(new URL(c.req.url).searchParams);
-    const [page, orgs, candidates] = await Promise.all([
-      searchJobs(pool, { ...parseQuery(new URLSearchParams()), limit: 100 }),
-      listOrgs(pool, 100),
-      listPublicResumes(pool, 100),
-    ]);
+    const url = new URL(c.req.url);
+    const query = { ...parseQuery(url.searchParams), limit: 100, offset: 0 };
+    const page = await searchJobs(pool, query);
+    const tags = query.tags;
 
-    type Entry = { title: string; url: string; at: string; body: string; category: string };
-    const wanted = withTags(candidates.map(toCandidateSummary), tags);
-    const entries: Entry[] = (tags.length > 0 ? [] : [
-      ...page.items.map((job) => ({
+    return rss(c, {
+      title: tags.length === 0 ? `${config.boardName} jobs` : `${config.boardName} jobs: ${tags.join(', ')}`,
+      link: tags.length === 0 ? config.publicUrl : `${config.publicUrl}/?tags=${encodeURIComponent(tags.join(','))}`,
+      description:
+        tags.length === 0
+          ? config.boardTagline
+          : `Jobs on ${config.boardName} tagged ${tags.join(', ')}.`,
+      self: `${config.publicUrl}/feed${tags.length === 0 ? '' : `?tags=${encodeURIComponent(tags.join(','))}`}`,
+      entries: page.items.map((job) => ({
         title: `${job.title} at ${job.org.name}`,
         url: `${config.publicUrl}/jobs/${job.slug}`,
         at: job.publishedAt ?? job.createdAt,
         body: toPlainText(job.description, 500),
         category: 'Job',
       })),
-      ...orgs.map((org) => ({
-        title: `${org.name} is hiring on ${config.boardName}`,
-        url: `${config.publicUrl}/employers/${org.slug}`,
-        at: org.createdAt,
-        body: org.description ?? `${org.name} posts its openings on ${config.boardName}.`,
-        category: 'Employer',
-      })),
-    ]).concat(
-      wanted.map((summary): Entry => ({
+    });
+  });
+
+  /** Candidates, filtered by tag: /candidates/feed?tags=javascript,react */
+  routes.get('/candidates/feed', async (c) => {
+    const { pool, config } = c.get('deps');
+    const tags = tagsFrom(new URL(c.req.url).searchParams);
+    const resumes = await listPublicResumes(pool, 100);
+    const wanted = withTags(resumes.map(toCandidateSummary), tags);
+
+    return rss(c, {
+      title:
+        tags.length === 0
+          ? `${config.boardName} candidates`
+          : `${config.boardName} candidates: ${tags.join(', ')}`,
+      link: `${config.publicUrl}/candidates${tags.length === 0 ? '' : `?tags=${encodeURIComponent(tags.join(','))}`}`,
+      description:
+        tags.length === 0
+          ? `People who published a resume on ${config.boardName}.`
+          : `Candidates on ${config.boardName} who list all of ${tags.join(', ')}.`,
+      self: `${config.publicUrl}/candidates/feed${tags.length === 0 ? '' : `?tags=${encodeURIComponent(tags.join(','))}`}`,
+      entries: wanted.map((summary) => ({
         title: `${summary.name} is looking`,
         url: `${config.publicUrl}/candidates/${summary.slug}`,
         at: summary.updatedAt,
         body: summary.headline ?? `${summary.name} published a resume.`,
         category: 'Candidate',
       })),
-    ).sort((a, b) => Date.parse(b.at) - Date.parse(a.at));
+    });
+  });
 
-    const items = entries
-      .map((entry) =>
-        [
-          '    <item>',
-          `      <title>${escapeHtml(entry.title)}</title>`,
-          `      <link>${escapeHtml(entry.url)}</link>`,
-          `      <guid isPermaLink="true">${escapeHtml(entry.url)}</guid>`,
-          `      <category>${escapeHtml(entry.category)}</category>`,
-          `      <pubDate>${new Date(entry.at).toUTCString()}</pubDate>`,
-          `      <description>${escapeHtml(entry.body)}</description>`,
-          '    </item>',
-        ].join('\n'),
-      )
-      .join('\n');
+  /**
+   * Everything the board publishes, in one feed.
+   *
+   * The two feeds above are the filterable ones. This is the whole site for a
+   * reader who wants all of it, and is what a feed directory is pointed at.
+   */
+  routes.get('/feed.rss', async (c) => {
+    const { pool, config } = c.get('deps');
+    const [page, orgs, candidates] = await Promise.all([
+      searchJobs(pool, { ...parseQuery(new URLSearchParams()), limit: 100 }),
+      listOrgs(pool, 100),
+      listPublicResumes(pool, 100),
+    ]);
 
-    // An empty board still serves a valid feed; lastBuildDate falls back to now
-    // rather than to an invalid date built from an undefined entry.
-    const newest = entries[0]?.at;
-    const xml = [
-      '<?xml version="1.0" encoding="UTF-8"?>',
-      '<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">',
-      '  <channel>',
-      `    <title>${escapeHtml(tags.length === 0 ? config.boardName : `${config.boardName}: ${tags.join(', ')}`)}</title>`,
-      `    <link>${escapeHtml(tags.length === 0 ? config.publicUrl : `${config.publicUrl}/candidates?tags=${encodeURIComponent(tags.join(','))}`)}</link>`,
-      `    <description>${escapeHtml(tags.length === 0 ? config.boardTagline : `Candidates on ${config.boardName} who list all of ${tags.join(', ')}.`)}</description>`,
-      '    <language>en</language>',
-      `    <lastBuildDate>${new Date(newest === undefined ? Date.now() : Date.parse(newest)).toUTCString()}</lastBuildDate>`,
-      `    <atom:link href="${escapeHtml(`${config.publicUrl}/feed.rss${tags.length === 0 ? '' : `?tags=${encodeURIComponent(tags.join(','))}`}`)}" rel="self" type="application/rss+xml" />`,
-      items,
-      '  </channel>',
-      '</rss>',
-    ].join('\n');
-    return c.body(xml, 200, { 'content-type': 'application/rss+xml; charset=utf-8' });
+    return rss(c, {
+      title: config.boardName,
+      link: config.publicUrl,
+      description: config.boardTagline,
+      self: `${config.publicUrl}/feed.rss`,
+      entries: [
+        ...page.items.map((job) => ({
+          title: `${job.title} at ${job.org.name}`,
+          url: `${config.publicUrl}/jobs/${job.slug}`,
+          at: job.publishedAt ?? job.createdAt,
+          body: toPlainText(job.description, 500),
+          category: 'Job',
+        })),
+        ...orgs.map((org) => ({
+          title: `${org.name} is hiring on ${config.boardName}`,
+          url: `${config.publicUrl}/employers/${org.slug}`,
+          at: org.createdAt,
+          body: org.description ?? `${org.name} posts its openings on ${config.boardName}.`,
+          category: 'Employer',
+        })),
+        ...candidates.map(toCandidateSummary).map((summary) => ({
+          title: `${summary.name} is looking`,
+          url: `${config.publicUrl}/candidates/${summary.slug}`,
+          at: summary.updatedAt,
+          body: summary.headline ?? `${summary.name} published a resume.`,
+          category: 'Candidate',
+        })),
+      ],
+    });
   });
 
   /**
@@ -319,7 +408,9 @@ export function discoveryRoutes(): Hono<AppEnv> {
         '',
         `Sitemap: ${config.publicUrl}/sitemap.xml`,
         '',
-        '# Everything this board publishes, as one feed.',
+        '# Feeds. Jobs and candidates take ?tags=a,b; feed.rss is everything.',
+        `# ${config.publicUrl}/feed`,
+        `# ${config.publicUrl}/candidates/feed`,
         `# ${config.publicUrl}/feed.rss`,
         '',
       ].join('\n'),

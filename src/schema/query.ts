@@ -91,8 +91,10 @@ export function parseQuery(params: URLSearchParams): JobQuery {
     workplace: isWorkplace(workplace) ? workplace : null,
     seniority: isSeniority(seniority) ? seniority : null,
     agentPolicy: isAgentPolicy(agentPolicy) ? agentPolicy : null,
-    tags: params
-      .getAll('tag')
+    // `tag=a&tag=b` and `tags=a,b` mean the same thing. The second is what a
+    // badge links to and what a person types; the first is what the CLI's
+    // repeatable --tag produces.
+    tags: [...params.getAll('tag'), ...params.getAll('tags')]
       .flatMap((value) => value.split(','))
       .map((value) => value.trim().toLowerCase())
       .filter((value) => value !== '')
@@ -113,7 +115,9 @@ export function queryToParams(query: JobQuery): URLSearchParams {
   if (query.workplace) params.set('workplace', query.workplace);
   if (query.seniority) params.set('seniority', query.seniority);
   if (query.agentPolicy) params.set('agentPolicy', query.agentPolicy);
-  for (const tag of query.tags) params.append('tag', tag);
+  // Written back in the comma form, so a link a person can read is what ends
+  // up in the address bar and in anything that copies it.
+  if (query.tags.length > 0) params.set('tags', query.tags.join(','));
   if (query.salaryMin !== null) params.set('salaryMin', String(query.salaryMin));
   if (query.org) params.set('org', query.org);
   if (query.sort !== 'recent') params.set('sort', query.sort);

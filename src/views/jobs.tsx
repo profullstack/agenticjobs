@@ -9,18 +9,48 @@ import { queryToParams } from '../schema/query.ts';
 import { EMPLOYMENT_TYPES, SENIORITIES, WORKPLACES, AGENT_POLICIES } from '../schema/job.ts';
 import { AgentPolicyBadge, Alert, Badge, Card, Empty, Field, Prose } from './layout.tsx';
 
-export const JobCard: FC<{ job: Job; origin?: string; instanceName?: string }> = ({
-  job,
-  origin,
-  instanceName,
-}) => {
+/** Where a job tag points. Tags accumulate, so they narrow the search. */
+export function jobTagHref(tags: string[]): string {
+  return tags.length === 0 ? '/' : `/?tags=${encodeURIComponent(tags.join(','))}`;
+}
+
+/**
+ * A job, as a row.
+ *
+ * The whole card used to be one anchor. That is why its tags were plain text:
+ * an anchor cannot contain another anchor, so a tag inside it could never be a
+ * link. The title carries the link now and the card is an ordinary element, so
+ * every tag on it goes somewhere, and a screen reader is offered one link per
+ * destination instead of one enormous link with the destinations buried in it.
+ */
+export const JobCard: FC<{
+  job: Job;
+  origin?: string;
+  instanceName?: string;
+  /** Tags already being filtered on, so clicking another adds to them. */
+  tags?: string[];
+}> = ({ job, origin, instanceName, tags = [] }) => {
   const salary = formatSalary(job.salary);
   const href = origin === undefined ? `/jobs/${job.slug}` : `${origin}/jobs/${job.slug}`;
+  // Tags and stack are one row of badges to a reader, so they are deduplicated
+  // together rather than shown twice when a listing puts a word in both.
+  const seen = new Set<string>();
+  const badges = [...job.tags, ...job.stack].filter((item) => {
+    const key = item.toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  const add = (tag: string): string[] =>
+    tags.some((item) => item.toLowerCase() === tag.toLowerCase()) ? tags : [...tags, tag];
+
   return (
     <li>
-      <a class="card card-link job-card" href={href}>
+      <div class="card job-card">
         <div class="spread">
-          <h2 class="job-title">{job.title}</h2>
+          <h2 class="job-title">
+            <a href={href}>{job.title}</a>
+          </h2>
           {salary !== null && <span class="job-salary">{salary}</span>}
         </div>
         <div class="job-org">
@@ -32,15 +62,22 @@ export const JobCard: FC<{ job: Job; origin?: string; instanceName?: string }> =
           <Badge variant="outline">{job.employmentType}</Badge>
           {job.seniority !== null && <Badge variant="outline">{job.seniority}</Badge>}
           <AgentPolicyBadge policy={job.agentPolicy} />
-          {job.stack.slice(0, 4).map((item) => (
-            <Badge>{item}</Badge>
-          ))}
+          {origin === undefined
+            ? badges.slice(0, 6).map((item) => (
+                <a class="badge" href={jobTagHref(add(item))}>
+                  {item}
+                </a>
+              ))
+            : // A job on another board is not filterable from here, so its
+              // tags stay plain rather than linking to a search of ours that
+              // would return nothing.
+              badges.slice(0, 6).map((item) => <Badge>{item}</Badge>)}
         </div>
         <div class="small muted">
           {ago(job.publishedAt)}
           {instanceName !== undefined && ` - on ${instanceName}`}
         </div>
-      </a>
+      </div>
     </li>
   );
 };
@@ -161,6 +198,26 @@ export const JobList: FC<{
       <p class="lede">{tagline}</p>
     </div>
     <Filters query={query} />
+    {query.tags.length > 0 && (
+      <p class="row" style="align-items:center;flex-wrap:wrap;gap:.5rem">
+        <span class="small muted">Tagged:</span>
+        {query.tags.map((tag) => (
+          <a
+            class="badge"
+            title={`Remove ${tag}`}
+            href={jobTagHref(query.tags.filter((other) => other !== tag))}
+          >
+            {tag} x
+          </a>
+        ))}
+        <a class="small" href="/">
+          Clear
+        </a>
+        <a class="small" href={`/feed?tags=${encodeURIComponent(query.tags.join(','))}`}>
+          Subscribe
+        </a>
+      </p>
+    )}
     <InstallStrip publicUrl={publicUrl} />
     {page.items.length === 0 ? (
       <Empty>
@@ -173,11 +230,16 @@ export const JobList: FC<{
     ) : (
       <ul class="job-list">
         {page.items.map((job) => (
-          <JobCard job={job} />
+          <JobCard job={job} tags={query.tags} />
         ))}
       </ul>
     )}
     <Pagination page={page} query={query} />
+    <p class="small muted">
+      This search is a feed: <a href="/feed">/feed</a>, and <code>/feed?tags=react,go</code> for
+      any set of tags. People are at <a href="/candidates">/candidates</a>, with{' '}
+      <a href="/candidates/feed">/candidates/feed</a>.
+    </p>
   </div>
 );
 
@@ -230,13 +292,18 @@ export const JobDetail: FC<{
             </ul>
           </section>
         )}
-        {job.stack.length > 0 && (
+        {(job.stack.length > 0 || job.tags.length > 0) && (
           <section>
-            <h2>Stack</h2>
-            <div class="row">
-              {job.stack.map((item) => (
-                <Badge>{item}</Badge>
-              ))}
+            <h2>Stack and tags</h2>
+            <p class="small muted">Each one finds the other jobs asking for it.</p>
+            <div class="row" style="flex-wrap:wrap;gap:.35rem">
+              {[...job.stack, ...job.tags]
+                .filter((item, index, all) => all.findIndex((other) => other.toLowerCase() === item.toLowerCase()) === index)
+                .map((item) => (
+                  <a class="badge" href={jobTagHref([item])}>
+                    {item}
+                  </a>
+                ))}
             </div>
           </section>
         )}
