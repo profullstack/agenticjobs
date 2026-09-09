@@ -383,6 +383,26 @@ describe('the API', { skip: reason === '' ? false : `no database: ${reason}` }, 
       }
     });
 
+    test('a self-listing made before the guard is swept away', async () => {
+      if (pool === null) return;
+      const { sweep } = await import('../dist/directory/registry.js');
+      // Exactly the row the old code left behind: the board announced itself
+      // while ANNOUNCE was on and the guard was not deployed yet.
+      await pool.query(
+        `insert into instances (url, descriptor, checked_at, failures)
+         values ($1, '{}'::jsonb, now(), 0)
+         on conflict (url) do update set checked_at = now()`,
+        ['http://board.test'],
+      );
+
+      await sweep(pool as never, { self: 'http://board.test' });
+
+      const left = await pool.query(`select url from instances where url = $1`, [
+        'http://board.test',
+      ]);
+      assert.equal(left.rows.length, 0, 'the board is still listed in its own directory');
+    });
+
     test('another board is still allowed to announce', async () => {
       // This one is refused too, but for being unreachable rather than for
       // being us - which is the assertion. The self check must not be so
