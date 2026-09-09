@@ -13,6 +13,7 @@ import { readFile } from 'node:fs/promises';
 import { dirname, extname, join, normalize } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { countJobs, searchJobs } from '../../core/jobs.ts';
+import { listOrgs } from '../../core/orgs.ts';
 import { parseQuery } from '../../schema/query.ts';
 import { WELL_KNOWN_PATH } from '../../schema/instance.ts';
 import { jobPostingJsonLd } from '../../schema/jsonld.ts';
@@ -150,6 +151,77 @@ export function discoveryRoutes(): Hono<AppEnv> {
   });
 
   /**
+   * Everything the board publishes, in one feed.
+   *
+   * `/jobs.rss` is the jobs, and stays that way for anyone already following
+   * it. This is the whole site: a new opening and a new employer are both
+   * things a reader of a job board wants to hear about, and a directory that
+   * lists one feed per site wants one feed per site.
+   *
+   * Carries the channel metadata feed validators and directories ask for and
+   * `/jobs.rss` never had: a self link, a build date and a language.
+   */
+  routes.get('/feed.rss', async (c) => {
+    const { pool, config } = c.get('deps');
+    const [page, orgs] = await Promise.all([
+      searchJobs(pool, { ...parseQuery(new URLSearchParams()), limit: 100 }),
+      listOrgs(pool, 100),
+    ]);
+
+    type Entry = { title: string; url: string; at: string; body: string; category: string };
+    const entries: Entry[] = [
+      ...page.items.map((job) => ({
+        title: `${job.title} at ${job.org.name}`,
+        url: `${config.publicUrl}/jobs/${job.slug}`,
+        at: job.publishedAt ?? job.createdAt,
+        body: toPlainText(job.description, 500),
+        category: 'Job',
+      })),
+      ...orgs.map((org) => ({
+        title: `${org.name} is hiring on ${config.boardName}`,
+        url: `${config.publicUrl}/employers/${org.slug}`,
+        at: org.createdAt,
+        body: org.description ?? `${org.name} posts its openings on ${config.boardName}.`,
+        category: 'Employer',
+      })),
+    ].sort((a, b) => Date.parse(b.at) - Date.parse(a.at));
+
+    const items = entries
+      .map((entry) =>
+        [
+          '    <item>',
+          `      <title>${escapeHtml(entry.title)}</title>`,
+          `      <link>${escapeHtml(entry.url)}</link>`,
+          `      <guid isPermaLink="true">${escapeHtml(entry.url)}</guid>`,
+          `      <category>${escapeHtml(entry.category)}</category>`,
+          `      <pubDate>${new Date(entry.at).toUTCString()}</pubDate>`,
+          `      <description>${escapeHtml(entry.body)}</description>`,
+          '    </item>',
+        ].join('\n'),
+      )
+      .join('\n');
+
+    // An empty board still serves a valid feed; lastBuildDate falls back to now
+    // rather than to an invalid date built from an undefined entry.
+    const newest = entries[0]?.at;
+    const xml = [
+      '<?xml version="1.0" encoding="UTF-8"?>',
+      '<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">',
+      '  <channel>',
+      `    <title>${escapeHtml(config.boardName)}</title>`,
+      `    <link>${escapeHtml(config.publicUrl)}</link>`,
+      `    <description>${escapeHtml(config.boardTagline)}</description>`,
+      '    <language>en</language>',
+      `    <lastBuildDate>${new Date(newest === undefined ? Date.now() : Date.parse(newest)).toUTCString()}</lastBuildDate>`,
+      `    <atom:link href="${escapeHtml(`${config.publicUrl}/feed.rss`)}" rel="self" type="application/rss+xml" />`,
+      items,
+      '  </channel>',
+      '</rss>',
+    ].join('\n');
+    return c.body(xml, 200, { 'content-type': 'application/rss+xml; charset=utf-8' });
+  });
+
+  /**
    * A sitemap index plus monthly chunks, even for a small board.
    *
    * The shape does not change as the board grows, so nobody has to migrate a
@@ -224,6 +296,9 @@ export function discoveryRoutes(): Hono<AppEnv> {
         'Disallow: /auth/',
         '',
         `Sitemap: ${config.publicUrl}/sitemap.xml`,
+        '',
+        '# Everything this board publishes, as one feed.',
+        `# ${config.publicUrl}/feed.rss`,
         '',
       ].join('\n'),
     );

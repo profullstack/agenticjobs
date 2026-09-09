@@ -6,11 +6,14 @@
  * is cached is the shell (stylesheet, icon) and an offline fallback, and every
  * document goes to the network first.
  *
- * Bump VERSION on any change here or to the assets listed below. Without a
- * bump, a returning reader keeps the old worker and never sees the change.
+ * VERSION is a hash of the shell assets, not a number someone remembers to
+ * raise. It was a number, and the first CSS fix that shipped after this file
+ * was written did not raise it, so every returning reader kept the broken
+ * stylesheet forever. `pnpm test` recomputes the hash and fails when it has
+ * drifted, which is the only version of this rule that survives contact.
  */
 
-const VERSION = 'v1';
+const VERSION = '2ae04109';
 const SHELL = `shell-${VERSION}`;
 const ASSETS = ['/assets/app.css', '/assets/tokens.css', '/assets/icon.svg'];
 
@@ -43,8 +46,21 @@ self.addEventListener('fetch', (event) => {
   if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/me')) return;
 
   if (ASSETS.includes(url.pathname)) {
+    // Answer from the cache, then refresh it in the background. A stale asset
+    // therefore survives one render rather than until the next VERSION bump,
+    // which matters because the bump is the step that gets missed.
     event.respondWith(
-      caches.match(request).then((hit) => hit || fetch(request)),
+      caches.open(SHELL).then((cache) =>
+        cache.match(request).then((hit) => {
+          const fresh = fetch(request)
+            .then((response) => {
+              if (response.ok) void cache.put(request, response.clone());
+              return response;
+            })
+            .catch(() => hit);
+          return hit || fresh;
+        }),
+      ),
     );
     return;
   }

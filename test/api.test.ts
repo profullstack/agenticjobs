@@ -520,9 +520,37 @@ describe('the API', { skip: reason === '' ? false : `no database: ${reason}` }, 
 
   describe('discovery', () => {
     test('the feed, sitemap and llms.txt all answer', async () => {
-      for (const path of ['/jobs.json', '/jobs.rss', '/sitemap.xml', '/robots.txt', '/llms.txt']) {
+      for (const path of [
+        '/jobs.json',
+        '/jobs.rss',
+        '/feed.rss',
+        '/sitemap.xml',
+        '/robots.txt',
+        '/llms.txt',
+      ]) {
         assert.equal((await get(path)).status, 200, path);
       }
+    });
+
+    test('the site feed carries the whole site and what a directory checks for', async () => {
+      const response = await get('/feed.rss');
+      assert.match(response.headers.get('content-type') ?? '', /application\/rss\+xml/);
+      const xml = await response.text();
+
+      // The metadata a feed directory validates. /jobs.rss has none of it.
+      assert.match(xml, /<atom:link[^>]+rel="self"/);
+      assert.match(xml, /<lastBuildDate>/);
+      assert.match(xml, /<language>en<\/language>/);
+
+      // Everything, not just jobs: employers are in here too.
+      assert.match(xml, /<category>Job<\/category>/);
+      assert.match(xml, /<category>Employer<\/category>/);
+
+      // Every item needs a resolvable guid or a reader dedupes them wrongly.
+      const guids = [...xml.matchAll(/<guid isPermaLink="true">([^<]+)<\/guid>/g)].map((m) => m[1]);
+      assert.ok(guids.length > 0, 'expected items');
+      assert.equal(new Set(guids).size, guids.length, 'guids must be unique');
+      for (const guid of guids) assert.match(guid ?? '', /^https?:\/\//);
     });
 
     test('llms.txt says the board is not scraped, because that is the point', async () => {

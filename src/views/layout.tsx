@@ -69,6 +69,8 @@ export const Layout: FC<PropsWithChildren<PageProps>> = (props) => {
         <link rel="icon" href="/assets/icon.svg" type="image/svg+xml" />
         <link rel="alternate" type="application/json" href="/jobs.json" title={`${boardName} jobs`} />
         <link rel="alternate" type="application/rss+xml" href="/jobs.rss" title={`${boardName} jobs`} />
+        {/* The whole site, which is the one a feed directory should find. */}
+        <link rel="alternate" type="application/rss+xml" href="/feed.rss" title={boardName} />
         {jsonld !== undefined && (
           <script
             type="application/ld+json"
