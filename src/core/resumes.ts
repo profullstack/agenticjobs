@@ -173,6 +173,35 @@ export async function listPublicResumes(pool: pg.Pool, limit = 100): Promise<Res
  * Serves `link` as well as `public`, which is the difference between the two:
  * a link resume is reachable by anyone holding the URL and is not listed.
  */
+/**
+ * The file a shared resume was uploaded from, if it was uploaded at all.
+ *
+ * Keyed on the public slug rather than on an owner, because this is for the
+ * candidate page: handing back the PDF somebody actually uploaded beats
+ * handing back one regenerated from a parse of it.
+ */
+export async function publicResumeSource(
+  pool: pg.Pool,
+  publicSlug: string,
+): Promise<{ name: string; mime: string; bytes: Buffer } | null> {
+  const result = await pool.query<{
+    source_name: string | null;
+    source_mime: string | null;
+    source_bytes: Buffer | null;
+  }>(
+    `select source_name, source_mime, source_bytes from resumes
+      where public_slug = $1 and visibility in ('link', 'public')`,
+    [publicSlug],
+  );
+  const row = result.rows[0];
+  if (row === undefined || row.source_bytes === null) return null;
+  return {
+    name: row.source_name ?? 'resume',
+    mime: row.source_mime ?? 'application/octet-stream',
+    bytes: row.source_bytes,
+  };
+}
+
 export async function getPublicResume(pool: pg.Pool, publicSlug: string): Promise<Resume | null> {
   const result = await pool.query<ResumeRow>(
     `${SELECT} where public_slug = $1 and visibility in ('link', 'public')`,

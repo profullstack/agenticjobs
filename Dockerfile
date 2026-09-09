@@ -36,9 +36,14 @@ ENV NODE_ENV=production
 # refuses PDFs with a sentence telling the person what to upload instead - but
 # an installer that leaves a documented feature broken is not an installer.
 #   poppler-utils -> pdftotext, for PDF resumes
-#   pandoc        -> .doc, .odt, .rtf
+#   pandoc        -> .doc, .odt, .rtf in, and .docx out
+#   weasyprint    -> the PDF of a resume, rendered from our own HTML and CSS so
+#                    the file and the page are the same document. A browser
+#                    would render it too and would add ~350MB to this image for
+#                    one button, so the export CSS is written for a print
+#                    engine instead.
 RUN apt-get update \
- && apt-get install --no-install-recommends -y poppler-utils pandoc ca-certificates \
+ && apt-get install --no-install-recommends -y poppler-utils pandoc weasyprint ca-certificates \
  && rm -rf /var/lib/apt/lists/*
 
 COPY --from=build /app/node_modules ./node_modules
