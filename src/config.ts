@@ -118,7 +118,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
 }
 
 /** Kept in step with package.json by the release script. */
-export const VERSION = '0.2.0';
+export const VERSION = '0.3.0';
 export const SOFTWARE_NAME = 'agenticjobs';
 
 /**
