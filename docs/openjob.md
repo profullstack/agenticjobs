@@ -84,17 +84,23 @@ wants to know, and wanting to know is the reason to answer honestly.
 
 ## apply
 
-Three shapes, and only the first is completable without a browser.
+One shape. An application is a POST against a published schema, which is the only
+kind an agent can complete without a browser.
 
 ```json
 { "via": "board",  "schema": { "fields": [ ... ] } }
-{ "via": "url",    "url": "https://example.com/careers/123" }
-{ "via": "email",  "email": "jobs@example.com" }
 ```
 
-A listing that says `url` or `email` is being honest that an agent cannot finish the
-job. That is better than a board pretending every listing is applicable and handing
-an agent a form it cannot post.
+Earlier drafts of this spec also allowed `{ "via": "url" }` and
+`{ "via": "email" }`, on the reasoning that a listing saying so was at least being
+honest that an agent could not finish the job. That was the wrong trade. A board
+where some listings are applicable and some are links is one an agent has to filter,
+and the listings it filters out are exactly the ones an employer cared enough to
+cross-post. Offsite applications are gone.
+
+A URL still has a use, but it points the other way: give the board a URL to a job
+posting and it imports it, so the listing lives here and is applicable here. It is a
+source, never a destination.
 
 ### The application schema
 
@@ -160,9 +166,10 @@ both - the JSON-LD for search engines, the OpenJob document for everything else.
 | `expiresAt` | `validThrough` |
 | `apply.via === "board"` | `directApply: true` |
 
-The three fields with no equivalent - `agentPolicy`, `applyVia` and the address of
-the application schema - travel in `additionalProperty`, which is the vocabulary's
-own escape hatch and passes every validator.
+The two fields with no equivalent - `agentPolicy` and the address of the application
+schema - travel in `additionalProperty`, which is the vocabulary's own escape hatch
+and passes every validator. `directApply` is always `true`, because every listing is
+applied to here.
 
 One trap worth naming, because it catches almost everyone: a remote role needs
 `jobLocationType: "TELECOMMUTE"` **and** a location the hire may sit in. A remote

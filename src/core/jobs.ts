@@ -91,11 +91,16 @@ function toOrganisation(row: JobRow): Organisation {
   };
 }
 
+/**
+ * Every job is applied to here.
+ *
+ * Rows written before offsite applications were removed still carry
+ * `apply_via = 'url'` or `'email'`, and they read back as board applications:
+ * the migration rewrites the column, and this is what makes a row the
+ * migration has not reached yet safe to serve. The board's own form is the one
+ * target that cannot go missing.
+ */
 function toApplyMethod(row: JobRow): ApplyMethod {
-  if (row.apply_via === 'url' && row.apply_url) return { via: 'url', url: row.apply_url };
-  if (row.apply_via === 'email' && row.apply_email) return { via: 'email', email: row.apply_email };
-  // A job whose declared method lost its target still has to be applicable,
-  // and the board's own form is the one target that cannot go missing.
   return { via: 'board', schema: row.apply_schema ?? DEFAULT_APPLY_SCHEMA };
 }
 
@@ -329,23 +334,14 @@ export function normaliseInput(input: Record<string, unknown>, orgId: string): J
 }
 
 function normaliseApply(input: Record<string, unknown>): ApplyMethod | string {
+  // Applications happen here. A listing that points somewhere else is a link
+  // to a job rather than a job, and an agent cannot complete a form it cannot
+  // reach. Refused with the reason rather than silently rewritten to `board`,
+  // because an employer who asked for an offsite link and got a board form
+  // without being told would find out from the applications.
   const via = clean(input['applyVia'], 10) || 'board';
-  if (via === 'url') {
-    const url = clean(input['applyUrl'], 500);
-    try {
-      const parsed = new URL(url);
-      if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
-        return 'An application link must be http or https.';
-      }
-      return { via: 'url', url: parsed.toString() };
-    } catch {
-      return 'That application link is not a URL.';
-    }
-  }
-  if (via === 'email') {
-    const email = clean(input['applyEmail'], 200).toLowerCase();
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return 'That application address is not valid.';
-    return { via: 'email', email };
+  if (via !== 'board') {
+    return 'Applications are taken on this board. Import a job from a URL instead of linking out to one.';
   }
   const schema = input['applySchema'];
   if (schema !== undefined && schema !== null) {
@@ -462,9 +458,9 @@ export async function createJob(pool: pg.Pool, input: JobInput): Promise<Job> {
       input.responsibilities,
       input.agentPolicy,
       input.apply.via,
-      input.apply.via === 'url' ? input.apply.url : null,
-      input.apply.via === 'email' ? input.apply.email : null,
-      input.apply.via === 'board' ? JSON.stringify(input.apply.schema) : null,
+      null,
+      null,
+      JSON.stringify(input.apply.schema),
       input.expiresAt,
     ],
   );

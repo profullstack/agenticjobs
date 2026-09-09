@@ -153,20 +153,10 @@ export const PostJobPage: FC<{
 
           <fieldset>
             <legend>How to apply</legend>
-            <label class="row">
-              <input type="radio" name="applyVia" value="board" checked={(values['applyVia'] ?? 'board') === 'board'} />
-              On this board (an agent can complete it)
-            </label>
-            <label class="row">
-              <input type="radio" name="applyVia" value="url" checked={values['applyVia'] === 'url'} />
-              On our own site
-            </label>
-            <input class="input" type="url" name="applyUrl" placeholder="https://..." value={values['applyUrl'] ?? ''} style="margin-top:.5rem" />
-            <label class="row" style="margin-top:.5rem">
-              <input type="radio" name="applyVia" value="email" checked={values['applyVia'] === 'email'} />
-              By email
-            </label>
-            <input class="input" type="email" name="applyEmail" placeholder="jobs@example.com" value={values['applyEmail'] ?? ''} style="margin-top:.5rem" />
+            <p class="small muted">
+              Applications are taken on this board, so an agent can complete one without a
+              browser and you get every application in one place. There is no offsite link.
+            </p>
           </fieldset>
 
           <button class="btn btn-block" type="submit">

@@ -141,17 +141,8 @@ export function apiRoutes(): Hono<AppEnv> {
     const { pool, config } = c.get('deps');
     const job = await getJobBySlug(pool, c.req.param('slug'));
     if (job === null) return fail(c, 404, 'not_found', 'No such job, or it is not published.');
-    if (job.apply.via !== 'board') {
-      return c.json({
-        via: job.apply.via,
-        target: job.apply.via === 'url' ? job.apply.url : job.apply.email,
-        agentPolicy: job.agentPolicy,
-        message:
-          job.apply.via === 'url'
-            ? 'This employer takes applications on their own site.'
-            : 'This employer takes applications by email.',
-      });
-    }
+    // No offsite branch any more: every listing is applied to here, so an
+    // agent reading this endpoint always gets a schema it can complete.
     return c.json({
       via: 'board',
       endpoint: `${config.publicUrl}/api/v1/jobs/${job.slug}/apply`,
@@ -180,17 +171,6 @@ export function apiRoutes(): Hono<AppEnv> {
     const { pool } = c.get('deps');
     const job = await getJobBySlug(pool, c.req.param('slug'));
     if (job === null) return fail(c, 404, 'not_found', 'No such job, or it is not published.');
-    if (job.apply.via !== 'board') {
-      return fail(
-        c,
-        400,
-        'wrong_channel',
-        job.apply.via === 'url'
-          ? `This employer takes applications at ${job.apply.url}`
-          : `This employer takes applications at ${job.apply.email}`,
-      );
-    }
-
     const body = await readBody(c);
     const validated = validateApplication(job.apply.schema, body, job.agentPolicy);
     if (!validated.ok) {
