@@ -510,6 +510,31 @@ describe('the API', { skip: reason === '' ? false : `no database: ${reason}` }, 
       assert.equal(summary.name, 'Agentic Web Architect');
     });
 
+    test('publishing through the API mints an address, not just the web form', async () => {
+      // ensurePublicSlug was called from the web handler only, so a resume
+      // published with the CLI or the API got no address and stayed invisible
+      // with nothing to say why.
+      if (pool === null) return;
+      const { createSession, ensureUser } = await import('../dist/core/auth.js');
+      const user = await ensureUser(pool as never, `api-pub+${Date.now()}@example.com`);
+      const token = await createSession(pool as never, user.id, { label: 't' });
+      const auth = { authorization: `Bearer ${token}` };
+
+      const created = (await (
+        await post(
+          '/api/v1/resumes',
+          { markdown: '# Api Person\n\n## Skills\n\n- Go\n', title: 'Api', visibility: 'public' },
+          auth,
+        )
+      ).json()) as { resume: { publicSlug: string | null } };
+
+      assert.ok(created.resume.publicSlug, 'the API must mint the address too');
+      const list = (await (await get('/api/v1/candidates')).json()) as {
+        items: { slug: string }[];
+      };
+      assert.ok(list.items.some((item) => item.slug === created.resume.publicSlug));
+    });
+
     test('a private resume has no public address at all', async () => {
       if (pool === null) return;
       const { slug } = await publish('private', 'Alan Private');
