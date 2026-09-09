@@ -9,7 +9,13 @@ import { EMPTY_QUERY, queryToParams } from '../schema/query.ts';
 import { EMPLOYMENT_TYPES, SENIORITIES, WORKPLACES, AGENT_POLICIES } from '../schema/job.ts';
 import { AgentPolicyBadge, Alert, Badge, Card, Empty, Field, Prose } from './layout.tsx';
 
-/** Where a job tag points. Tags accumulate, so they narrow the search. */
+/**
+ * Where a tag points when there is no search to add it to.
+ *
+ * A fresh search from one word, which is what the tags on a single job's page
+ * are. A tag shown inside a result list uses `facetHref` instead: there the
+ * reader already has a search, and starting a new one throws it away.
+ */
 export function jobTagHref(tags: string[]): string {
   return tags.length === 0 ? '/' : `/?tags=${encodeURIComponent(tags.join(','))}`;
 }
@@ -30,6 +36,73 @@ export function facetHref(query: JobQuery | undefined, patch: Partial<JobQuery>)
   const params = queryToParams({ ...(query ?? EMPTY_QUERY), ...patch, offset: 0 });
   const search = params.toString();
   return search === '' ? '/' : `/?${search}`;
+}
+
+/**
+ * A feed of exactly what is on the screen.
+ *
+ * This was hand-built as `?tags=`, which quietly dropped every other facet: a
+ * reader who had narrowed to remote javascript work subscribed to *all* the
+ * javascript on the board, and nothing in the feed said so. /feed parses the
+ * same query the page does, so the honest link is the whole query.
+ *
+ * Paging is the exception. limit and offset describe a screenful, not a
+ * search, and a feed sets its own; carrying `offset=25` into a subscription
+ * would pin somebody to the second page of a list that moves.
+ */
+export function feedHref(query: JobQuery, base = '/feed'): string {
+  const params = queryToParams(query);
+  params.delete('limit');
+  params.delete('offset');
+  const search = params.toString();
+  return search === '' ? base : `${base}?${search}`;
+}
+
+/** One thing the reader is filtering on, and the search with it taken off. */
+export interface ActiveFilter {
+  label: string;
+  href: string;
+}
+
+/**
+ * Everything the current search is narrowed by, as removable chips.
+ *
+ * Only tags were ever listed, so every other filter was invisible: `remote`
+ * came off a badge or a select, changed the results, and appeared nowhere on
+ * the page as a thing you could see or take off. The only way back was the
+ * browser's back button or Clear, which drops the lot.
+ *
+ * Order follows the reading of the query rather than the shape of the form:
+ * the words searched for, then the tags, then the facets that narrow them.
+ */
+export function activeFilters(query: JobQuery): ActiveFilter[] {
+  const chip = (label: string, patch: Partial<JobQuery>): ActiveFilter => ({
+    label,
+    href: facetHref(query, patch),
+  });
+
+  const filters: ActiveFilter[] = [];
+
+  if (query.q !== null) filters.push(chip(`"${query.q}"`, { q: null }));
+
+  for (const tag of query.tags) {
+    filters.push(chip(tag, { tags: query.tags.filter((other) => other !== tag) }));
+  }
+
+  if (query.workplace !== null) filters.push(chip(query.workplace, { workplace: null }));
+  if (query.employmentType !== null) {
+    filters.push(chip(query.employmentType, { employmentType: null }));
+  }
+  if (query.seniority !== null) filters.push(chip(query.seniority, { seniority: null }));
+  if (query.agentPolicy !== null) {
+    filters.push(chip(`agents: ${query.agentPolicy}`, { agentPolicy: null }));
+  }
+  if (query.salaryMin !== null) {
+    filters.push(chip(`${query.salaryMin.toLocaleString('en-US')}+`, { salaryMin: null }));
+  }
+  if (query.org !== null) filters.push(chip(query.org, { org: null }));
+
+  return filters;
 }
 
 /**
@@ -111,7 +184,7 @@ export const JobCard: FC<{
           )}
           {origin === undefined
             ? badges.slice(0, 6).map((item) => (
-                <a class="badge" href={jobTagHref(add(item))}>
+                <a class="badge" href={facetHref(query, { tags: add(item) })}>
                   {item}
                 </a>
               ))
@@ -256,22 +329,23 @@ export const JobList: FC<{
       <p class="lede">{tagline}</p>
     </div>
     <Filters query={query} />
-    {query.tags.length > 0 && (
+    {/*
+      * Every filter, not only the tags. "Filtering by" rather than "Tagged"
+      * because a workplace and a salary floor are not tags, and calling them
+      * one is how `remote` ended up with nowhere to be shown.
+      */}
+    {activeFilters(query).length > 0 && (
       <p class="row" style="align-items:center;flex-wrap:wrap;gap:.5rem">
-        <span class="small muted">Tagged:</span>
-        {query.tags.map((tag) => (
-          <a
-            class="badge"
-            title={`Remove ${tag}`}
-            href={jobTagHref(query.tags.filter((other) => other !== tag))}
-          >
-            {tag} x
+        <span class="small muted">Filtering by:</span>
+        {activeFilters(query).map((filter) => (
+          <a class="badge" title={`Remove ${filter.label}`} href={filter.href}>
+            {filter.label} x
           </a>
         ))}
         <a class="small" href="/">
           Clear
         </a>
-        <a class="small" href={`/feed?tags=${encodeURIComponent(query.tags.join(','))}`}>
+        <a class="small" href={feedHref(query)}>
           Subscribe
         </a>
       </p>
