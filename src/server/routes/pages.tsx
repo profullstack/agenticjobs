@@ -366,12 +366,27 @@ export function pageRoutes(): Hono<AppEnv> {
    * regenerated from our parse of their PDF.
    *
    * ONE ROUTE PER EXTENSION, which is worth the four lines. This was written
-   * as a single `resume.:format{md|html|pdf|docx}`, and a literal prefix in
-   * the same path segment as a regex-constrained parameter does not survive
-   * `app.route('/', pages)`: requested straight off this router it matches,
-   * and mounted into the app it stops matching and every download 404s. The
-   * suite tests handlers rather than the mounted app, so nothing caught it and
-   * 0.6.0 shipped with its headline feature dead. Reproduced on hono 4.13.7.
+   * as a single `resume.:format{md|html|pdf|docx}` and every download 404'd in
+   * 0.6.0, because a literal prefix in the same path segment as a
+   * regex-constrained parameter is a RegExpRouter feature and this router is
+   * not RegExpRouter. On hono 4.13.7, given that pattern and asked for
+   * `/candidates/ada/resume.md`:
+   *
+   *     RegExpRouter  -> 1 handler
+   *     TrieRouter    -> 0 handlers
+   *
+   * Hono's default is SmartRouter, which tries RegExpRouter and falls back to
+   * TrieRouter for the WHOLE router as soon as any one route is beyond it.
+   * Some other route here is, so every route in this file is matched by
+   * TrieRouter, and this one quietly matched nothing:
+   *
+   *     pageRoutes().router.match('GET', '/candidates/ada/resume.md') -> 0
+   *
+   * Nothing to do with mounting - it misses on the bare router. A small
+   * throwaway app reproducing this will resolve to RegExpRouter and answer
+   * 200, which is a trap worth knowing about before writing one.
+   *
+   * So: no regex parameter. Four plain paths that any router matches.
    */
   const resumeFile = async (c: Ctx, format: 'md' | MediaFormat) => {
     const { pool, config } = c.get('deps');
