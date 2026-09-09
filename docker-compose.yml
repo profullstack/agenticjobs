@@ -47,8 +47,8 @@ services:
       DIRECTORY_URL: ${DIRECTORY_URL:-https://agenticjobs.work}
       ANNOUNCE: ${ANNOUNCE:-false}
       DIRECTORY: ${DIRECTORY:-false}
-      SMTP_URL: ${SMTP_URL:-}
-      MAIL_FROM: ${MAIL_FROM:-jobs@localhost}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      MAIL_FROM: ${MAIL_FROM:-}
     ports:
       - '${PORT:-8787}:8787'
 

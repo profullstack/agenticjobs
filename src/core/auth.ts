@@ -25,7 +25,8 @@ export interface Viewer {
 }
 
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
-const MAGIC_TTL_MS = 15 * 60 * 1000;
+/** Exported so the sign-in email can state the same number it enforces. */
+export const MAGIC_TTL_MS = 15 * 60 * 1000;
 const DEVICE_TTL_MS = 10 * 60 * 1000;
 const CHALLENGE_TTL_MS = 5 * 60 * 1000;
 

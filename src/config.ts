@@ -23,7 +23,8 @@ export interface Config {
   announce: boolean;
   /** Whether this instance also runs a directory. */
   isDirectory: boolean;
-  smtpUrl: string | null;
+  /** Resend API key, or null to print sign-in links instead of sending them. */
+  resendApiKey: string | null;
   mailFrom: string;
   version: string;
   /** True when SECRET was generated rather than supplied. */
@@ -32,6 +33,43 @@ export interface Config {
 
 function trimSlash(value: string): string {
   return value.replace(/\/+$/, '');
+}
+
+/**
+ * A From: address that is right by default on a real deploy.
+ *
+ * Resend rejects a sender whose domain is not verified, so the only address
+ * with a chance of working is one on the domain the board is already served
+ * from. A port in the host means a laptop, where nothing is sent anyway.
+ */
+function defaultMailFrom(publicUrl: string, boardName: string): string {
+  let host: string;
+  try {
+    host = new URL(publicUrl).hostname;
+  } catch {
+    host = 'localhost';
+  }
+  if (host === 'localhost' || host === '127.0.0.1' || host === '::1') return 'jobs@localhost';
+  // A display name containing a comma or a quote needs quoting to stay one
+  // address, and quoting a name is never wrong, so it is always quoted.
+  return `"${boardName.replace(/["\\]/g, '')}" <jobs@${host}>`;
+}
+
+/**
+ * Are these two URLs the same board?
+ *
+ * Compared by origin because a trailing slash, an explicit `:443` and a
+ * differing case in the host all name the same instance. Used to keep a board
+ * out of its own directory: the flagship runs both roles, so it names itself
+ * in DIRECTORY_URL and would otherwise announce its way into its own listing.
+ */
+export function sameOrigin(a: string | null, b: string | null): boolean {
+  if (a === null || b === null) return false;
+  try {
+    return new URL(a).origin.toLowerCase() === new URL(b).origin.toLowerCase();
+  } catch {
+    return false;
+  }
 }
 
 function flag(value: string | undefined, fallback = false): boolean {
@@ -51,6 +89,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const secret = ephemeralSecret ? randomBytes(32).toString('hex') : supplied;
 
   const directoryRaw = env['DIRECTORY_URL']?.trim() ?? '';
+  const boardName = env['BOARD_NAME']?.trim() || 'Agentic Jobs';
 
   return {
     host: env['HOST']?.trim() || '0.0.0.0',
@@ -59,7 +98,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       'postgres://agenticjobs:agenticjobs@localhost:5432/agenticjobs',
     port,
     publicUrl,
-    boardName: env['BOARD_NAME']?.trim() || 'Agentic Jobs',
+    boardName,
     boardTagline:
       env['BOARD_TAGLINE']?.trim() || 'Jobs posted here, not scraped from somewhere else.',
     topics: (env['BOARD_TOPICS'] ?? 'agentic,ai,engineering')
@@ -72,8 +111,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     directoryUrl: directoryRaw === '' ? null : trimSlash(directoryRaw),
     announce: flag(env['ANNOUNCE']),
     isDirectory: flag(env['DIRECTORY']),
-    smtpUrl: env['SMTP_URL']?.trim() || null,
-    mailFrom: env['MAIL_FROM']?.trim() || 'jobs@localhost',
+    resendApiKey: env['RESEND_API_KEY']?.trim() || null,
+    mailFrom: env['MAIL_FROM']?.trim() || defaultMailFrom(publicUrl, boardName),
     version: env['npm_package_version']?.trim() || VERSION,
   };
 }

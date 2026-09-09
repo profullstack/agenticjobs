@@ -5,7 +5,7 @@
  */
 
 import { serve } from '@hono/node-server';
-import { loadConfig, type Config } from '../config.ts';
+import { loadConfig, sameOrigin, type Config } from '../config.ts';
 import { getPool } from '../db/pool.ts';
 import { migrate } from '../db/migrate.ts';
 import { startAnnouncing, type Announcer } from '../directory/announce.ts';
@@ -52,13 +52,30 @@ export async function startServer(overrides: Partial<Config> = {}): Promise<Runn
     console.warn('  SECRET is unset, so one was generated. Sessions will not survive a restart.');
   }
 
+  // Whether sign-in links can actually leave this process is the kind of
+  // thing that should be visible at boot, not discovered by a person who
+  // never got their email.
+  console.log(
+    config.resendApiKey === null
+      ? '  mail        off - sign-in links go to this log'
+      : `  mail        ${config.mailFrom}`,
+  );
+
   let announcer: Announcer | null = null;
   if (config.announce && config.directoryUrl !== null) {
-    announcer = startAnnouncing({
-      directoryUrl: config.directoryUrl,
-      publicUrl: config.publicUrl,
-    });
-    console.log(`  announcing  ${config.directoryUrl}`);
+    if (sameOrigin(config.directoryUrl, config.publicUrl)) {
+      // The flagship is its own directory, so it names itself in
+      // DIRECTORY_URL. Announcing there would list this board among the
+      // boards it lists. Said out loud rather than skipped quietly, because a
+      // deploy that meant to announce elsewhere has a typo to find.
+      console.log('  announcing  off (DIRECTORY_URL is this board)');
+    } else {
+      announcer = startAnnouncing({
+        directoryUrl: config.directoryUrl,
+        publicUrl: config.publicUrl,
+      });
+      console.log(`  announcing  ${config.directoryUrl}`);
+    }
   }
 
   let sweeper: NodeJS.Timeout | null = null;

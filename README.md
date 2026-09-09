@@ -142,6 +142,22 @@ Deploying to Railway: the repo has a `railway.json`, so add a Postgres and point
 service at this Dockerfile. `PUBLIC_URL` and `SECRET` are the two variables that
 matter.
 
+### Sending the sign-in email
+
+There are no passwords, so the sign-in link is the only way in and a board that
+cannot send email is a board only its operator can sign into. Set a
+[Resend](https://resend.com) key and a From: address on a domain verified in that
+account:
+
+```bash
+RESEND_API_KEY=re_...
+MAIL_FROM="Your Board <jobs@your-domain.com>"   # defaults to jobs@<PUBLIC_URL host>
+```
+
+Leave `RESEND_API_KEY` unset and links are printed to the server log instead, which
+is what you want on a laptop. They are never shown in the browser: whoever typed an
+address is not necessarily whoever owns it.
+
 ## Boards find each other
 
 Instances are independent. Each one has its own database, its own domain and its own
@@ -151,6 +167,10 @@ rules, and any of them can list itself in a directory so people can find it:
 DIRECTORY_URL=https://agenticjobs.work
 ANNOUNCE=true
 ```
+
+A board that is its own directory can point `DIRECTORY_URL` at itself; it will not
+announce, and it refuses an announcement of its own URL from anyone else. A
+directory does not list itself.
 
 Your instance sends one field: its own URL. The directory then reads
 `/.well-known/agenticjobs` from you directly, so nothing about your board is taken on
