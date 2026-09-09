@@ -122,11 +122,33 @@ export function resumeForViewer(
   return { markdown, parsed: parseResume(markdown), redacted: true };
 }
 
+/**
+ * The headline, re-checked at render time rather than trusted.
+ *
+ * `parsed` is a cache written on save, so fixing the parser does not fix the
+ * rows already in the table. Cleaning the headline at parse time left the live
+ * directory still captioned `Operated by:** DevilX (<address>)` — correct code
+ * serving a stale value, which is the shape of every derived-cache bug.
+ *
+ * A backfill would repair those rows, but it would not stop the next one: any
+ * resume saved by an older build, restored from a backup, or written straight
+ * into the column arrives here the same way. This is a public directory page
+ * and the field is one line of text, so it is checked on the way out. Cheap,
+ * and it cannot go stale.
+ */
+function headlineOf(resume: Resume): string | null {
+  const headline = resume.parsed?.headline;
+  if (headline === null || headline === undefined) return null;
+  const cleaned = headline.replace(/\*\*|__/g, '').trim();
+  if (cleaned === '') return null;
+  return /[^\s@]+@[^\s@]+\.[^\s@]+/.test(cleaned) ? null : cleaned;
+}
+
 export function toCandidateSummary(resume: Resume): CandidateSummary {
   return {
     slug: resume.publicSlug ?? '',
     name: nameOf(resume),
-    headline: resume.parsed?.headline ?? null,
+    headline: headlineOf(resume),
     location: locationOf(resume),
     skills: skillsOf(resume),
     // Capacity is a summary field for the same reason location is: it is what
