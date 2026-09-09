@@ -70,6 +70,40 @@ export class BoardClient {
     path: string,
     body?: unknown,
   ): Promise<T> {
+    const { body: parsed } = await this.requestWithStatus<T>(method, path, body);
+    return parsed;
+  }
+
+  /**
+   * Same as `request`, but keeps the HTTP status.
+   *
+   * Create endpoints answer 201. The stdio MCP host used to report every
+   * success as 200, so `apply_to_job` / `post_job` treated a successful write
+   * as a failure.
+   */
+  async requestWithStatus<T>(
+    method: 'GET' | 'POST' | 'PATCH' | 'DELETE',
+    path: string,
+    body?: unknown,
+  ): Promise<{ status: number; body: T }> {
+    try {
+      return await this.requestOnce<T>(method, path, body);
+    } catch (error) {
+      // A hosted board that has been idle can miss a single client timeout
+      // (curl's default 15s from a distant region, #36) and then answer in
+      // about a second. GET is safe to repeat; POST is not.
+      if (method === 'GET' && error instanceof ApiError && error.code === 'timeout') {
+        return this.requestOnce<T>(method, path, body);
+      }
+      throw error;
+    }
+  }
+
+  private async requestOnce<T>(
+    method: 'GET' | 'POST' | 'PATCH' | 'DELETE',
+    path: string,
+    body?: unknown,
+  ): Promise<{ status: number; body: T }> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.timeoutMs);
     try {
@@ -109,7 +143,7 @@ export class BoardClient {
           error?.fields ?? [],
         );
       }
-      return parsed as T;
+      return { status: response.status, body: parsed as T };
     } catch (error) {
       if (error instanceof ApiError) throw error;
       if (error instanceof Error && error.name === 'AbortError') {

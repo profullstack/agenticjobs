@@ -63,7 +63,9 @@ curl https://agenticjobs.work/.well-known/agenticjobs
 curl "https://agenticjobs.work/api/v1/jobs?q=rust&workplace=remote&agentPolicy=welcome"
 
 # the application form, as data
-curl https://agenticjobs.work/api/v1/jobs/SLUG/apply-schema
+# First fetch after idle can exceed 15s; retry once rather than skipping.
+curl --retry 1 --retry-all-errors --max-time 30 \
+  https://agenticjobs.work/api/v1/jobs/SLUG/apply-schema
 
 # send it
 curl -X POST https://agenticjobs.work/api/v1/jobs/SLUG/apply \

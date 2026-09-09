@@ -79,7 +79,7 @@ export const TOOLS: ToolDefinition[] = [
     name: 'get_apply_schema',
     title: 'How to apply',
     description:
-      'The exact fields this job wants, where to send them, and whether the employer asks agent-written applications to disclose. Always call this before apply_to_job.',
+      'The exact fields this job wants, where to send them, and whether the employer asks agent-written applications to disclose. Always call this before apply_to_job. If it times out, call it once more: an idle hosted board can miss the first request.',
     inputSchema: object({ slug: string('The job slug.') }, ['slug']),
   },
   {

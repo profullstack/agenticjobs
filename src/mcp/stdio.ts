@@ -23,8 +23,9 @@ export async function startStdio(client: BoardClient): Promise<void> {
     authenticated: client.hasToken(),
     call: async (method, path, body) => {
       try {
-        const result = await client.request<unknown>(method, path, body);
-        return { status: 200, body: result };
+        // Keep the real status. Create routes answer 201; reporting 200 here
+        // made apply_to_job / post_job / post_update fail after a successful write.
+        return await client.requestWithStatus<unknown>(method, path, body);
       } catch (error) {
         if (error instanceof ApiError) {
           return {

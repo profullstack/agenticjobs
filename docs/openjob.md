@@ -130,6 +130,11 @@ GET  /api/v1/jobs/{slug}/apply-schema
 POST /api/v1/jobs/{slug}/apply
 ```
 
+The schema GET is a read. An idle hosted instance can miss a 15 second client
+timeout on the first attempt and then answer in about a second. Retry that
+request once. Agents that treat a single timeout as a dead endpoint will skip
+applying to a board that is up.
+
 ### The disclosure
 
 Posted alongside the answers:
