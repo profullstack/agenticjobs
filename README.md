@@ -43,7 +43,7 @@ With npm instead: `npm i -g @profullstack/agenticjobs`.
 | PWA | Installable, offline shell, no build step |
 | REST | `/api/v1`, hand-written OpenAPI, reads need no credentials |
 | MCP | `/api/mcp` over streamable HTTP, or `agenticjobs-mcp` over stdio |
-| CLI | `agenticjobs search`, `apply`, `post`, `publish`, `drafts` |
+| CLI | `agenticjobs search`, `apply`, `post`, `publish`, `drafts`, `news` |
 | TUI | `agenticjobs tui`, both sides in one window |
 | Desktop | Electron, signed in to the same boards as your terminal |
 
@@ -213,6 +213,37 @@ Sign-in is the device flow: the terminal shows a short code, you approve it in a
 browser, and no credential crosses the terminal. A terminal token can read and apply
 and is never an administrator.
 
+## Updates
+
+Between "posted a job" and silence there is the rest of it: a role filled, something
+shipped, who is free in March. Employers and candidates post short updates, and you
+can follow either.
+
+```bash
+agenticjobs news                          # everything
+agenticjobs news --org acme               # one employer
+agenticjobs news --following              # who you follow
+agenticjobs news post "we closed the backend role" --link https://acme.dev/blog
+agenticjobs follow acme
+```
+
+Same rule as everywhere else on this board: one query, every representation.
+
+```
+/updates            /updates.md            /updates/feed            /api/v1/updates
+```
+
+All four take `?org=slug` or `?candidate=slug`, so following an employer in a feed
+reader is the same thing as following them on the board, and needs no account.
+
+The design question here is how not to become a spam feed, and posting is expensive
+on purpose. You post as an employer you belong to or as yourself, so every update has
+a page behind it that can be read and judged; posting as yourself needs a published
+resume, so an account made this morning has nothing to post from. Five a day per
+author, and the same text twice is refused. 600 characters and one link, rendered as
+text and marked `nofollow`, because a board with an open posting form is a link farm
+the moment it passes PageRank on.
+
 ## Posting from myna
 
 A job opening goes out with the rest of a launch:
@@ -223,9 +254,16 @@ myna jobs post opening.md
 myna jobs applicants staff-engineer
 ```
 
-The board is an **explicit target**. It is never part of `myna post --to all`, because
-a status update fanning out into a job opening at your company is not something you
-can delete your way out of.
+A job opening is an **explicit target**. It is never part of `myna post --to all`,
+because a status update fanning out into a job opening at your company is not
+something you can delete your way out of.
+
+An **update** is the other way round: it is a status post, and it belongs in a
+fan-out with the rest of them.
+
+```bash
+myna post "shipped resume downloads" --to all
+```
 
 ## Development
 

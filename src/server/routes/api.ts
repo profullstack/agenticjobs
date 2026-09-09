@@ -64,6 +64,22 @@ import {
 import { importDocument, ImportProblem, MAX_UPLOAD_BYTES } from '../../core/import.ts';
 import { deliverMagicLink } from '../../core/mail.ts';
 import { tagsFrom, toCandidateSummary, withTags } from '../../core/candidates.ts';
+import {
+  candidateSlugFor,
+  deleteUpdate,
+  follow,
+  followerCount,
+  isFollowing,
+  listFollowedUpdates,
+  listFollowing,
+  listScoped,
+  postUpdate,
+  scopeFrom,
+  unfollow,
+  userForCandidate,
+  type Target,
+  type Update,
+} from '../../core/updates.ts';
 import { sameOrigin } from '../../config.ts';
 import { announce, Blocked, listInstances, listTopics } from '../../directory/registry.ts';
 import { federatedSearch, targetsFromDescriptors } from '../../directory/federate.ts';
@@ -697,6 +713,174 @@ export function apiRoutes(): Hono<AppEnv> {
     });
   });
 
+  // --- updates and following ---------------------------------------------
+
+  /**
+   * The updates, as data.
+   *
+   * The same two parameters every other representation takes, so a filter
+   * written once reads as JSON, Markdown, RSS or a page. `following=true` is
+   * the only one that needs a credential, because it is the only one that is
+   * about the caller rather than about the board.
+   */
+  api.get('/updates', async (c) => {
+    const { pool, config } = c.get('deps');
+    const params = new URL(c.req.url).searchParams;
+    const viewer = viewerOf(c);
+
+    if (params.get('following') === 'true') {
+      if (viewer === null) {
+        return fail(c, 401, 'unauthorised', 'Sign in to read the updates from who you follow.');
+      }
+      const mine = await listFollowedUpdates(pool, viewer.id);
+      return c.json({ items: mine.map((update) => withUrl(update, config.publicUrl)), total: mine.length });
+    }
+
+    const scope = await scopeFrom(pool, params);
+    if (scope.kind === 'unknown') {
+      return fail(c, 404, 'not_found', `Nobody here is "${scope.slug}".`);
+    }
+    const items = await listScoped(pool, scope);
+    return c.json({
+      items: items.map((update) => withUrl(update, config.publicUrl)),
+      total: items.length,
+      ...(scope.kind === 'author' ? { author: { kind: scope.author, slug: scope.slug, name: scope.name } } : {}),
+    });
+  });
+
+  /**
+   * Post one.
+   *
+   * `org` decides who it is from: with it, the employer of that slug and only
+   * if you post for them; without it, you. There is no third case and no way
+   * to name somebody else.
+   */
+  api.post('/updates', async (c) => {
+    const { pool, config } = c.get('deps');
+    const viewer = viewerOf(c);
+    if (viewer === null) return fail(c, 401, 'unauthorised', 'Sign in to post an update.');
+
+    const body = await readBody(c);
+    const orgSlug = typeof body['org'] === 'string' ? body['org'].trim() : '';
+
+    let target: Target;
+    let back: string;
+    if (orgSlug !== '') {
+      const org = await getOrgBySlug(pool, orgSlug);
+      if (org === null) return fail(c, 404, 'not_found', `No employer with the slug "${orgSlug}".`);
+      target = { kind: 'employer', orgId: org.id };
+      back = `${config.publicUrl}/employers/${org.slug}`;
+    } else {
+      const slug = await candidateSlugFor(pool, viewer.id);
+      if (slug === null) {
+        return fail(
+          c,
+          403,
+          'no_profile',
+          'Publish a resume before posting an update, so the update has a page behind it.',
+        );
+      }
+      target = { kind: 'candidate', userId: viewer.id };
+      back = `${config.publicUrl}/candidates/${slug}`;
+    }
+
+    const posted = await postUpdate(pool, viewer.id, target, {
+      body: body['body'],
+      link: body['link'],
+    });
+    if (typeof posted === 'string') {
+      // 429 when it is the rate limit and 400 when it is the update itself:
+      // one is worth retrying tomorrow and the other never is.
+      const rate = posted.includes('limit');
+      return fail(c, rate ? 429 : 400, rate ? 'rate_limited' : 'invalid', posted);
+    }
+    return c.json({ update: withUrl(posted, config.publicUrl), author: back }, 201);
+  });
+
+  /**
+   * Take one down.
+   *
+   * Whoever wrote it, or anybody who posts for that employer: a person who
+   * leaves a company should not leave a post nobody there can remove. A 404
+   * covers both "no such update" and "not yours", because the two are the
+   * same fact to a caller who should not be able to tell them apart.
+   */
+  api.delete('/updates/:id', async (c) => {
+    const { pool } = c.get('deps');
+    const viewer = viewerOf(c);
+    if (viewer === null) return fail(c, 401, 'unauthorised', 'Sign in to delete an update.');
+    const gone = await deleteUpdate(pool, viewer.id, c.req.param('id'));
+    if (!gone) return fail(c, 404, 'not_found', 'No such update, or it is not yours to delete.');
+    return c.json({ deleted: true });
+  });
+
+  /**
+   * Follow and unfollow.
+   *
+   * POST follows, DELETE unfollows, and both are idempotent: following twice
+   * is following once, so a retried call is never an error to interpret.
+   *
+   * Written out four times rather than generated in a loop, because the test
+   * that checks every served route is documented reads these paths out of
+   * this file as literals. A route built from a template string is a route
+   * that can quietly leave the OpenAPI document.
+   */
+  const setFollow = async (
+    c: Ctx,
+    target: Target | null,
+    slug: string,
+    wanted: boolean,
+  ): Promise<Response> => {
+    const { pool } = c.get('deps');
+    const viewer = viewerOf(c);
+    if (viewer === null) return fail(c, 401, 'unauthorised', 'Sign in to follow.');
+    if (target === null) return fail(c, 404, 'not_found', `Nobody here is "${slug}".`);
+    if (wanted) await follow(pool, viewer.id, target);
+    else await unfollow(pool, viewer.id, target);
+    return c.json({
+      following: await isFollowing(pool, viewer.id, target),
+      followers: await followerCount(pool, target),
+    });
+  };
+
+  const orgTarget = async (c: Ctx, slug: string): Promise<Target | null> => {
+    const org = await getOrgBySlug(c.get('deps').pool, slug);
+    return org === null ? null : { kind: 'employer', orgId: org.id };
+  };
+
+  const candidateTarget = async (c: Ctx, slug: string): Promise<Target | null> => {
+    const userId = await userForCandidate(c.get('deps').pool, slug);
+    return userId === null ? null : { kind: 'candidate', userId };
+  };
+
+  api.post('/orgs/:slug/follow', async (c) => {
+    const slug = c.req.param('slug');
+    return setFollow(c, await orgTarget(c, slug), slug, true);
+  });
+
+  api.delete('/orgs/:slug/follow', async (c) => {
+    const slug = c.req.param('slug');
+    return setFollow(c, await orgTarget(c, slug), slug, false);
+  });
+
+  api.post('/candidates/:slug/follow', async (c) => {
+    const slug = c.req.param('slug');
+    return setFollow(c, await candidateTarget(c, slug), slug, true);
+  });
+
+  api.delete('/candidates/:slug/follow', async (c) => {
+    const slug = c.req.param('slug');
+    return setFollow(c, await candidateTarget(c, slug), slug, false);
+  });
+
+  api.get('/me/following', async (c) => {
+    const { pool } = c.get('deps');
+    const viewer = viewerOf(c);
+    if (viewer === null) return fail(c, 401, 'unauthorised', 'Sign in to see who you follow.');
+    const items = await listFollowing(pool, viewer.id);
+    return c.json({ items, total: items.length });
+  });
+
   // --- sign in ----------------------------------------------------------
 
   api.post('/auth/magic-link', async (c) => {
@@ -845,6 +1029,23 @@ export function apiRoutes(): Hono<AppEnv> {
  * pastes it into the form. All three end up as Markdown copied onto the
  * application.
  */
+/**
+ * An update, with the page its author is on.
+ *
+ * The URL is built here rather than by each caller: a reader should never
+ * have to know that an employer lives under /employers and a person under
+ * /candidates in order to follow a link out of the feed.
+ */
+function withUrl(update: Update, publicUrl: string): Update & { authorUrl: string | null } {
+  const path =
+    update.author.slug === null
+      ? null
+      : update.author.kind === 'employer'
+        ? `/employers/${update.author.slug}`
+        : `/candidates/${update.author.slug}`;
+  return { ...update, authorUrl: path === null ? null : `${publicUrl}${path}` };
+}
+
 async function resolveResume(
   c: Ctx,
   body: Record<string, unknown>,

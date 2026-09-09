@@ -40,6 +40,7 @@ export function openApiDocument(config: Config): Record<string, unknown> {
       { name: 'resumes', description: 'Markdown resumes, created and edited over the API.' },
       { name: 'candidates', description: 'People who published a resume here.' },
       { name: 'employers', description: 'The organisations a listing belongs to.' },
+      { name: 'updates', description: 'Short posts from employers and candidates, and following them.' },
       { name: 'auth', description: 'Device flow for terminals, magic links for browsers.' },
       { name: 'federation', description: 'The directory of instances, and search across them.' },
     ],
@@ -188,6 +189,113 @@ export function openApiDocument(config: Config): Record<string, unknown> {
             'Serves a link-shared resume as well as a listed one. The Markdown is canonical.',
           parameters: [pathParam('slug')],
           responses: { 200: ok('The candidate.'), 404: err() },
+        },
+      },
+      '/api/v1/updates': {
+        get: {
+          tags: ['updates'],
+          summary: 'Updates from employers and candidates. Public.',
+          description:
+            'Add ?org=slug or ?candidate=slug for one author. ?following=true is your own feed and is the only form that needs a credential. The same parameters read as Markdown at /updates.md and as RSS at /updates/feed.',
+          parameters: [
+            {
+              name: 'org',
+              in: 'query',
+              required: false,
+              schema: { type: 'string' },
+              description: "An employer's slug.",
+            },
+            {
+              name: 'candidate',
+              in: 'query',
+              required: false,
+              schema: { type: 'string' },
+              description: "A candidate's slug.",
+            },
+            {
+              name: 'following',
+              in: 'query',
+              required: false,
+              schema: { type: 'boolean' },
+              description: 'Only from who you follow. Needs a credential.',
+            },
+          ],
+          responses: { 200: ok('Updates.'), 401: err(), 404: err() },
+        },
+        post: {
+          tags: ['updates'],
+          summary: 'Post an update.',
+          description:
+            'With "org", as that employer, and only if you post for them. Without it, as yourself, which requires a published resume so the update has a page behind it. At most 600 characters and one link, five a day per author, and no two the same.',
+          security: [{ bearer: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['body'],
+                  properties: {
+                    body: { type: 'string', maxLength: 600 },
+                    link: { type: 'string', format: 'uri' },
+                    org: { type: 'string', description: "Post as this employer instead of as yourself." },
+                  },
+                },
+              },
+            },
+          },
+          responses: { 201: ok('The update.'), 400: err(), 401: err(), 403: err(), 404: err(), 429: err() },
+        },
+      },
+      '/api/v1/updates/{id}': {
+        delete: {
+          tags: ['updates'],
+          summary: 'Delete an update you posted.',
+          description:
+            'Yours, or any update by the employer you post for. Anything else is a 404 rather than a 403, because the two are the same fact to a caller who should not be able to tell them apart.',
+          security: [{ bearer: [] }],
+          parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+          responses: { 200: ok('Gone.'), 401: err(), 404: err() },
+        },
+      },
+      '/api/v1/orgs/{slug}/follow': {
+        post: {
+          tags: ['updates'],
+          summary: 'Follow an employer.',
+          security: [{ bearer: [] }],
+          parameters: [pathParam('slug')],
+          responses: { 200: ok('Whether you follow them, and how many do.'), 401: err(), 404: err() },
+        },
+        delete: {
+          tags: ['updates'],
+          summary: 'Stop following an employer.',
+          security: [{ bearer: [] }],
+          parameters: [pathParam('slug')],
+          responses: { 200: ok('Whether you follow them, and how many do.'), 401: err(), 404: err() },
+        },
+      },
+      '/api/v1/candidates/{slug}/follow': {
+        post: {
+          tags: ['updates'],
+          summary: 'Follow a candidate.',
+          security: [{ bearer: [] }],
+          parameters: [pathParam('slug')],
+          responses: { 200: ok('Whether you follow them, and how many do.'), 401: err(), 404: err() },
+        },
+        delete: {
+          tags: ['updates'],
+          summary: 'Stop following a candidate.',
+          security: [{ bearer: [] }],
+          parameters: [pathParam('slug')],
+          responses: { 200: ok('Whether you follow them, and how many do.'), 401: err(), 404: err() },
+        },
+      },
+      '/api/v1/me/following': {
+        get: {
+          tags: ['updates'],
+          summary: 'Who you follow.',
+          security: [{ bearer: [] }],
+          responses: { 200: ok('Employers and candidates you follow.'), 401: err() },
         },
       },
       '/api/v1/jobs/import': {

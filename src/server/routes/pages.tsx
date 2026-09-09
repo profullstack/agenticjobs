@@ -68,6 +68,22 @@ import { DocsPage, SpecPage } from '../../views/docs.tsx';
 import { CandidateDetail, CandidateList } from '../../views/candidates.tsx';
 import { allTags, tagsFrom, toCandidateSummary, withTags } from '../../core/candidates.ts';
 import {
+  BODY_MAX,
+  candidateSlugFor,
+  follow,
+  followerCount,
+  isFollowing,
+  listFollowedUpdates,
+  listFollowing,
+  listUpdates,
+  listUpdatesFor,
+  postUpdate,
+  unfollow,
+  userForCandidate,
+  type Target,
+} from '../../core/updates.ts';
+import { UpdatesPage, type SocialProps } from '../../views/updates.tsx';
+import {
   CONTENT_TYPE,
   ConversionProblem,
   filename,
@@ -278,12 +294,45 @@ export function pageRoutes(): Hono<AppEnv> {
     );
   });
 
-  pages.get('/candidates/:slug', async (c) => {
+  /**
+   * One candidate.
+   *
+   * `error` is the update composer's, and is passed rather than redirected
+   * with, so a rejected post comes back on the page that made it.
+   */
+  const candidatePage = async (c: Ctx, slug: string, error?: string): Promise<Response> => {
     const { pool, config } = c.get('deps');
-    const resume = await getPublicResume(pool, c.req.param('slug'));
+    const resume = await getPublicResume(pool, slug);
     if (resume === null) return c.notFound();
 
     const summary = toCandidateSummary(resume);
+    const viewer = c.get('viewer');
+    const target: Target = { kind: 'candidate', userId: resume.userId };
+    const [updates, followers, following] = await Promise.all([
+      listUpdatesFor(pool, target),
+      followerCount(pool, target),
+      viewer === null ? Promise.resolve(false) : isFollowing(pool, viewer.id, target),
+    ]);
+
+    const social: SocialProps = {
+      as: summary.name,
+      updates,
+      follow: {
+        action: `/candidates/${slug}/follow`,
+        following,
+        followers,
+        // Nobody follows themselves, so their own page shows the composer
+        // where the button would be.
+        signedIn: viewer !== null && viewer.id !== resume.userId,
+        next: `/candidates/${slug}`,
+      },
+      composer:
+        viewer !== null && viewer.id === resume.userId
+          ? { action: '/me/updates', max: BODY_MAX }
+          : null,
+      ...(error === undefined ? {} : { error }),
+    };
+
     return c.html(
       <Layout
         {...shell(c)}
@@ -299,10 +348,14 @@ export function pageRoutes(): Hono<AppEnv> {
           html={renderMarkdown(resume.markdown, { headingOffset: 1 })}
           markdownUrl={`${config.publicUrl}/api/v1/candidates/${summary.slug}`}
           listed={resume.visibility === 'public'}
+          social={social}
         />
       </Layout>,
+      error === undefined ? 200 : 400,
     );
-  });
+  };
+
+  pages.get('/candidates/:slug', (c) => candidatePage(c, c.req.param('slug')));
 
   /**
    * The resume as a file.
@@ -374,21 +427,153 @@ export function pageRoutes(): Hono<AppEnv> {
     );
   });
 
-  pages.get('/employers/:slug', async (c) => {
+  const employerPage = async (c: Ctx, slug: string, error?: string): Promise<Response> => {
     const { pool } = c.get('deps');
-    const org = await getOrgBySlug(pool, c.req.param('slug'));
+    const org = await getOrgBySlug(pool, slug);
     if (org === null) return c.notFound();
     const params = new URL(c.req.url).searchParams;
     params.set('org', org.slug);
     const query = parseQuery(params);
-    const page = await searchJobs(pool, query);
+    const viewer = c.get('viewer');
+    const target: Target = { kind: 'employer', orgId: org.id };
+    const [page, updates, followers, following, member] = await Promise.all([
+      searchJobs(pool, query),
+      listUpdatesFor(pool, target),
+      followerCount(pool, target),
+      viewer === null ? Promise.resolve(false) : isFollowing(pool, viewer.id, target),
+      viewer === null ? Promise.resolve(false) : isMember(pool, viewer.id, org.id),
+    ]);
+
+    const social: SocialProps = {
+      as: org.name,
+      updates,
+      follow: {
+        action: `/employers/${org.slug}/follow`,
+        following,
+        followers,
+        signedIn: viewer !== null,
+        next: `/employers/${org.slug}`,
+      },
+      composer: member ? { action: `/employers/${org.slug}/updates`, max: BODY_MAX } : null,
+      ...(error === undefined ? {} : { error }),
+    };
+
     return c.html(
       <Layout
         {...shell(c)}
         title={org.name}
         description={org.description ?? `Open roles at ${org.name}.`}
       >
-        <EmployerDetail org={org} page={page} query={query} />
+        <EmployerDetail org={org} page={page} query={query} social={social} />
+      </Layout>,
+      error === undefined ? 200 : 400,
+    );
+  };
+
+  pages.get('/employers/:slug', (c) => employerPage(c, c.req.param('slug')));
+
+  // --- updates and following --------------------------------------------
+
+  /**
+   * Follow and unfollow are the same route.
+   *
+   * The button carries the state it saw, so the POST says which way it meant
+   * to go. A double-submitted form cannot leave somebody following what they
+   * just unfollowed, and there is no second URL to guess.
+   */
+  const toggleFollow = async (c: Ctx, target: Target, back: string): Promise<Response> => {
+    const { pool } = c.get('deps');
+    const viewer = requireViewer(c);
+    if (viewer instanceof Response) return viewer;
+    const form = await formOf(c);
+    if (form['following'] === 'yes') await unfollow(pool, viewer.id, target);
+    else await follow(pool, viewer.id, target);
+    return c.redirect(back, 303);
+  };
+
+  pages.post('/employers/:slug/follow', async (c) => {
+    const { pool } = c.get('deps');
+    const org = await getOrgBySlug(pool, c.req.param('slug'));
+    if (org === null) return c.notFound();
+    return toggleFollow(c, { kind: 'employer', orgId: org.id }, `/employers/${org.slug}`);
+  });
+
+  pages.post('/candidates/:slug/follow', async (c) => {
+    const { pool } = c.get('deps');
+    const slug = c.req.param('slug');
+    const userId = await userForCandidate(pool, slug);
+    if (userId === null) return c.notFound();
+    return toggleFollow(c, { kind: 'candidate', userId }, `/candidates/${slug}`);
+  });
+
+  pages.post('/employers/:slug/updates', async (c) => {
+    const { pool } = c.get('deps');
+    const viewer = requireViewer(c);
+    if (viewer instanceof Response) return viewer;
+    const org = await getOrgBySlug(pool, c.req.param('slug'));
+    if (org === null) return c.notFound();
+
+    const form = await formOf(c);
+    const posted = await postUpdate(
+      pool,
+      viewer.id,
+      { kind: 'employer', orgId: org.id },
+      { body: form['body'], link: form['link'] },
+    );
+    if (typeof posted === 'string') return employerPage(c, org.slug, posted);
+    return c.redirect(`/employers/${org.slug}`, 303);
+  });
+
+  /**
+   * Posting as yourself.
+   *
+   * One route rather than one per resume: an update is from the person, and
+   * their page is whichever resume they listed.
+   */
+  pages.post('/me/updates', async (c) => {
+    const { pool } = c.get('deps');
+    const viewer = requireViewer(c);
+    if (viewer instanceof Response) return viewer;
+
+    const slug = await candidateSlugFor(pool, viewer.id);
+    if (slug === null) {
+      return c.text(
+        'Publish a resume before posting an update, so the update has a page behind it.\n',
+        403,
+      );
+    }
+    const form = await formOf(c);
+    const posted = await postUpdate(
+      pool,
+      viewer.id,
+      { kind: 'candidate', userId: viewer.id },
+      { body: form['body'], link: form['link'] },
+    );
+    if (typeof posted === 'string') return candidatePage(c, slug, posted);
+    return c.redirect(`/candidates/${slug}`, 303);
+  });
+
+  /** The board's news page, plus your own if you are signed in. */
+  pages.get('/updates', async (c) => {
+    const { pool, config } = c.get('deps');
+    const viewer = c.get('viewer');
+    const [updates, followed, following] = await Promise.all([
+      listUpdates(pool),
+      viewer === null ? Promise.resolve(null) : listFollowedUpdates(pool, viewer.id),
+      viewer === null ? Promise.resolve([]) : listFollowing(pool, viewer.id),
+    ]);
+    return c.html(
+      <Layout
+        {...shell(c)}
+        title="Updates"
+        description={`News from the employers and candidates on ${config.boardName}.`}
+      >
+        <UpdatesPage
+          updates={updates}
+          boardName={config.boardName}
+          followed={followed}
+          following={following}
+        />
       </Layout>,
     );
   });
@@ -539,6 +724,12 @@ export function pageRoutes(): Hono<AppEnv> {
       [viewer.id],
     );
 
+    const [candidateSlug, updates, following] = await Promise.all([
+      candidateSlugFor(pool, viewer.id),
+      listUpdatesFor(pool, { kind: 'candidate', userId: viewer.id }),
+      listFollowing(pool, viewer.id),
+    ]);
+
     return c.html(
       <Layout {...shell(c)} title="You" noindex>
         <MePage
@@ -552,6 +743,10 @@ export function pageRoutes(): Hono<AppEnv> {
             status: row.status,
             createdAt: row.created_at,
           }))}
+          updates={updates}
+          following={following}
+          candidateSlug={candidateSlug}
+          updateMax={BODY_MAX}
         />
       </Layout>,
     );

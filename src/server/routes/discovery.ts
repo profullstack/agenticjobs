@@ -17,6 +17,7 @@ import { countJobs, searchJobs } from '../../core/jobs.ts';
 import { listOrgs } from '../../core/orgs.ts';
 import { listPublicResumes } from '../../core/resumes.ts';
 import { tagsFrom, toCandidateSummary, withTags } from '../../core/candidates.ts';
+import { listScoped, listUpdates, scopeFrom, type Scope, type Update } from '../../core/updates.ts';
 import { parseQuery, queryToParams } from '../../schema/query.ts';
 import type { JobQuery } from '../../schema/index.ts';
 import { WELL_KNOWN_PATH } from '../../schema/instance.ts';
@@ -112,6 +113,33 @@ function rss(
   return c.body(xml, 200, { 'content-type': 'application/rss+xml; charset=utf-8' });
 }
 
+
+/**
+ * An update as a feed entry.
+ *
+ * The link an update carries is the interesting URL, but the guid has to be
+ * stable and ours: two employers linking the same launch post must not
+ * collapse into one item in a reader.
+ */
+function updateEntry(update: Update, publicUrl: string): FeedEntry {
+  const { author } = update;
+  return {
+    title: `${author.name}: ${update.body.slice(0, 80)}${update.body.length > 80 ? '...' : ''}`,
+    // Anchored on the board's own page rather than on the link the update
+    // carries, because the guid is this URL: two employers linking the same
+    // launch post must not collapse into one item in a reader.
+    url: `${publicUrl}/updates#${update.id}`,
+    at: update.createdAt,
+    body: update.link === null ? update.body : `${update.body} ${update.link}`,
+    category: 'Update',
+  };
+}
+
+/** What a scoped feed calls itself. */
+function scopeTitle(scope: Scope, boardName: string): string {
+  if (scope.kind === 'author') return `${scope.name} on ${boardName}`;
+  return `${boardName} updates`;
+}
 
 /** The active filters in words, or null when nothing is filtered. */
 function describeQuery(query: JobQuery): string | null {
@@ -322,6 +350,75 @@ export function discoveryRoutes(): Hono<AppEnv> {
   });
 
   /**
+   * Updates, filtered to one author: /updates/feed?org=acme
+   *
+   * Following an employer in a feed reader is the same thing as following
+   * them on the board, and neither needs an account.
+   */
+  routes.get('/updates/feed', async (c) => {
+    const { pool, config } = c.get('deps');
+    const url = new URL(c.req.url);
+    const scope = await scopeFrom(pool, url.searchParams);
+    const updates = await listScoped(pool, scope);
+    const query = url.search === '?' ? '' : url.search;
+
+    return rss(c, {
+      title: scopeTitle(scope, config.boardName),
+      link:
+        scope.kind === 'author'
+          ? `${config.publicUrl}/${scope.author === 'employer' ? 'employers' : 'candidates'}/${scope.slug}`
+          : `${config.publicUrl}/updates`,
+      description:
+        scope.kind === 'author'
+          ? `Updates from ${scope.name} on ${config.boardName}.`
+          : `News from the employers and candidates on ${config.boardName}.`,
+      self: `${config.publicUrl}/updates/feed${query}`,
+      entries: updates.map((update) => updateEntry(update, config.publicUrl)),
+    });
+  });
+
+  /** The same updates as Markdown, filtered the same way. */
+  routes.get('/updates.md', async (c) => {
+    const { pool, config } = c.get('deps');
+    const scope = await scopeFrom(pool, new URL(c.req.url).searchParams);
+    const updates = await listScoped(pool, scope);
+
+    const lines = [
+      `# ${scopeTitle(scope, config.boardName)}`,
+      '',
+      scope.kind === 'unknown'
+        ? `Nobody here is "${scope.slug}".`
+        : 'Short posts from the employers and candidates on this board. Everyone posting is a',
+      ...(scope.kind === 'unknown'
+        ? []
+        : ['real employer or a person with a resume here, and nobody may post more than five a day.']),
+      '',
+      `${updates.length} ${updates.length === 1 ? 'update' : 'updates'}.`,
+      '',
+    ];
+    for (const update of updates) {
+      const where =
+        update.author.slug === null
+          ? null
+          : update.author.kind === 'employer'
+            ? `${config.publicUrl}/employers/${update.author.slug}`
+            : `${config.publicUrl}/candidates/${update.author.slug}`;
+      lines.push(
+        `## ${update.author.name}`,
+        '',
+        `- Posted: ${new Date(update.createdAt).toISOString()}`,
+        `- As: ${update.author.kind}`,
+        ...(where === null ? [] : [`- Page: ${where}`]),
+        ...(update.link === null ? [] : [`- Link: ${update.link}`]),
+        '',
+        update.body,
+        '',
+      );
+    }
+    return c.text(lines.join('\n'), 200, { 'content-type': 'text/markdown; charset=utf-8' });
+  });
+
+  /**
    * Everything the board publishes, in one feed.
    *
    * The two feeds above are the filterable ones. This is the whole site for a
@@ -349,10 +446,11 @@ export function discoveryRoutes(): Hono<AppEnv> {
       query.salaryMin !== null ||
       query.org !== null ||
       query.q !== null;
-    const [page, orgs, candidates] = await Promise.all([
+    const [page, orgs, candidates, updates] = await Promise.all([
       searchJobs(pool, { ...query, limit: 100, offset: 0 }),
       listOrgs(pool, 100),
       listPublicResumes(pool, 100),
+      listUpdates(pool, 100),
     ]);
 
     return rss(c, {
@@ -377,6 +475,10 @@ export function discoveryRoutes(): Hono<AppEnv> {
               body: org.description ?? `${org.name} posts its openings on ${config.boardName}.`,
               category: 'Employer',
             }))),
+        // An update is news rather than a listing, so it answers none of the
+        // filters either. Unfiltered, it is exactly what a reader following
+        // the whole board wants.
+        ...(filtered ? [] : updates.map((update) => updateEntry(update, config.publicUrl))),
         ...(jobsOnly
           ? []
           : withTags(candidates.map(toCandidateSummary), query.tags)
@@ -430,6 +532,7 @@ export function discoveryRoutes(): Hono<AppEnv> {
         '/',
         '/candidates',
         '/employers',
+        '/updates',
         '/docs',
         '/docs/openresume',
         '/docs/openjob',
@@ -474,9 +577,11 @@ export function discoveryRoutes(): Hono<AppEnv> {
         '',
         `Sitemap: ${config.publicUrl}/sitemap.xml`,
         '',
-        '# Feeds. Jobs and candidates take ?tags=a,b; feed.rss is everything.',
+        '# Feeds. Jobs and candidates take ?tags=a,b; updates take ?org= or',
+        '# ?candidate=; feed.rss is everything.',
         `# ${config.publicUrl}/feed`,
         `# ${config.publicUrl}/candidates/feed`,
+        `# ${config.publicUrl}/updates/feed`,
         `# ${config.publicUrl}/feed.rss`,
         '',
       ].join('\n'),
@@ -607,6 +712,19 @@ export function discoveryRoutes(): Hono<AppEnv> {
         '',
         `People are the same, filtered by tag: ${config.publicUrl}/candidates.md?tags=javascript,`,
         `with ${config.publicUrl}/api/v1/candidates and ${config.publicUrl}/candidates/feed alongside.`,
+        '',
+        '## Updates',
+        '',
+        'Employers and candidates post short updates: hiring news, what shipped, who is free',
+        'next. Every one is from a real employer or a person with a resume here, capped at five',
+        'a day each, and carries at most one link.',
+        '',
+        `- JSON: ${config.publicUrl}/api/v1/updates`,
+        `- Markdown: ${config.publicUrl}/updates.md`,
+        `- RSS: ${config.publicUrl}/updates/feed`,
+        `- HTML: ${config.publicUrl}/updates`,
+        '',
+        'One author at a time with ?org=slug or ?candidate=slug on any of them.',
         '',
         '## Applying',
         '',

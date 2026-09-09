@@ -815,3 +815,47 @@ a.badge-plain:hover .badge {
 .install-strip .install-note {
   margin: 0;
 }
+
+/* --- updates ------------------------------------------------------------
+ *
+ * A short post from an employer or a candidate. Deliberately quieter than a
+ * job card: this is the space between listings rather than a second kind of
+ * listing, and anything that makes one post look important is an argument
+ * for posting more of them.
+ */
+
+.update-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.update {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.9rem 1rem;
+  background: var(--card);
+  /* The feed's guids are anchors into this page, so an item opened from a
+     reader lands somewhere that is not behind the header. */
+  scroll-margin-top: 5rem;
+}
+
+.update-author {
+  margin: 0 0 0.35rem;
+}
+
+.update-body {
+  margin: 0;
+  /* Written in a textarea, so its line breaks are the ones the author made. */
+  white-space: pre-wrap;
+  /* A pasted URL is one unbreakable word and would otherwise push the card
+     wider than the viewport on a phone. */
+  overflow-wrap: anywhere;
+}
+
+.update-link {
+  overflow-wrap: anywhere;
+}

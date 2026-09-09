@@ -9,6 +9,8 @@ import type { Resume } from '../core/resumes.ts';
 import type { Viewer } from '../core/auth.ts';
 import { ago } from '../schema/text.ts';
 import { Alert, Badge, Card, Empty, Field, Prose } from './layout.tsx';
+import { UpdateComposer, UpdateList } from './updates.tsx';
+import type { Following, Update } from '../core/updates.ts';
 
 export const MePage: FC<{
   viewer: Viewer;
@@ -16,7 +18,27 @@ export const MePage: FC<{
   jobs: Job[];
   resumes: Resume[];
   applications: { jobTitle: string; jobSlug: string; status: string; createdAt: string }[];
-}> = ({ viewer, orgs, jobs, resumes, applications }) => (
+  /** Your own updates, and who you follow. */
+  updates: Update[];
+  following: Following[];
+  /**
+   * The page your updates would appear on, or null if you have not published
+   * a resume. Posting requires one: an update whose author has no page is an
+   * anonymous post, which is the thing this feature must not become.
+   */
+  candidateSlug: string | null;
+  updateMax: number;
+}> = ({
+  viewer,
+  orgs,
+  jobs,
+  resumes,
+  applications,
+  updates,
+  following,
+  candidateSlug,
+  updateMax,
+}) => (
   <div class="stack">
     <div>
       <h1>You</h1>
@@ -55,6 +77,49 @@ export const MePage: FC<{
             </li>
           ))}
         </ul>
+      )}
+    </section>
+
+    <section class="stack">
+      <h2>Updates</h2>
+      {candidateSlug === null ? (
+        <p class="small muted">
+          Publish a resume and you can post updates as yourself: what you shipped, when you are
+          free next. They appear on your candidate page and in the board's feed.
+        </p>
+      ) : (
+        <>
+          <UpdateComposer
+            action="/me/updates"
+            as={viewer.name ?? viewer.email}
+            max={updateMax}
+          />
+          {updates.length > 0 && <UpdateList updates={updates} showAuthor={false} />}
+        </>
+      )}
+      {following.length > 0 && (
+        <p class="small muted">
+          Following{' '}
+          {following.map((entry, index) => (
+            <>
+              {index > 0 && ', '}
+              {entry.slug === null ? (
+                entry.name
+              ) : (
+                <a
+                  href={
+                    entry.kind === 'employer'
+                      ? `/employers/${entry.slug}`
+                      : `/candidates/${entry.slug}`
+                  }
+                >
+                  {entry.name}
+                </a>
+              )}
+            </>
+          ))}
+          . <a href="/updates">Their updates</a>.
+        </p>
       )}
     </section>
 

@@ -181,6 +181,48 @@ export const TOOLS: ToolDefinition[] = [
     inputSchema: object({ slug: string('The job slug.') }, ['slug']),
   },
   {
+    name: 'read_updates',
+    title: 'Read updates',
+    description:
+      'Short posts from the employers and candidates on this board: hiring news, what shipped, who is free next. Everything here is from a real employer or a person with a resume, capped at five a day each. Name an employer or a candidate to read one of them, or set following to true for the ones this account follows.',
+    inputSchema: object({
+      org: string("An employer's slug."),
+      candidate: string("A candidate's slug."),
+      following: {
+        type: 'boolean',
+        description: 'Only from who this account follows. Needs a signed-in account.',
+      },
+    }),
+  },
+  {
+    name: 'post_update',
+    title: 'Post an update',
+    description:
+      'Post a short update. With org, it is from that employer and you must post for them; without it, from this account, which needs a published resume so the update has a page behind it. At most 600 characters and one link. Five a day, and the same text twice is refused - this is news, not a channel to broadcast on.',
+    inputSchema: object(
+      {
+        body: string('What happened. Plain text, at most 600 characters.'),
+        link: string('One public URL. Optional.'),
+        org: string('Post as this employer instead of as this account.'),
+      },
+      ['body'],
+    ),
+  },
+  {
+    name: 'follow',
+    title: 'Follow or unfollow',
+    description:
+      'Follow an employer or a candidate so their updates appear in this account\'s feed. Set following to false to stop. Following twice is following once.',
+    inputSchema: object(
+      {
+        org: string("An employer's slug."),
+        candidate: string("A candidate's slug."),
+        following: { type: 'boolean', description: 'Defaults to true.' },
+      },
+      [],
+    ),
+  },
+  {
     name: 'search_network',
     title: 'Search every board',
     description:
@@ -367,6 +409,50 @@ export async function callTool(
       if (response.status === 401) return toolError(signInFirst(caller));
       if (response.status >= 400) return toolError(message(response.body, 'Could not read applications.'));
       return text(JSON.stringify(response.body, null, 2), response.body);
+    }
+
+    case 'read_updates': {
+      const path = `/api/v1/updates${query(args, ['org', 'candidate', 'following'])}`;
+      const response = await caller.call('GET', path);
+      if (response.status === 401) return toolError(signInFirst(caller));
+      if (response.status !== 200) return toolError(message(response.body, 'No such author.'));
+      const page = response.body as { items?: unknown[] };
+      const items = page.items ?? [];
+      if (items.length === 0) {
+        return text(`Nothing posted on ${caller.server} that matches.`, response.body);
+      }
+      return text(JSON.stringify(response.body, null, 2), response.body);
+    }
+
+    case 'post_update': {
+      const response = await caller.call('POST', '/api/v1/updates', {
+        body: String(args['body'] ?? ''),
+        ...(typeof args['link'] === 'string' && args['link'] !== '' ? { link: args['link'] } : {}),
+        ...(typeof args['org'] === 'string' && args['org'] !== '' ? { org: args['org'] } : {}),
+      });
+      if (response.status === 401) return toolError(signInFirst(caller));
+      if (response.status !== 201) {
+        return toolError(message(response.body, 'The update was not posted.'));
+      }
+      const posted = response.body as { author?: string };
+      return text(`Posted. It is on ${posted.author ?? caller.server}.`, response.body);
+    }
+
+    case 'follow': {
+      const org = typeof args['org'] === 'string' ? args['org'] : '';
+      const candidate = typeof args['candidate'] === 'string' ? args['candidate'] : '';
+      if (org === '' && candidate === '') {
+        return toolError('Name an employer with org, or a candidate with candidate.');
+      }
+      const path =
+        org !== ''
+          ? `/api/v1/orgs/${encodeURIComponent(org)}/follow`
+          : `/api/v1/candidates/${encodeURIComponent(candidate)}/follow`;
+      const wanted = args['following'] !== false;
+      const response = await caller.call(wanted ? 'POST' : 'DELETE', path);
+      if (response.status === 401) return toolError(signInFirst(caller));
+      if (response.status !== 200) return toolError(message(response.body, 'Nobody by that name.'));
+      return text(wanted ? 'Following.' : 'Not following.', response.body);
     }
 
     case 'search_network': {

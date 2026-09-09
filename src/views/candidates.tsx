@@ -13,6 +13,7 @@
 
 import type { FC } from 'hono/jsx';
 import { Card, Prose } from './layout.tsx';
+import { AuthorSocial, type SocialProps } from './updates.tsx';
 import type { OpenResume } from '../markup/resume.ts';
 
 /** Where a tag badge points. Multiple tags narrow, so they accumulate. */
@@ -154,8 +155,8 @@ export const CandidateList: FC<{
     <p class="small muted">
       This page is a feed: <a href="/candidates/feed">/candidates/feed</a>. So is any set of
       tags, at <code>/candidates/feed?tags=javascript,react</code>. Jobs have their own at{' '}
-      <a href="/feed">/feed</a>, and <a href={`${publicUrl}/feed.rss`}>/feed.rss</a> is
-      everything.
+      <a href="/feed">/feed</a>, updates at <a href="/updates/feed">/updates/feed</a>, and{' '}
+      <a href={`${publicUrl}/feed.rss`}>/feed.rss</a> is everything.
     </p>
   </div>
 );
@@ -166,13 +167,16 @@ export const CandidateDetail: FC<{
   html: string;
   markdownUrl: string;
   listed: boolean;
-}> = ({ candidate, parsed, html, markdownUrl, listed }) => (
+  /** Follow, updates and, for the person themselves, the composer. */
+  social?: SocialProps;
+}> = ({ candidate, parsed, html, markdownUrl, listed, social }) => (
   <div class="grid-2">
     <article class="stack">
       <div class="stack-sm">
         <h1 style="margin-bottom:0">{candidate.name}</h1>
         {candidate.headline !== null && <p class="lede">{candidate.headline}</p>}
       </div>
+      {social !== undefined && <AuthorSocial {...social} />}
       <Prose html={html} />
     </article>
 

@@ -8,6 +8,7 @@ import { ago, formatSalary } from '../schema/text.ts';
 import { EMPTY_QUERY, queryToParams } from '../schema/query.ts';
 import { EMPLOYMENT_TYPES, SENIORITIES, WORKPLACES, AGENT_POLICIES } from '../schema/job.ts';
 import { AgentPolicyBadge, Alert, Badge, Card, Empty, Field, Prose } from './layout.tsx';
+import { AuthorSocial, type SocialProps } from './updates.tsx';
 
 /**
  * Where a tag points when there is no search to add it to.
@@ -370,7 +371,8 @@ export const JobList: FC<{
     <p class="small muted">
       This search is a feed: <a href="/feed">/feed</a>, and <code>/feed?tags=react,go</code> for
       any set of tags. People are at <a href="/candidates">/candidates</a>, with{' '}
-      <a href="/candidates/feed">/candidates/feed</a>.
+      <a href="/candidates/feed">/candidates/feed</a>. What everyone is up to between
+      listings is at <a href="/updates">/updates</a>.
     </p>
   </div>
 );
@@ -636,11 +638,13 @@ export const EmployerList: FC<{ orgs: Organisation[] }> = ({ orgs }) => (
   </div>
 );
 
-export const EmployerDetail: FC<{ org: Organisation; page: JobPage<Job>; query: JobQuery }> = ({
-  org,
-  page,
-  query,
-}) => (
+export const EmployerDetail: FC<{
+  org: Organisation;
+  page: JobPage<Job>;
+  query: JobQuery;
+  /** Follow, updates and the composer. Absent on a board with none of it. */
+  social?: SocialProps;
+}> = ({ org, page, query, social }) => (
   <div class="stack">
     <div>
       <h1>{org.name}</h1>
@@ -653,6 +657,7 @@ export const EmployerDetail: FC<{ org: Organisation; page: JobPage<Job>; query: 
       )}
     </div>
     {org.description !== null && <p>{org.description}</p>}
+    {social !== undefined && <AuthorSocial {...social} />}
     <h2>
       {page.total} open {page.total === 1 ? 'role' : 'roles'}
     </h2>
