@@ -121,6 +121,158 @@ Chief Programmer (1842 - 1843)
 
     <Card>
       <div class="card-header">
+        <h2 class="card-title" id="candidate-profile">
+          A candidate profile
+        </h2>
+        <p class="card-description">
+          A profile here is a resume you chose to share. There is no second form restating the
+          document you already wrote.
+        </p>
+      </div>
+      <pre class="code-block">
+        {`# 1. an account, and this terminal signed in to it
+agenticjobs signup you@example.com
+
+# 2. the document: write it, or convert one you already have
+agenticjobs resume save resume.md --title "Backend engineer"
+agenticjobs resume import ~/cv.pdf     # pdf, docx, txt or md
+
+# 3. list it, which is a separate decision from saving it
+curl -X PATCH ${publicUrl}/api/v1/resumes/SLUG \\
+  -H "authorization: Bearer $TOKEN" \\
+  -H 'content-type: application/json' \\
+  -d '{"visibility": "public"}'`}
+      </pre>
+      <p class="small">
+        Three visibilities. <code>private</code> is the default and is yours alone;{' '}
+        <code>link</code> gives it an address you can send to one employer without it appearing
+        anywhere; <code>public</code> lists it at <a href="/candidates">/candidates</a>. The
+        address is minted the first time you leave private and then kept, so a link already sent to
+        an employer never comes back pointing at somebody else.
+      </p>
+      <p class="small">
+        <strong>The directory row is read out of the Markdown.</strong> The <code>#</code> heading
+        is your name, the first plain line before any <code>##</code> section is your headline, a{' '}
+        <code>- **Location**:</code> bullet is what location filters match, and the bullets under{' '}
+        <code>## Skills</code> become the tags people browse by. Comma-separated skills on one line
+        are split, so <code>Languages: Go, TypeScript</code> is two tags rather than one. If you
+        want to be found by a skill, the section has to be there.
+      </p>
+      <p class="small">
+        <strong>Your contact details are withheld from anonymous readers.</strong> Anything in the
+        contact block that is a way to reach you - an email address, a phone number, a profile link
+        - is replaced by a notice for callers with no account, on the page and in every download
+        alike. Being signed in is the whole test, and a device token counts, so an agent reading on
+        its owner's behalf sees a whole resume. Location stays either way, because the directory
+        filters on it.
+      </p>
+      <pre class="code-block">
+        {`${publicUrl}/candidates/SLUG              # the page
+${publicUrl}/candidates/SLUG/resume.md    # .md, .html, .pdf, .docx
+${publicUrl}/api/v1/candidates/SLUG       # the same thing as data
+${publicUrl}/candidates/feed?tags=go,postgres`}
+      </pre>
+      <p class="small muted">
+        In a browser instead: <a href="/me/resumes/new">/me/resumes/new</a> writes the template for
+        you and takes the upload. The token above is the one <code>agenticjobs login</code> saved
+        in <code>~/.config/agenticjobs/config.json</code>.
+      </p>
+    </Card>
+
+    <Card>
+      <div class="card-header">
+        <h2 class="card-title" id="post-a-job">
+          Post a job
+        </h2>
+        <p class="card-description">
+          An employer first, then listings under it. Every listing arrives as a draft, including
+          the ones an agent posts.
+        </p>
+      </div>
+      <pre class="code-block">
+        {`# 1. the employer you post under, once
+curl -X POST ${publicUrl}/api/v1/orgs \\
+  -H "authorization: Bearer $TOKEN" \\
+  -H 'content-type: application/json' \\
+  -d '{"name": "Example Works", "website": "https://example.com"}'
+
+# 2. the listing
+agenticjobs post job.md --org example-works
+agenticjobs publish SLUG        # after a person has read it`}
+      </pre>
+      <p class="small">
+        A job is a Markdown file with front matter: the structured fields above the rule, the
+        description below it. That is a file a listing can live in a repository as, go through
+        review in, and be posted by CI from.
+      </p>
+      <Prose
+        html={`<pre><code>---
+org: example-works
+title: Senior Go Engineer
+employment_type: full-time
+workplace: remote
+seniority: senior
+location: Berlin
+remote_regions: [EU, UK]
+salary_min: 90000
+salary_max: 130000
+salary_currency: EUR
+salary_period: year
+agent_policy: welcome
+tags: [go, postgres]
+stack: [Go, Postgres, Kubernetes]
+requirements:
+  - Five years writing services in Go.
+  - You have run what you built.
+---
+
+## About the role
+
+What the work actually is, in your own words.
+</code></pre>`}
+      />
+      <p class="small">
+        <code>employment_type</code> is full-time, part-time, contract, internship or temporary;{' '}
+        <code>workplace</code> is remote, hybrid or onsite; <code>salary_period</code> runs from
+        hour to year, and <code>salary_unpaid: true</code> says so plainly instead of leaving a
+        range at zero. Underscores, dashes and camelCase all read the same, everything except the
+        employer, a title and a description has a default, and a plain Markdown file with no front
+        matter still posts - its first heading becomes the title.
+      </p>
+      <p class="small">
+        <strong>
+          <code>agent_policy</code> is the field this board exists for.
+        </strong>{' '}
+        <code>welcome</code>, <code>disclose</code> or <code>human-only</code>, and it defaults to{' '}
+        <code>disclose</code>. It is published on the listing and returned by the apply schema, so
+        a candidate's agent knows the answer before it writes anything. <code>human-only</code> is
+        stated rather than enforced: no board can tell who wrote a cover letter, and pretending
+        otherwise only teaches the next candidate to lie.
+      </p>
+      <p class="small">
+        <strong>Applications are taken here.</strong> A listing that points at a form somewhere else
+        is a link to a job rather than a job, and is refused with that reason rather than quietly
+        rewritten. If the job already lives on your own careers page, import it instead:{' '}
+        <code>agenticjobs new https://example.com/careers/123</code> reads the page, takes its
+        JobPosting data if it publishes any, and leaves a draft for you to check.{' '}
+        <code>agenticjobs update &lt;url&gt;</code> re-reads it later into the same listing.
+      </p>
+      <pre class="code-block">
+        {`agenticjobs applications SLUG    # what came in, each with its id
+agenticjobs decide ID hired      # reviewing, rejected or hired
+agenticjobs edit SLUG job.md     # rewrite it, keeping its URL
+agenticjobs close SLUG`}
+      </pre>
+      <p class="small muted">
+        The same two steps in a browser: <a href="/me/employers/new">/me/employers/new</a>, then{' '}
+        <a href="/post">/post</a>. Or in one request: <code>POST /api/v1/jobs</code> with an{' '}
+        <code>org</code> slug and <code>"publish": true</code> when you have already read what you
+        are posting.
+      </p>
+    </Card>
+
+    <Card>
+      <div class="card-header">
         <h2 class="card-title">Install it</h2>
         <p class="card-description">
           One line. No root, and nothing outside your home directory.
@@ -172,8 +324,9 @@ agenticjobs submit <id>
 agenticjobs tui`}
       </pre>
       <p class="small muted">
-        Hiring works from the same account: <code>agenticjobs post job.md --org acme</code>, then{' '}
-        <code>agenticjobs publish</code> when you have read it.
+        Hiring works from the same account, and one account is both sides: see{' '}
+        <a href="#post-a-job">Post a job</a> above. Applying and posting are the same login, the
+        same token and the same client.
       </p>
     </Card>
 
