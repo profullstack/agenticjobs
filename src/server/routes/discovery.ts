@@ -17,7 +17,7 @@ import { countJobs, searchJobs } from '../../core/jobs.ts';
 import { listOrgs } from '../../core/orgs.ts';
 import { listPublicResumes } from '../../core/resumes.ts';
 import { tagsFrom, toCandidateSummary, withTags } from '../../core/candidates.ts';
-import { parseQuery } from '../../schema/query.ts';
+import { parseQuery, queryToParams } from '../../schema/query.ts';
 import type { JobQuery } from '../../schema/index.ts';
 import { WELL_KNOWN_PATH } from '../../schema/instance.ts';
 import { jobPostingJsonLd } from '../../schema/jsonld.ts';
@@ -41,6 +41,20 @@ const MIME: Record<string, string> = {
   '.json': 'application/json',
 };
 
+
+/**
+ * The querystring that identifies a filtered feed.
+ *
+ * Paging is deliberately dropped. limit and offset describe one response, not
+ * the search behind it, and a feed sets both itself, so leaving them in would
+ * hand two subscriptions to the same thing different identities.
+ */
+function filterSearch(query: JobQuery): string {
+  const params = queryToParams(query);
+  params.delete('limit');
+  params.delete('offset');
+  return params.toString();
+}
 
 /** One entry in any of the board's feeds. */
 interface FeedEntry {
@@ -250,18 +264,25 @@ export function discoveryRoutes(): Hono<AppEnv> {
   routes.get('/feed', async (c) => {
     const { pool, config } = c.get('deps');
     const url = new URL(c.req.url);
-    const query = { ...parseQuery(url.searchParams), limit: 100, offset: 0 };
-    const page = await searchJobs(pool, query);
-    const tags = query.tags;
+    const requested = parseQuery(url.searchParams);
+    const page = await searchJobs(pool, { ...requested, limit: 100, offset: 0 });
+
+    // The feed has always *served* the whole query and then described itself by
+    // its tags alone. That is the worst half to get wrong: every narrowing of
+    // one tag claims the same rel=self, so a reader that dedupes on it, and
+    // they do, keeps whichever it saw first and quietly ignores the rest.
+    const search = filterSearch(requested);
+    const suffix = search === '' ? '' : `?${search}`;
+    const narrowed = describeQuery(requested);
 
     return rss(c, {
-      title: tags.length === 0 ? `${config.boardName} jobs` : `${config.boardName} jobs: ${tags.join(', ')}`,
-      link: tags.length === 0 ? config.publicUrl : `${config.publicUrl}/?tags=${encodeURIComponent(tags.join(','))}`,
+      title: narrowed === null ? `${config.boardName} jobs` : `${config.boardName} jobs: ${narrowed}`,
+      link: search === '' ? config.publicUrl : `${config.publicUrl}/?${search}`,
       description:
-        tags.length === 0
+        narrowed === null
           ? config.boardTagline
-          : `Jobs on ${config.boardName} tagged ${tags.join(', ')}.`,
-      self: `${config.publicUrl}/feed${tags.length === 0 ? '' : `?tags=${encodeURIComponent(tags.join(','))}`}`,
+          : `Jobs on ${config.boardName} matching ${narrowed}.`,
+      self: `${config.publicUrl}/feed${suffix}`,
       entries: page.items.map((job) => ({
         title: `${job.title} at ${job.org.name}`,
         url: `${config.publicUrl}/jobs/${job.slug}`,
