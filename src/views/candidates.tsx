@@ -73,7 +73,12 @@ export const CandidateList: FC<{
           <a class="small" href="/candidates">
             Clear
           </a>
-          <a class="small" href={`/feed.rss?tags=${encodeURIComponent(tags.join(','))}`}>
+          {/*
+            * /candidates/feed, not /feed.rss. The latter is the everything
+            * feed (jobs, employers and people), so subscribing from a page
+            * of candidates filtered to a skill delivered mostly job posts.
+            */}
+          <a class="small" href={`/candidates/feed?tags=${encodeURIComponent(tags.join(','))}`}>
             Subscribe
           </a>
         </p>

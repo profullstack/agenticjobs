@@ -113,3 +113,93 @@ test('searching from a tagged page keeps the tag', async () => {
   const bare = String(Filters({ query: EMPTY_QUERY }));
   assert.ok(!bare.includes('name="tags"'), 'no tags set means no hidden tags field');
 });
+
+test('a filter that is not a tag is still shown, and still comes off', async () => {
+  // The strip listed query.tags and nothing else, so narrowing to remote work
+  // changed the results and appeared nowhere: no chip naming it, and, because
+  // the whole strip was gated on there being a tag, no Clear and no Subscribe
+  // either. The only way back was the browser's back button.
+  const { JobList, activeFilters } = await import('../dist/views/jobs.js');
+  const { EMPTY_QUERY } = await import('../dist/schema/query.js');
+
+  const query = { ...EMPTY_QUERY, workplace: 'remote' };
+  const html = String(
+    JobList({
+      page: { items: [], total: 0, limit: 25, offset: 0 },
+      query,
+      boardName: 'A board',
+      tagline: 'jobs',
+      publicUrl: 'https://example.test',
+    }),
+  );
+
+  assert.match(html, /Filtering by:/, 'a filtered page must say what it is filtered by');
+  assert.match(html, /remote x/, 'remote must be named as the filter it is');
+  assert.match(html, /Clear/, 'and must be clearable');
+
+  // Taking it off leaves the search, not the filter.
+  const [chip] = activeFilters(query);
+  assert.equal(chip.label, 'remote');
+  assert.equal(chip.href, '/');
+
+  // Every facet gets a chip, in reading order, and each drops only itself.
+  const many = activeFilters({
+    ...EMPTY_QUERY,
+    q: 'go',
+    tags: ['javascript'],
+    workplace: 'remote',
+    seniority: 'senior',
+  });
+  assert.deepEqual(
+    many.map((filter) => filter.label),
+    ['"go"', 'javascript', 'remote', 'senior'],
+  );
+  const dropped = many.find((filter) => filter.label === 'remote');
+  assert.ok(dropped);
+  assert.ok(!dropped.href.includes('workplace'), dropped.href);
+  assert.match(dropped.href, /tags=javascript/, 'the other filters stay');
+  assert.match(dropped.href, /seniority=senior/);
+  assert.match(dropped.href, /q=go/);
+});
+
+test('Subscribe follows every filter, not only the tags', async () => {
+  // The link was hand-built as `?tags=`, so a reader who had narrowed to
+  // remote javascript subscribed to all the javascript on the board, and
+  // nothing in the feed said it had been widened.
+  const { feedHref } = await import('../dist/views/jobs.js');
+  const { EMPTY_QUERY } = await import('../dist/schema/query.js');
+
+  const href = feedHref({
+    ...EMPTY_QUERY,
+    tags: ['javascript'],
+    workplace: 'remote',
+    // Paging is a fact about one screenful, never about a subscription.
+    offset: 50,
+    limit: 100,
+  });
+
+  assert.match(href, /^\/feed\?/);
+  assert.match(href, /tags=javascript/);
+  assert.match(href, /workplace=remote/, 'the filter the reader sees must be in the feed');
+  assert.ok(!href.includes('offset'), href);
+  assert.ok(!href.includes('limit'), href);
+
+  // An unfiltered board still has a plain feed.
+  assert.equal(feedHref(EMPTY_QUERY), '/feed');
+});
+
+test('the candidates page subscribes to candidates', async () => {
+  // /feed.rss is the everything feed (jobs, employers and people), so
+  // subscribing from a page of candidates filtered to a skill delivered
+  // mostly job posts.
+  const { CandidateList } = await import('../dist/views/candidates.js');
+
+  const html = String(
+    CandidateList({ candidates: [], publicUrl: 'https://example.test', tags: ['javascript'] }),
+  );
+
+  assert.match(html, /href="\/candidates\/feed\?tags=javascript"/);
+  // The everything feed is still named in the prose at the foot of the page,
+  // which is right. What must not happen is the filter being handed to it.
+  assert.ok(!html.includes('/feed.rss?tags='), 'the filter must not go to the everything feed');
+});
