@@ -12,6 +12,36 @@ export interface Args {
   flags: Record<string, string | boolean | string[]>;
 }
 
+// Boolean options must not consume the next command or search word. Keep
+// explicit boolean values working for callers that pass `--remote false`.
+const BOOLEAN_FLAGS = new Set([
+  'version',
+  'v',
+  'help',
+  'h',
+  'yes',
+  'y',
+  'json',
+  'remote',
+  'agents',
+  'all',
+  'network',
+  'unsupervised',
+  'draft',
+  'salary-unpaid',
+  'publish',
+  'following',
+  'candidate',
+]);
+
+function takesValue(name: string, next: string | undefined): next is string {
+  return (
+    next !== undefined &&
+    !next.startsWith('-') &&
+    (!BOOLEAN_FLAGS.has(name) || /^(true|false|1|0|yes|no)$/i.test(next))
+  );
+}
+
 export function parseArgs(argv: string[]): Args {
   const positional: string[] = [];
   const flags: Record<string, string | boolean | string[]> = {};
@@ -37,7 +67,7 @@ export function parseArgs(argv: string[]): Args {
         continue;
       }
       const next = argv[index + 1];
-      if (next !== undefined && !next.startsWith('-')) {
+      if (takesValue(body, next)) {
         set(flags, body, next);
         index += 1;
         continue;
@@ -49,7 +79,7 @@ export function parseArgs(argv: string[]): Args {
     if (token.startsWith('-') && token.length > 1) {
       const body = token.slice(1);
       const next = argv[index + 1];
-      if (next !== undefined && !next.startsWith('-')) {
+      if (takesValue(body, next)) {
         set(flags, body, next);
         index += 1;
         continue;
