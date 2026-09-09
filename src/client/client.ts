@@ -198,6 +198,15 @@ export class BoardClient {
     return this.request('POST', '/api/v1/jobs', input);
   }
 
+  /** Import a job from a URL, or refresh the listing already imported from it. */
+  async importJob(input: {
+    url: string;
+    org?: string;
+    agentPolicy?: string;
+  }): Promise<{ job: Job; via: string; warnings: string[]; created: boolean }> {
+    return this.request('POST', '/api/v1/jobs/import', input);
+  }
+
   async publishJob(slug: string): Promise<{ job: Job }> {
     return this.request('POST', `/api/v1/jobs/${encodeURIComponent(slug)}/publish`);
   }

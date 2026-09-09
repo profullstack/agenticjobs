@@ -72,6 +72,8 @@ const USAGE = `agenticjobs ${VERSION} - an agent-friendly job board you can self
 
   Hiring
     post <file.md>            post a job; stays a draft until you publish
+    new <url>                 import a job from a URL, as a draft
+    update <url>              re-read that URL into the listing it created
     publish <slug>            take a draft live
     close <slug>              close a listing
     applications <slug>       what came in
@@ -209,6 +211,9 @@ async function run(args: Args): Promise<number> {
 
     case 'post':
       return commandPost(args);
+    case 'new':
+    case 'update':
+      return commandImport(args);
     case 'publish':
     case 'close':
       return commandPublish(args);
@@ -713,6 +718,45 @@ async function commandResume(args: Args): Promise<number> {
 }
 
 // --- hiring ---------------------------------------------------------------
+
+/**
+ * `new <url>` and `update <url>` are the same call.
+ *
+ * The board keys an import on the URL it came from, so re-importing refreshes
+ * that listing instead of making a second copy of one job. Two verbs because
+ * two intentions, one endpoint because there is only one sane behaviour.
+ */
+async function commandImport(args: Args): Promise<number> {
+  const url = args.positional[0];
+  if (url === undefined) {
+    process.stderr.write(`Which URL? agenticjobs ${args.command} https://example.com/jobs/123\n`);
+    return 1;
+  }
+
+  const org = flagString(args, 'org');
+  const result = await clientFor(args).importJob({
+    url,
+    ...(org === undefined ? {} : { org }),
+    ...(flagString(args, 'agentPolicy') === undefined
+      ? {}
+      : { agentPolicy: flagString(args, 'agentPolicy') as string }),
+  });
+
+  const lines = [
+    result.created
+      ? `Imported as a draft: ${result.job.slug}`
+      : `Refreshed: ${result.job.slug}`,
+    result.via === 'jsonld'
+      ? dim('  read from the JobPosting data the page publishes')
+      : dim('  that page publishes no JobPosting data, so this was read off the page'),
+    ...result.warnings.map((warning) => dim(`  ${warning}`)),
+    result.job.status === 'published'
+      ? ''
+      : dim(`  publish it: agenticjobs publish ${result.job.slug}`),
+  ].filter((line) => line !== '');
+
+  return out(args, lines.join('\n'), result);
+}
 
 async function commandPost(args: Args): Promise<number> {
   const client = clientFor(args);

@@ -50,6 +50,7 @@ interface JobRow {
   agent_policy: string;
   apply_via: string;
   apply_url: string | null;
+  apply_source_url: string | null;
   apply_email: string | null;
   apply_schema: ApplySchema | null;
   status: string;
@@ -70,7 +71,8 @@ const SELECT = `
   select j.id, j.slug, j.title, j.description, j.employment_type, j.workplace, j.seniority,
          j.location, j.remote_regions, j.salary_min, j.salary_max, j.salary_currency,
          j.salary_period, j.salary_equity, j.tags, j.stack, j.requirements, j.responsibilities,
-         j.agent_policy, j.apply_via, j.apply_url, j.apply_email, j.apply_schema, j.status,
+         j.agent_policy, j.apply_via, j.apply_url, j.apply_email, j.apply_schema,
+         j.apply_source_url, j.status,
          j.published_at, j.expires_at, j.created_at, j.updated_at,
          o.id as org_id, o.slug as org_slug, o.name as org_name, o.website as org_website,
          o.logo_url as org_logo_url, o.description as org_description,
@@ -276,6 +278,8 @@ export interface JobInput {
   agentPolicy: AgentPolicy;
   apply: ApplyMethod;
   expiresAt: string | null;
+  /** Where this listing was imported from, if it was. Provenance, not a destination. */
+  sourceUrl: string | null;
 }
 
 /**
@@ -330,6 +334,9 @@ export function normaliseInput(input: Record<string, unknown>, orgId: string): J
     agentPolicy,
     apply,
     expiresAt: date(input['expiresAt']),
+    // Set by the importer, never by a poster: it records where a listing was
+    // read from, and a hand-typed one was read from nowhere.
+    sourceUrl: null,
   };
 }
 
@@ -433,9 +440,9 @@ export async function createJob(pool: pg.Pool, input: JobInput): Promise<Job> {
        slug, org_id, title, description, employment_type, workplace, seniority, location,
        remote_regions, salary_min, salary_max, salary_currency, salary_period, salary_equity,
        tags, stack, requirements, responsibilities, agent_policy, apply_via, apply_url,
-       apply_email, apply_schema, expires_at, status
+       apply_email, apply_schema, apply_source_url, expires_at, status
      ) values (
-       $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,'draft'
+       $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,'draft'
      ) returning id`,
     [
       slug,
@@ -461,6 +468,7 @@ export async function createJob(pool: pg.Pool, input: JobInput): Promise<Job> {
       null,
       null,
       JSON.stringify(input.apply.schema),
+      input.sourceUrl,
       input.expiresAt,
     ],
   );
@@ -487,6 +495,59 @@ export async function setStatus(
     [id, status],
   );
   return getJobById(pool, id);
+}
+
+/**
+ * Refresh a listing from a re-import.
+ *
+ * Only the fields an import can actually supply are touched, and only when the
+ * new value is present: a re-import that could not read a location must not
+ * erase one a person typed in. Status is untouched, so refreshing a published
+ * listing does not unpublish it and refreshing a draft does not publish it.
+ */
+export async function updateJobFromImport(
+  pool: pg.Pool,
+  id: string,
+  fields: {
+    title?: string;
+    description?: string;
+    employmentType?: EmploymentType;
+    workplace?: Workplace;
+    location?: string;
+    sourceUrl?: string;
+  },
+): Promise<Job | null> {
+  await pool.query(
+    `update jobs
+        set title = coalesce($2, title),
+            description = coalesce($3, description),
+            employment_type = coalesce($4, employment_type),
+            workplace = coalesce($5, workplace),
+            location = coalesce($6, location),
+            apply_source_url = coalesce($7, apply_source_url),
+            updated_at = now()
+      where id = $1`,
+    [
+      id,
+      fields.title ?? null,
+      fields.description ?? null,
+      fields.employmentType ?? null,
+      fields.workplace ?? null,
+      fields.location ?? null,
+      fields.sourceUrl ?? null,
+    ],
+  );
+  return getJobById(pool, id);
+}
+
+/** The listing imported from this URL, if there is one. */
+export async function getJobBySourceUrl(pool: pg.Pool, url: string): Promise<Job | null> {
+  const result = await pool.query<{ id: string }>(
+    `select id from jobs where apply_source_url = $1 order by created_at desc limit 1`,
+    [url],
+  );
+  const id = result.rows[0]?.id;
+  return id === undefined ? null : getJobById(pool, id);
 }
 
 export async function countJobs(pool: pg.Pool): Promise<{ open: number; total: number }> {
