@@ -54,17 +54,28 @@ function locationOf(resume: Resume): string | null {
 }
 
 /**
+ * The longest a person's name is allowed to be before it is not one.
+ *
+ * A resume whose Markdown lost its line breaks parses as a single h1 holding
+ * the entire document, and the "name" then comes back as three thousand
+ * characters of resume. That happened, and it produced a candidate card
+ * captioned with a whole CV and a URL to match, so the length is checked
+ * rather than assumed.
+ */
+const NAME_MAX = 80;
+
+/**
  * The name shown in the directory.
  *
- * A resume with no h1 falls back to its title, which its owner wrote and which
- * is at least theirs. It never falls back to an email address: publishing a
- * resume should not mean publishing an address as the headline.
+ * A resume with no usable h1 falls back to its title, which its owner wrote
+ * and which is at least theirs. It never falls back to an email address:
+ * publishing a resume should not mean publishing an address as the headline.
  */
-function nameOf(resume: Resume): string {
+export function nameOf(resume: Resume): string {
   const parsed = resume.parsed?.name?.trim();
-  if (parsed !== undefined && parsed !== '') return parsed;
+  if (parsed !== undefined && parsed !== '' && parsed.length <= NAME_MAX) return parsed;
   const title = resume.title.trim();
-  return title === '' ? 'Candidate' : title;
+  return title === '' || title.length > NAME_MAX ? 'Candidate' : title;
 }
 
 export function toCandidateSummary(resume: Resume): CandidateSummary {

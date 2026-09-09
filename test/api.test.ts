@@ -479,6 +479,37 @@ describe('the API', { skip: reason === '' ? false : `no database: ${reason}` }, 
       assert.match(html, /noindex/);
     });
 
+    test('a resume that lost its line breaks cannot become a paragraph-long URL', async () => {
+      // A flattened resume parses as one h1 holding the whole document, so the
+      // "name" is the entire CV. Unbounded, that produced a three thousand
+      // character slug and a candidate card captioned with a whole resume.
+      if (pool === null) return;
+      const { createResume, updateResume, ensurePublicSlug } = await import(
+        '../dist/core/resumes.js'
+      );
+      const { toCandidateSummary } = await import('../dist/core/candidates.js');
+      const { ensureUser } = await import('../dist/core/auth.js');
+
+      const flat = `# ${'Anthony Ettinger - Email: a@b.co - '.repeat(40)}`;
+      const user = await ensureUser(pool as never, `flat+${Date.now()}@example.com`);
+      const created = await createResume(pool as never, user.id, {
+        markdown: flat,
+        title: 'Agentic Web Architect',
+      });
+      const saved = await updateResume(pool as never, user.id, created.slug, {
+        markdown: flat,
+        visibility: 'public',
+      });
+      const slug = await ensurePublicSlug(pool as never, saved);
+
+      assert.ok(slug, 'it should still get an address');
+      assert.ok((slug ?? '').length <= 60, `slug was ${(slug ?? '').length} characters`);
+      // And the card falls back to the title the person typed rather than
+      // captioning itself with the document.
+      const summary = toCandidateSummary({ ...saved, publicSlug: slug });
+      assert.equal(summary.name, 'Agentic Web Architect');
+    });
+
     test('a private resume has no public address at all', async () => {
       if (pool === null) return;
       const { slug } = await publish('private', 'Alan Private');

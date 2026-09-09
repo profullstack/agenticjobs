@@ -10,6 +10,7 @@
 import type pg from 'pg';
 import { parseResume, resumeTemplate, type OpenResume } from '../markup/resume.ts';
 import { clean, slugify, suffix } from '../schema/text.ts';
+import { nameOf } from './candidates.ts';
 
 export const VISIBILITIES = ['private', 'link', 'public'] as const;
 export type Visibility = (typeof VISIBILITIES)[number];
@@ -97,6 +98,19 @@ export async function getResumeById(pool: pg.Pool, id: string): Promise<Resume |
 }
 
 /** For a shared link: only resumes the owner has opened up. */
+/** Slugs are capped at this many characters, cut back to a whole word. */
+const SLUG_MAX = 60;
+
+function publicSlugBase(name: string): string {
+  const full = slugify(name);
+  if (full === '') return 'candidate';
+  if (full.length <= SLUG_MAX) return full;
+  const cut = full.slice(0, SLUG_MAX);
+  const lastDash = cut.lastIndexOf('-');
+  const trimmed = lastDash > 20 ? cut.slice(0, lastDash) : cut;
+  return trimmed.replace(/-+$/, '') || 'candidate';
+}
+
 /**
  * Give a shared resume a board-wide address, once.
  *
@@ -112,7 +126,11 @@ export async function ensurePublicSlug(pool: pg.Pool, resume: Resume): Promise<s
   if (resume.visibility === 'private') return resume.publicSlug;
   if (resume.publicSlug !== null) return resume.publicSlug;
 
-  const base = slugify(resume.parsed?.name ?? resume.title ?? 'candidate') || 'candidate';
+  // Bounded, and cut at a word boundary. A slug is a URL, and a URL built out
+  // of somebody's document has to survive that document being malformed: an
+  // unbounded one produced a three thousand character address the first time
+  // this ran against a resume whose line breaks had been flattened.
+  const base = publicSlugBase(nameOf(resume));
   for (let attempt = 0; attempt < 25; attempt += 1) {
     const candidate = attempt === 0 ? base : `${base}-${attempt + 1}`;
     const claimed = await pool.query(
