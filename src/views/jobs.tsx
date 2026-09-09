@@ -302,27 +302,6 @@ const ApplyForm: FC<{
   signedIn: boolean;
   resumes: { slug: string; title: string }[];
 }> = ({ job, problems, values, signedIn, resumes }) => {
-  if (job.apply.via === 'url') {
-    return (
-      <Card>
-        <p>This employer takes applications on their own site.</p>
-        <a class="btn" href={job.apply.url} rel="nofollow noopener">
-          Apply at {new URL(job.apply.url).hostname}
-        </a>
-      </Card>
-    );
-  }
-  if (job.apply.via === 'email') {
-    return (
-      <Card>
-        <p>This employer takes applications by email.</p>
-        <a class="btn" href={`mailto:${job.apply.email}?subject=${encodeURIComponent(job.title)}`}>
-          Email {job.apply.email}
-        </a>
-      </Card>
-    );
-  }
-
   const errorFor = (name: string): string | undefined =>
     problems.find((problem) => problem.field === name)?.message;
 

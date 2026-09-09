@@ -532,12 +532,7 @@ async function commandShow(args: Args): Promise<number> {
   }
   const found = await clientFor(args).job(slug);
   const job = found.job;
-  const how =
-    job.apply.via === 'board'
-      ? `agenticjobs apply ${job.slug}`
-      : job.apply.via === 'url'
-        ? job.apply.url
-        : job.apply.email;
+  const how = `agenticjobs apply ${job.slug}`;
   const lines = [
     bold(job.title),
     `${job.org.name}${job.location === null ? '' : ` - ${job.location}`}`,
@@ -743,9 +738,6 @@ async function commandPost(args: Args): Promise<number> {
     'tags',
     'stack',
     'agentPolicy',
-    'applyVia',
-    'applyUrl',
-    'applyEmail',
   ]) {
     const value = flagString(args, key);
     if (value !== undefined) input[key] = value;

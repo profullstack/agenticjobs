@@ -364,6 +364,57 @@ describe('the API', { skip: reason === '' ? false : `no database: ${reason}` }, 
     });
   });
 
+  describe('applications stay on the board', () => {
+    test('a listing cannot send applicants somewhere else', async () => {
+      // The whole point of the board is that an agent can complete an
+      // application without a browser. An offsite link is a listing an agent
+      // has to skip, so it is refused at the door rather than stored.
+      if (pool === null) return;
+      const { createSession } = await import('../dist/core/auth.js');
+      const owner = await pool.query(
+        `select user_id from memberships limit 1`,
+      );
+      const userId = owner.rows[0]?.['user_id'];
+      assert.ok(userId, 'expected the seed to leave an employer member');
+      const token = await createSession(pool as never, userId, { label: 'test' });
+
+      for (const apply of [
+        { applyVia: 'url', applyUrl: 'https://example.com/careers/1' },
+        { applyVia: 'email', applyEmail: 'jobs@example.com' },
+      ]) {
+        const response = await post(
+          '/api/v1/jobs',
+          {
+            org: 'example-works',
+            title: `Offsite ${Date.now()}`,
+            description: 'A job that tries to send people elsewhere.',
+            agentPolicy: 'welcome',
+            ...apply,
+          },
+          { authorization: `Bearer ${token}` },
+        );
+        assert.equal(response.status, 400, JSON.stringify(apply));
+        const body = (await response.json()) as { error: { message: string } };
+        assert.match(body.error.message, /taken on this board/i);
+      }
+    });
+
+    test('every published listing publishes a schema an agent can complete', async () => {
+      const page = (await (await get('/api/v1/jobs?limit=10')).json()) as {
+        items: { slug: string }[];
+      };
+      assert.ok(page.items.length > 0, 'expected the seeded board to have jobs');
+      for (const item of page.items) {
+        const schema = (await (
+          await get(`/api/v1/jobs/${item.slug}/apply-schema`)
+        ).json()) as { via: string; endpoint?: string; schema?: { fields: unknown[] } };
+        assert.equal(schema.via, 'board', item.slug);
+        assert.ok(schema.endpoint, `${item.slug} must publish an endpoint`);
+        assert.ok((schema.schema?.fields ?? []).length > 0, `${item.slug} must publish fields`);
+      }
+    });
+  });
+
   describe('the directory', () => {
     test('a board refuses to list itself', async () => {
       // The flagship is both a board and the directory it names, so this is

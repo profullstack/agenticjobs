@@ -93,16 +93,22 @@ export interface Job {
 /**
  * How to apply.
  *
- * `board` is the one that matters: it means the application is a POST to this
+ * There is one method, and it is this board. An application is a POST to this
  * instance against a published schema, which is the only variant an agent can
- * complete without a browser. The other two exist because employers ask for
- * them, and a listing that lies about having them is worse than one that says
- * so plainly.
+ * complete without a browser.
+ *
+ * `url` and `email` used to exist here because employers ask for them. They
+ * are gone. A listing that sends an applicant to a careers portal is a link to
+ * a job rather than a job, and a board full of those is the thing this one was
+ * built not to be: an agent cannot complete an offsite form, so every such
+ * listing quietly excludes the readers this board exists for. A URL is still
+ * useful, but as somewhere to *import* a job from, never as somewhere to send
+ * an applicant to.
+ *
+ * The shape stays a tagged union with one member so the published JSON does
+ * not change and a second method, if one is ever justified, is additive.
  */
-export type ApplyMethod =
-  | { via: 'board'; schema: ApplySchema }
-  | { via: 'url'; url: string }
-  | { via: 'email'; email: string };
+export type ApplyMethod = { via: 'board'; schema: ApplySchema };
 
 /**
  * The shape of an application, published with the job.
