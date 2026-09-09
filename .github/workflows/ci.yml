@@ -52,6 +52,7 @@ jobs:
         run: pnpm run build
 
       - name: Test
+        shell: bash
         # The API suite skips itself when no database is reachable, which is
         # right on a laptop and wrong here: a silent skip in CI is a green
         # check that proved nothing.
