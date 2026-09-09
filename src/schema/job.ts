@@ -157,6 +157,21 @@ export const DEFAULT_APPLY_SCHEMA: ApplySchema = {
 export const APPLICATION_STATUSES = ['draft', 'new', 'reviewing', 'rejected', 'hired'] as const;
 export type ApplicationStatus = (typeof APPLICATION_STATUSES)[number];
 
+/**
+ * The statuses an employer may set.
+ *
+ * `draft` and `new` are the candidate's to write: `draft` means their agent
+ * has not been released by them yet, and `new` is what submitting produces.
+ * An employer who could set either could un-send an application or push one
+ * back to unread, so the decision verbs are the only ones offered.
+ */
+export const APPLICATION_DECISIONS = ['reviewing', 'rejected', 'hired'] as const;
+export type ApplicationDecision = (typeof APPLICATION_DECISIONS)[number];
+
+export function isApplicationDecision(value: unknown): value is ApplicationDecision {
+  return (APPLICATION_DECISIONS as readonly unknown[]).includes(value);
+}
+
 export interface Application {
   id: string;
   jobId: string;
@@ -171,6 +186,8 @@ export interface Application {
   /** Null while it is still a draft nobody has sent. */
   submittedAt: string | null;
   createdAt: string;
+  /** When an employer last moved it out of `new`. Null until one does. */
+  decidedAt?: string | null;
 }
 
 export interface AgentDisclosure {

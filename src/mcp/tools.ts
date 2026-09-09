@@ -12,6 +12,7 @@
  */
 
 import { text, toolError, type ToolDefinition, type ToolResult } from './protocol.ts';
+import { APPLICATION_DECISIONS, isApplicationDecision } from '../schema/job.ts';
 
 export interface Caller {
   /** Path is relative to the board root, e.g. `/api/v1/jobs?q=rust`. */
@@ -179,6 +180,24 @@ export const TOOLS: ToolDefinition[] = [
     description:
       'Applications to one of your listings, including each candidate resume and any agent disclosure.',
     inputSchema: object({ slug: string('The job slug.') }, ['slug']),
+  },
+  {
+    name: 'decide_application',
+    title: 'Decide on an application',
+    description:
+      'Move one application to reviewing, rejected or hired. Take the id from list_applications. Requires membership of the employer. This records the decision on the board; it does not email the candidate, so tell them yourself.',
+    inputSchema: object(
+      {
+        id: string('The application id, as list_applications returns it.'),
+        status: {
+          type: 'string',
+          enum: [...APPLICATION_DECISIONS],
+          description:
+            'reviewing means you are reading it, rejected means no, hired means yes. The candidate-side statuses cannot be set here.',
+        },
+      },
+      ['id', 'status'],
+    ),
   },
   {
     name: 'read_updates',
@@ -409,6 +428,26 @@ export async function callTool(
       if (response.status === 401) return toolError(signInFirst(caller));
       if (response.status >= 400) return toolError(message(response.body, 'Could not read applications.'));
       return text(JSON.stringify(response.body, null, 2), response.body);
+    }
+
+    case 'decide_application': {
+      const id = String(args['id'] ?? '');
+      const status = args['status'];
+      if (!isApplicationDecision(status)) {
+        return toolError(`status must be one of ${APPLICATION_DECISIONS.join(', ')}.`);
+      }
+      const response = await caller.call(
+        'POST',
+        `/api/v1/applications/${encodeURIComponent(id)}/decision`,
+        { status },
+      );
+      if (response.status === 401) return toolError(signInFirst(caller));
+      if (response.status >= 400) {
+        return toolError(message(response.body, 'The decision was not recorded.'));
+      }
+      const decided = response.body as { application?: { answers?: Record<string, string> } };
+      const who = decided.application?.answers?.['name'] ?? 'The application';
+      return text(`${who} is now ${status}. The candidate was not emailed.`, response.body);
     }
 
     case 'read_updates': {

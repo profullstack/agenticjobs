@@ -34,6 +34,7 @@ import {
 } from '../client/index.ts';
 import { VERSION } from '../config.ts';
 import { ago, formatSalary } from '../schema/text.ts';
+import { APPLICATION_DECISIONS, isApplicationDecision } from '../schema/job.ts';
 import type { Job, JobQuery } from '../schema/index.ts';
 
 const USAGE = `agenticjobs ${VERSION} - an agent-friendly job board you can self-host
@@ -89,6 +90,7 @@ const USAGE = `agenticjobs ${VERSION} - an agent-friendly job board you can self
     publish <slug>            take a draft live
     close <slug>              close a listing
     applications <slug>       what came in
+    decide <id> <status>      reviewing, rejected or hired
 
   Running one
     serve                     start the board
@@ -238,6 +240,8 @@ async function run(args: Args): Promise<number> {
       return commandPublish(args);
     case 'applications':
       return commandApplications(args);
+    case 'decide':
+      return commandDecide(args);
 
     case 'news':
       return commandNews(args);
@@ -906,6 +910,10 @@ async function commandApplications(args: Args): Promise<number> {
     const cover = application.answers['cover'];
     return [
       `${bold(application.answers['name'] ?? 'Someone')}  ${dim(application.answers['email'] ?? '')}`,
+      // The id is here so `decide` has something to take. Reading applications
+      // and acting on them is one sitting, and sending someone to the API to
+      // find the id of the row they are looking at is not a workflow.
+      `  ${dim(application.id)}`,
       `  ${dim(`${application.status} - ${ago(application.createdAt)}`)}`,
       disclosure,
       cover === undefined ? '' : `  ${cover.slice(0, 300)}`,
@@ -914,6 +922,31 @@ async function commandApplications(args: Args): Promise<number> {
       .join('\n');
   });
   return out(args, `${result.items.length} applications\n\n${lines.join('\n\n')}`, result);
+}
+
+async function commandDecide(args: Args): Promise<number> {
+  const [id, status] = args.positional;
+  if (id === undefined || status === undefined) {
+    process.stderr.write(
+      `Which one, and what? agenticjobs decide <id> <${APPLICATION_DECISIONS.join('|')}>\n`,
+    );
+    return 1;
+  }
+  if (!isApplicationDecision(status)) {
+    process.stderr.write(`Not a decision: ${status}. Use ${APPLICATION_DECISIONS.join(', ')}.\n`);
+    return 1;
+  }
+
+  const result = await clientFor(args).request<{
+    application: { answers: Record<string, string>; status: string };
+  }>('POST', `/api/v1/applications/${encodeURIComponent(id)}/decision`, { status });
+
+  const who = result.application.answers['name'] ?? 'That application';
+  return out(
+    args,
+    `${who} is now ${result.application.status}. ${dim('The candidate was not emailed.')}`,
+    result,
+  );
 }
 
 // --- federation -----------------------------------------------------------

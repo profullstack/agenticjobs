@@ -25,10 +25,12 @@ import {
 } from '../../core/auth.ts';
 import {
   createApplication,
+  decideApplication,
   listApplications,
   recentApplicationCount,
   validateApplication,
 } from '../../core/applications.ts';
+import { isApplicationDecision } from '../../schema/job.ts';
 import {
   createJob,
   getJobBySlug,
@@ -1013,6 +1015,30 @@ export function pageRoutes(): Hono<AppEnv> {
     if (job === null) return c.notFound();
     if (!(await isMember(pool, viewer.id, job.org.id))) return c.notFound();
     await setStatus(pool, job.id, c.req.param('action') === 'close' ? 'closed' : 'published');
+    return c.redirect(`/me/jobs/${job.slug}`, 303);
+  });
+
+  /**
+   * Decide on one application, from the employer's own page.
+   *
+   * Nested under the job although the API is not, because the browser needs
+   * somewhere to land afterwards and the slug is the cheapest way to know
+   * where that is. `decideApplication` re-checks membership itself, so the
+   * lookup above it is for the redirect rather than for permission.
+   */
+  pages.post('/me/jobs/:slug/applications/:id/decision', async (c) => {
+    const { pool } = c.get('deps');
+    const viewer = requireViewer(c);
+    if (viewer instanceof Response) return viewer;
+
+    const job = await getJobBySlug(pool, c.req.param('slug'), { includeUnpublished: true });
+    if (job === null) return c.notFound();
+
+    const form = await formOf(c);
+    const status = form['status'];
+    if (!isApplicationDecision(status)) return c.notFound();
+
+    await decideApplication(pool, { id: c.req.param('id'), userId: viewer.id, status });
     return c.redirect(`/me/jobs/${job.slug}`, 303);
   });
 

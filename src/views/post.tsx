@@ -6,10 +6,12 @@ import type { FC } from 'hono/jsx';
 import type { Application, Job, Organisation } from '../schema/index.ts';
 import {
   AGENT_POLICIES,
+  APPLICATION_DECISIONS,
   EMPLOYMENT_TYPES,
   SALARY_PERIODS,
   SENIORITIES,
   WORKPLACES,
+  type ApplicationDecision,
 } from '../schema/job.ts';
 import { ago } from '../schema/text.ts';
 import { Alert, Badge, Card, Empty, Field, Prose } from './layout.tsx';
@@ -195,6 +197,20 @@ const POLICY_HELP: Record<string, string> = {
     'You want a person to have written it. This is a request the board states plainly; it cannot verify it, and says so.',
 };
 
+/**
+ * What the button says, as against what the column stores.
+ *
+ * The status is a state the application is in; the button is an act the
+ * employer is about to perform, and labelling a button with the noun makes
+ * the reader work out the verb. Nothing here notifies the candidate, so no
+ * label may imply a message was sent.
+ */
+const DECISION_VERBS: Record<ApplicationDecision, string> = {
+  reviewing: 'Reviewing',
+  rejected: 'Reject',
+  hired: 'Hire',
+};
+
 export const ManageJobPage: FC<{
   job: Job;
   html: string;
@@ -263,6 +279,9 @@ export const ManageJobPage: FC<{
                     {application.agent.supervised ? ', supervised' : ''}
                   </Badge>
                 )}
+                <Badge variant={application.status === 'hired' ? 'primary' : 'outline'}>
+                  {application.status}
+                </Badge>
                 <Badge variant="outline">{ago(application.createdAt)}</Badge>
               </span>
             </div>
@@ -279,6 +298,21 @@ export const ManageJobPage: FC<{
                 <Prose html={application.resume} />
               </details>
             )}
+            <div class="row">
+              {APPLICATION_DECISIONS.filter((decision) => decision !== application.status).map(
+                (decision) => (
+                  <form
+                    method="post"
+                    action={`/me/jobs/${job.slug}/applications/${application.id}/decision`}
+                  >
+                    <input type="hidden" name="status" value={decision} />
+                    <button class="btn btn-secondary btn-sm" type="submit">
+                      {DECISION_VERBS[decision]}
+                    </button>
+                  </form>
+                ),
+              )}
+            </div>
           </Card>
         ))
       )}
