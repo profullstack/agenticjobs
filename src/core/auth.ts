@@ -237,7 +237,10 @@ export async function startDeviceAuth(
   return {
     deviceCode,
     userCode: code,
-    verifyUrl: `${publicUrl}/device`,
+    // The code travels in the URL, so approving is one click rather than a
+    // page that asks for a code the person then has to find in their terminal.
+    // The page still accepts a typed one, for a browser on another machine.
+    verifyUrl: `${publicUrl}/device?code=${code}`,
     interval: 2,
     expiresAt: Date.parse(result.rows[0]?.expires_at ?? '') || Date.now() + DEVICE_TTL_MS,
   };

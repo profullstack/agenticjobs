@@ -247,6 +247,17 @@ export function openApiDocument(config: Config): Record<string, unknown> {
           responses: { 201: ok('The update.'), 400: err(), 401: err(), 403: err(), 404: err(), 429: err() },
         },
       },
+      '/api/v1/updates/{id}': {
+        delete: {
+          tags: ['updates'],
+          summary: 'Delete an update you posted.',
+          description:
+            'Yours, or any update by the employer you post for. Anything else is a 404 rather than a 403, because the two are the same fact to a caller who should not be able to tell them apart.',
+          security: [{ bearer: [] }],
+          parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+          responses: { 200: ok('Gone.'), 401: err(), 404: err() },
+        },
+      },
       '/api/v1/orgs/{slug}/follow': {
         post: {
           tags: ['updates'],

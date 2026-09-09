@@ -431,7 +431,9 @@ async function commandLogin(args: Args): Promise<number> {
     label: `${process.env['USER'] ?? 'terminal'}@${process.env['HOSTNAME'] ?? 'machine'}`,
     onPrompt: (grant) => {
       process.stdout.write(
-        `\nOpen ${bold(grant.verifyUrl)} and enter this code:\n\n    ${bold(grant.userCode)}\n\nWaiting...\n`,
+        // The URL already carries the code, so the usual path is one click.
+        // The code is printed too, for a browser on another machine.
+        `\nOpen ${bold(grant.verifyUrl)} to approve this terminal.\n\nYour code is ${bold(grant.userCode)}, if you need to type it.\n\nWaiting...\n`,
       );
     },
   });

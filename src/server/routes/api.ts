@@ -66,6 +66,7 @@ import { deliverMagicLink } from '../../core/mail.ts';
 import { tagsFrom, toCandidateSummary, withTags } from '../../core/candidates.ts';
 import {
   candidateSlugFor,
+  deleteUpdate,
   follow,
   followerCount,
   isFollowing,
@@ -794,6 +795,23 @@ export function apiRoutes(): Hono<AppEnv> {
       return fail(c, rate ? 429 : 400, rate ? 'rate_limited' : 'invalid', posted);
     }
     return c.json({ update: withUrl(posted, config.publicUrl), author: back }, 201);
+  });
+
+  /**
+   * Take one down.
+   *
+   * Whoever wrote it, or anybody who posts for that employer: a person who
+   * leaves a company should not leave a post nobody there can remove. A 404
+   * covers both "no such update" and "not yours", because the two are the
+   * same fact to a caller who should not be able to tell them apart.
+   */
+  api.delete('/updates/:id', async (c) => {
+    const { pool } = c.get('deps');
+    const viewer = viewerOf(c);
+    if (viewer === null) return fail(c, 401, 'unauthorised', 'Sign in to delete an update.');
+    const gone = await deleteUpdate(pool, viewer.id, c.req.param('id'));
+    if (!gone) return fail(c, 404, 'not_found', 'No such update, or it is not yours to delete.');
+    return c.json({ deleted: true });
   });
 
   /**

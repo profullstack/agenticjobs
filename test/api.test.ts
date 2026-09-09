@@ -630,6 +630,31 @@ describe('the API', { skip: reason === '' ? false : `no database: ${reason}` }, 
       assert.ok(after.items.some((item) => item.body === body), 'a followed update must appear');
     });
 
+    test('you can take your own update down, and only your own', async () => {
+      if (pool === null) return;
+      const owner = await employer('Lcme');
+      const stranger = await employer('Mcme');
+      const created = (await (
+        await post(
+          '/api/v1/updates',
+          { org: owner.org.slug, body: `Posted in error, ${Date.now()}.` },
+          owner.auth,
+        )
+      ).json()) as { update: { id: string } };
+      const id = created.update.id;
+
+      // Somebody else's update is a 404 rather than a 403: the two are the
+      // same fact to a caller who should not be able to tell them apart.
+      assert.equal((await del(`/api/v1/updates/${id}`, stranger.auth)).status, 404);
+      assert.equal((await del(`/api/v1/updates/${id}`)).status, 401);
+      assert.equal((await del(`/api/v1/updates/${id}`, owner.auth)).status, 200);
+
+      const left = (await (await get(`/api/v1/updates?org=${owner.org.slug}`)).json()) as {
+        items: { id: string }[];
+      };
+      assert.ok(!left.items.some((item) => item.id === id));
+    });
+
     test('an author nobody has is a 404, not the whole board', async () => {
       // Answering an unanswerable filter with everything is how a reader ends
       // up subscribed to the entire site believing they subscribed to one
@@ -1155,6 +1180,18 @@ describe('the API', { skip: reason === '' ? false : `no database: ${reason}` }, 
       assert.ok(guids.length > 0, 'expected items');
       assert.equal(new Set(guids).size, guids.length, 'guids must be unique');
       for (const guid of guids) assert.match(guid ?? '', /^https?:\/\//);
+    });
+
+    test('the approval link carries the code, so approving is one click', async () => {
+      // The page still accepts a typed code, for a browser on another
+      // machine. What this rules out is a link that opens an empty form
+      // beside a terminal holding the code.
+      const grant = (await (await post('/api/v1/auth/device', { label: 'test' })).json()) as {
+        userCode: string;
+        verifyUrl: string;
+      };
+      assert.match(grant.verifyUrl, /\/device\?code=/);
+      assert.ok(grant.verifyUrl.endsWith(grant.userCode), grant.verifyUrl);
     });
 
     test('llms.txt says the board is not scraped, because that is the point', async () => {
