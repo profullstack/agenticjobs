@@ -133,3 +133,18 @@ test('a multi-line description renders as the markdown it is', () => {
   assert.match(html, /<h1[^>]*>Role<\/h1>/);
   assert.match(html, /<li>one<\/li>/);
 });
+
+test('every field that holds a document keeps its line breaks', async () => {
+  // This bug has now been found three times in three places: job descriptions,
+  // resume Markdown and the cover letter. All three go through clean(), all
+  // three are documents, and the default flattens newlines. The rule is that
+  // anything rendered as Markdown or written in a textarea is multiline.
+  const { clean } = await import('../dist/schema/text.js');
+  const doc = 'line one\nline two';
+
+  // The three call sites, by the shape they pass.
+  assert.equal(clean(doc, 100, { multiline: true }), doc);
+
+  // And the default is still single-line, which is what titles and slugs need.
+  assert.equal(clean(doc, 100), 'line one line two');
+});

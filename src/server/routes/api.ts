@@ -52,7 +52,9 @@ import { createOrg, getOrgBySlug, isMember, listOrgs, listOrgsForUser } from '..
 import {
   createResume,
   deleteResume,
+  getPublicResume,
   getResume,
+  listPublicResumes,
   getResumeById,
   getSharedResume,
   isVisibility,
@@ -61,6 +63,7 @@ import {
 } from '../../core/resumes.ts';
 import { importDocument, ImportProblem, MAX_UPLOAD_BYTES } from '../../core/import.ts';
 import { deliverMagicLink } from '../../core/mail.ts';
+import { toCandidateSummary } from '../../core/candidates.ts';
 import { sameOrigin } from '../../config.ts';
 import { announce, Blocked, listInstances, listTopics } from '../../directory/registry.ts';
 import { federatedSearch, targetsFromDescriptors } from '../../directory/federate.ts';
@@ -646,6 +649,50 @@ export function apiRoutes(): Hono<AppEnv> {
       if (error instanceof ImportProblem) return fail(c, 400, 'import_failed', error.message);
       throw error;
     }
+  });
+
+  // --- candidates -------------------------------------------------------
+
+  /**
+   * The other half of the board, as data.
+   *
+   * Reads are public here for the same reason job reads are: a candidate
+   * directory an agent needs a key for is one no agent will ever read. Only
+   * resumes whose owner chose to be listed appear.
+   */
+  api.get('/candidates', async (c) => {
+    const { pool, config } = c.get('deps');
+    const resumes = await listPublicResumes(pool);
+    return c.json({
+      items: resumes.map((resume) => {
+        const summary = toCandidateSummary(resume);
+        return {
+          ...summary,
+          url: `${config.publicUrl}/candidates/${summary.slug}`,
+          resume: `${config.publicUrl}/api/v1/candidates/${summary.slug}`,
+        };
+      }),
+      total: resumes.length,
+      spec: `${config.publicUrl}/docs/openresume`,
+    });
+  });
+
+  api.get('/candidates/:slug', async (c) => {
+    const { pool, config } = c.get('deps');
+    const resume = await getPublicResume(pool, c.req.param('slug'));
+    if (resume === null) {
+      return fail(c, 404, 'not_found', 'No such candidate, or that resume is not shared.');
+    }
+    return c.json({
+      candidate: toCandidateSummary(resume),
+      // The Markdown is the canonical document, so it travels whole rather
+      // than only as the parse of it.
+      markdown: resume.markdown,
+      parsed: resume.parsed,
+      listed: resume.visibility === 'public',
+      url: `${config.publicUrl}/candidates/${resume.publicSlug}`,
+      spec: `${config.publicUrl}/docs/openresume`,
+    });
   });
 
   // --- sign in ----------------------------------------------------------

@@ -40,7 +40,10 @@ import { createOrg, getOrgBySlug, isMember, listOrgs, listOrgsForUser } from '..
 import {
   createResume,
   deleteResume,
+  ensurePublicSlug,
+  getPublicResume,
   getResume,
+  listPublicResumes,
   isVisibility,
   listResumes,
   updateResume,
@@ -61,6 +64,8 @@ import { MePage, ResumeEditor } from '../../views/me.tsx';
 import { ManageJobPage, NewEmployerPage, PostJobPage } from '../../views/post.tsx';
 import { NetworkPage, NetworkSearchPage } from '../../views/network.tsx';
 import { DocsPage, SpecPage } from '../../views/docs.tsx';
+import { CandidateDetail, CandidateList } from '../../views/candidates.tsx';
+import { toCandidateSummary } from '../../core/candidates.ts';
 import { readSpec } from './specs.ts';
 import type { AppEnv } from '../deps.ts';
 
@@ -231,6 +236,51 @@ export function pageRoutes(): Hono<AppEnv> {
           publicUrl={config.publicUrl}
           applied
           signedIn={viewer !== null}
+        />
+      </Layout>,
+    );
+  });
+
+  // --- candidates ---------------------------------------------------------
+
+  pages.get('/candidates', async (c) => {
+    const { pool, config } = c.get('deps');
+    const resumes = await listPublicResumes(pool);
+    return c.html(
+      <Layout
+        {...shell(c)}
+        title="Candidates"
+        description={`People who published a resume on ${config.boardName}.`}
+      >
+        <CandidateList
+          candidates={resumes.map(toCandidateSummary)}
+          publicUrl={config.publicUrl}
+        />
+      </Layout>,
+    );
+  });
+
+  pages.get('/candidates/:slug', async (c) => {
+    const { pool, config } = c.get('deps');
+    const resume = await getPublicResume(pool, c.req.param('slug'));
+    if (resume === null) return c.notFound();
+
+    const summary = toCandidateSummary(resume);
+    return c.html(
+      <Layout
+        {...shell(c)}
+        title={summary.name}
+        description={summary.headline ?? `${summary.name} on ${config.boardName}.`}
+        // A resume reachable only by its link stays out of search results, or
+        // "anyone with the link" quietly becomes "anyone".
+        noindex={resume.visibility !== 'public'}
+      >
+        <CandidateDetail
+          candidate={summary}
+          parsed={resume.parsed}
+          html={renderMarkdown(resume.markdown, { headingOffset: 1 })}
+          markdownUrl={`${config.publicUrl}/api/v1/candidates/${summary.slug}`}
+          listed={resume.visibility === 'public'}
         />
       </Layout>,
     );
@@ -529,6 +579,10 @@ export function pageRoutes(): Hono<AppEnv> {
       ...(isVisibility(visibility) ? { visibility } : {}),
     });
     if (updated === null) return c.notFound();
+    // Choosing "public" or "anyone with the link" is what mints the board-wide
+    // address. Doing it here rather than in the update keeps a private resume
+    // from claiming a name in a namespace everyone shares.
+    await ensurePublicSlug(pool, updated);
     return c.redirect(`/me/resumes/${updated.slug}?saved=1`, 303);
   });
 

@@ -218,16 +218,20 @@ export const ResumeEditor: FC<{
             {resume?.markdown ?? ''}
           </textarea>
         </Field>
-        <Field label="Who can see it" name="visibility">
+        <Field
+          label="Who can see it"
+          name="visibility"
+          hint="Sharing puts your resume, including the contact details in it, on a page anyone can open."
+        >
           <select class="select" id="visibility" name="visibility">
             <option value="private" selected={resume?.visibility === 'private'}>
               Private - only you, and employers you apply to
             </option>
             <option value="link" selected={resume?.visibility === 'link'}>
-              Anyone with the link
+              Anyone with the link - not listed anywhere
             </option>
             <option value="public" selected={resume?.visibility === 'public'}>
-              Public
+              Public - listed in Candidates
             </option>
           </select>
         </Field>
@@ -253,6 +257,23 @@ export const ResumeEditor: FC<{
     </div>
 
     <aside class="stack">
+      {resume !== null && resume.visibility !== 'private' && resume.publicSlug !== null && (
+        <Card>
+          <div class="card-header">
+            <h2 class="card-title">
+              {resume.visibility === 'public' ? 'Listed in Candidates' : 'Shared by link'}
+            </h2>
+            <p class="card-description">
+              {resume.visibility === 'public'
+                ? 'Anyone can find this from the candidate directory.'
+                : 'Anyone with this address can read it. It is not listed.'}
+            </p>
+          </div>
+          <p class="small">
+            <a href={`/candidates/${resume.publicSlug}`}>/candidates/{resume.publicSlug}</a>
+          </p>
+        </Card>
+      )}
       {warnings.length > 0 && (
         <Alert variant="warning">
           <strong>Worth a look:</strong>

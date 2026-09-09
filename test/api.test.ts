@@ -415,6 +415,77 @@ describe('the API', { skip: reason === '' ? false : `no database: ${reason}` }, 
     });
   });
 
+  describe('candidates', () => {
+    const publish = async (visibility: string, name: string) => {
+      const { createSession, ensureUser } = await import('../dist/core/auth.js');
+      const { createResume, updateResume, ensurePublicSlug } = await import(
+        '../dist/core/resumes.js'
+      );
+      const user = await ensureUser(pool as never, `cand+${Date.now()}+${name}@example.com`);
+      const token = await createSession(pool as never, user.id, { label: 't' });
+      const created = await createResume(pool as never, user.id, {
+        markdown: `# ${name}\n\nStaff engineer\n\n- Location: Lisbon\n\n## Skills\n\n- TypeScript\n- Postgres\n`,
+        title: name,
+      });
+      const saved = await updateResume(pool as never, user.id, created.slug, {
+        markdown: created.markdown,
+        visibility,
+      });
+      const slug = await ensurePublicSlug(pool as never, saved);
+      return { token, slug, user };
+    };
+
+    test('a public resume is listed and readable, by a person and by an agent', async () => {
+      if (pool === null) return;
+      const { slug } = await publish('public', 'Ada Public');
+      assert.ok(slug, 'publishing must mint a board-wide address');
+
+      const list = (await (await get('/api/v1/candidates')).json()) as {
+        items: { slug: string; name: string; skills: string[]; url: string }[];
+      };
+      const found = list.items.find((item) => item.slug === slug);
+      assert.ok(found, 'a public resume must appear in the directory');
+      // The card is built from the resume, not typed a second time.
+      assert.equal(found?.name, 'Ada Public');
+      assert.ok(found?.skills.includes('TypeScript'), JSON.stringify(found?.skills));
+
+      assert.equal((await get(`/candidates/${slug}`, { accept: 'text/html' })).status, 200);
+      const detail = (await (await get(`/api/v1/candidates/${slug}`)).json()) as {
+        markdown: string;
+        listed: boolean;
+      };
+      // The Markdown is the canonical document and travels whole.
+      assert.match(detail.markdown, /# Ada Public/);
+      assert.equal(detail.listed, true);
+    });
+
+    test('a link-only resume is reachable but never listed', async () => {
+      if (pool === null) return;
+      const { slug } = await publish('link', 'Grace Link');
+      assert.ok(slug);
+
+      // This is the entire difference between the two settings.
+      assert.equal((await get(`/candidates/${slug}`, { accept: 'text/html' })).status, 200);
+      const list = (await (await get('/api/v1/candidates')).json()) as {
+        items: { slug: string }[];
+      };
+      assert.ok(
+        !list.items.some((item) => item.slug === slug),
+        'a link-only resume must not be in the directory',
+      );
+
+      // And it must not be handed to a search engine either.
+      const html = await (await get(`/candidates/${slug}`, { accept: 'text/html' })).text();
+      assert.match(html, /noindex/);
+    });
+
+    test('a private resume has no public address at all', async () => {
+      if (pool === null) return;
+      const { slug } = await publish('private', 'Alan Private');
+      assert.equal(slug, null, 'a private resume must not claim a shared name');
+    });
+  });
+
   describe('editing a listing', () => {
     test('a listing can be rewritten without changing its URL', async () => {
       // Before this the board could publish and close a listing and not change

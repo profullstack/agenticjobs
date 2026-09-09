@@ -71,7 +71,10 @@ export function validateApplication(
 
   for (const field of schema.fields) {
     const raw = input[field.name];
-    const value = clean(raw, field.maxLength ?? 2000);
+    // A textarea is the one field type that is meant to hold more than a line,
+    // so it is the one that must keep its newlines. Without this a cover
+    // letter arrives as a single paragraph however it was written.
+    const value = clean(raw, field.maxLength ?? 2000, { multiline: field.type === 'textarea' });
 
     if (value === '') {
       if (field.required) problems.push({ field: field.name, message: `${field.label} is required.` });

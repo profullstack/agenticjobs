@@ -97,6 +97,12 @@ export const Layout: FC<PropsWithChildren<PageProps>> = (props) => {
               <a href="/" aria-current={path === '/' ? 'page' : undefined}>
                 Jobs
               </a>
+              <a
+                href="/candidates"
+                aria-current={path.startsWith('/candidates') ? 'page' : undefined}
+              >
+                Candidates
+              </a>
               <a href="/employers" aria-current={path.startsWith('/employers') ? 'page' : undefined}>
                 Employers
               </a>

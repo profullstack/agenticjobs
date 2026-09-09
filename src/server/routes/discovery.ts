@@ -14,6 +14,8 @@ import { dirname, extname, join, normalize } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { countJobs, searchJobs } from '../../core/jobs.ts';
 import { listOrgs } from '../../core/orgs.ts';
+import { listPublicResumes } from '../../core/resumes.ts';
+import { toCandidateSummary } from '../../core/candidates.ts';
 import { parseQuery } from '../../schema/query.ts';
 import { WELL_KNOWN_PATH } from '../../schema/instance.ts';
 import { jobPostingJsonLd } from '../../schema/jsonld.ts';
@@ -163,9 +165,10 @@ export function discoveryRoutes(): Hono<AppEnv> {
    */
   routes.get('/feed.rss', async (c) => {
     const { pool, config } = c.get('deps');
-    const [page, orgs] = await Promise.all([
+    const [page, orgs, candidates] = await Promise.all([
       searchJobs(pool, { ...parseQuery(new URLSearchParams()), limit: 100 }),
       listOrgs(pool, 100),
+      listPublicResumes(pool, 100),
     ]);
 
     type Entry = { title: string; url: string; at: string; body: string; category: string };
@@ -177,6 +180,16 @@ export function discoveryRoutes(): Hono<AppEnv> {
         body: toPlainText(job.description, 500),
         category: 'Job',
       })),
+      ...candidates.map((resume) => {
+        const summary = toCandidateSummary(resume);
+        return {
+          title: `${summary.name} is looking`,
+          url: `${config.publicUrl}/candidates/${summary.slug}`,
+          at: resume.updatedAt,
+          body: summary.headline ?? `${summary.name} published a resume.`,
+          category: 'Candidate',
+        };
+      }),
       ...orgs.map((org) => ({
         title: `${org.name} is hiring on ${config.boardName}`,
         url: `${config.publicUrl}/employers/${org.slug}`,
@@ -256,7 +269,14 @@ export function discoveryRoutes(): Hono<AppEnv> {
     const name = c.req.param('name').replace(/\.xml$/, '');
 
     if (name === 'pages') {
-      const paths = ['/', '/employers', '/docs', '/docs/openresume', '/docs/openjob'];
+      const paths = [
+        '/',
+        '/candidates',
+        '/employers',
+        '/docs',
+        '/docs/openresume',
+        '/docs/openjob',
+      ];
       if (c.get('deps').config.isDirectory) paths.push('/network');
       return c.body(urlset(paths.map((path) => ({ loc: `${config.publicUrl}${path}` }))), 200, {
         'content-type': 'application/xml; charset=utf-8',
