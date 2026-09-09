@@ -148,10 +148,23 @@ main {
   color: var(--muted-foreground);
 }
 
+/*
+ * `1fr` means `minmax(auto, 1fr)`, and that `auto` floor is the widest child's
+ * min-content. One long unbreakable string in a code block is then enough to
+ * push the single mobile column past the viewport and scroll the whole page
+ * sideways. `minmax(0, …)` lets the track shrink so the code block scrolls
+ * inside itself instead, which is what its own `overflow-x: auto` is for.
+ * The two-column rule below always had this right; the mobile base did not.
+ */
 .grid-2 {
   display: grid;
   gap: 1.5rem;
-  grid-template-columns: 1fr;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+/* A grid item's default `min-width: auto` defeats the same shrinking. */
+.grid-2 > * {
+  min-width: 0;
 }
 
 @media (min-width: 60rem) {
@@ -555,7 +568,9 @@ legend {
 @media (min-width: 40rem) {
   .filters-inline {
     display: grid;
-    grid-template-columns: 1fr auto;
+    /* minmax(0, …) for the same reason as .grid-2: a long query in the search
+       box must not be able to widen the row. */
+    grid-template-columns: minmax(0, 1fr) auto;
     gap: 0.5rem;
     align-items: end;
   }
