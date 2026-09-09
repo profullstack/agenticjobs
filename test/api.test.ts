@@ -568,8 +568,9 @@ describe('the API', { skip: reason === '' ? false : `no database: ${reason}` }, 
       };
       assert.ok(single.items.some((item) => item.slug === both?.publicSlug));
 
-      // And the same filter is subscribable.
-      const feed = await get('/feed.rss?tags=javascript,react,node.js');
+      // And the same filter is subscribable. This lives on the candidates feed
+      // rather than the everything feed: /feed.rss is the whole site.
+      const feed = await get('/candidates/feed?tags=javascript,react,node.js');
       assert.equal(feed.status, 200);
       const xml = await feed.text();
       assert.match(xml, /<atom:link[^>]+tags=/);
@@ -798,6 +799,51 @@ describe('the API', { skip: reason === '' ? false : `no database: ${reason}` }, 
   });
 
   describe('discovery', () => {
+    test('jobs and candidates each have their own filterable feed', async () => {
+      // Asked for as /feed?tags= and /candidates/feed?tags=, so the two halves
+      // of the board are subscribable separately rather than only together.
+      for (const path of ['/feed', '/candidates/feed']) {
+        const response = await get(path);
+        assert.equal(response.status, 200, path);
+        assert.match(response.headers.get('content-type') ?? '', /application\/rss\+xml/, path);
+        const xml = await response.text();
+        assert.match(xml, /<atom:link[^>]+rel="self"/, path);
+        assert.match(xml, /<lastBuildDate>/, path);
+      }
+
+      // The jobs feed carries jobs and no people, and the other way round.
+      const jobs = await (await get('/feed')).text();
+      assert.ok(!jobs.includes('<category>Candidate</category>'), 'jobs feed must be jobs');
+      const people = await (await get('/candidates/feed')).text();
+      assert.ok(!people.includes('<category>Job</category>'), 'candidates feed must be people');
+
+      // A tag nobody uses is an empty but still valid feed, not a 404 or a crash.
+      const empty = await get('/feed?tags=nobody-uses-this-tag');
+      assert.equal(empty.status, 200);
+      const emptyXml = await empty.text();
+      assert.match(emptyXml, /<lastBuildDate>/);
+      assert.ok(!emptyXml.includes('<item>'), 'an unmatched tag lists nothing');
+    });
+
+    test('a job tag filters the board, in both url spellings', async () => {
+      // `tag=a&tag=b` is what the CLI sends and `tags=a,b` is what a badge
+      // links to; they have to mean the same thing.
+      const page = (await (await get('/api/v1/jobs?limit=1')).json()) as {
+        items: { slug: string; tags: string[]; stack: string[] }[];
+      };
+      const tag = page.items[0]?.tags[0] ?? page.items[0]?.stack[0];
+      if (tag === undefined) return;
+
+      const comma = (await (
+        await get(`/api/v1/jobs?tags=${encodeURIComponent(tag)}`)
+      ).json()) as { total: number };
+      const repeated = (await (
+        await get(`/api/v1/jobs?tag=${encodeURIComponent(tag)}`)
+      ).json()) as { total: number };
+      assert.equal(comma.total, repeated.total);
+      assert.ok(comma.total > 0, `expected ${tag} to match something`);
+    });
+
     test('the feed, sitemap and llms.txt all answer', async () => {
       for (const path of [
         '/jobs.json',
