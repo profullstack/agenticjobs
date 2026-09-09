@@ -221,6 +221,39 @@ export class BoardClient {
     return this.request('GET', `/api/v1/jobs/${encodeURIComponent(slug)}/applications`);
   }
 
+  // --- updates ----------------------------------------------------------
+
+  async updates(scope: { org?: string; candidate?: string; following?: boolean } = {}): Promise<{
+    items: { id: string; body: string; link: string | null; createdAt: string; author: { kind: string; name: string; slug: string | null } }[];
+  }> {
+    const params = new URLSearchParams();
+    if (scope.org !== undefined && scope.org !== '') params.set('org', scope.org);
+    if (scope.candidate !== undefined && scope.candidate !== '') {
+      params.set('candidate', scope.candidate);
+    }
+    if (scope.following === true) params.set('following', 'true');
+    const search = params.toString();
+    return this.request('GET', `/api/v1/updates${search === '' ? '' : `?${search}`}`);
+  }
+
+  async postUpdate(input: { body: string; link?: string; org?: string }): Promise<{
+    update: { id: string; body: string; link: string | null };
+    author: string;
+  }> {
+    return this.request('POST', '/api/v1/updates', input);
+  }
+
+  async setFollow(
+    target: { org?: string; candidate?: string },
+    following: boolean,
+  ): Promise<{ following: boolean; followers: number }> {
+    const path =
+      target.org !== undefined && target.org !== ''
+        ? `/api/v1/orgs/${encodeURIComponent(target.org)}/follow`
+        : `/api/v1/candidates/${encodeURIComponent(target.candidate ?? '')}/follow`;
+    return this.request(following ? 'POST' : 'DELETE', path);
+  }
+
   // --- federation -------------------------------------------------------
 
   async instances(): Promise<{ items: InstanceListing[] }> {

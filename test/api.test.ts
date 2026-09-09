@@ -50,6 +50,11 @@ async function post(
   );
 }
 
+async function del(path: string, headers: Record<string, string> = {}): Promise<Response> {
+  if (app === null) throw new Error('no app');
+  return app.fetch(new Request(`http://board.test${path}`, { method: 'DELETE', headers }));
+}
+
 /**
  * Set up at module scope, not in before().
  *
@@ -450,6 +455,190 @@ describe('the API', { skip: reason === '' ? false : `no database: ${reason}` }, 
         assert.ok(schema.endpoint, `${item.slug} must publish an endpoint`);
         assert.ok((schema.schema?.fields ?? []).length > 0, `${item.slug} must publish fields`);
       }
+    });
+  });
+
+  describe('updates and following', () => {
+    /** A person, an employer they post for, and a token. */
+    const employer = async (name: string) => {
+      const { createSession, ensureUser } = await import('../dist/core/auth.js');
+      const { createOrg } = await import('../dist/core/orgs.js');
+      const user = await ensureUser(pool as never, `up+${Date.now()}+${name}@example.com`, name);
+      const token = await createSession(pool as never, user.id, { label: 't' });
+      const org = await createOrg(pool as never, user.id, { name: `${name} Works` });
+      if (typeof org === 'string') throw new Error(org);
+      return { user, token, org, auth: { authorization: `Bearer ${token}` } };
+    };
+
+    test('an employer posts an update, and it reaches every representation', async () => {
+      if (pool === null) return;
+      const acme = await employer('Acme');
+      const body = `We closed the backend role at ${Date.now()}.`;
+      const created = await post(
+        '/api/v1/updates',
+        { org: acme.org.slug, body, link: 'https://example.com/hiring' },
+        acme.auth,
+      );
+      assert.equal(created.status, 201, await created.text());
+
+      const json = (await (await get(`/api/v1/updates?org=${acme.org.slug}`)).json()) as {
+        items: { body: string; link: string | null; authorUrl: string }[];
+      };
+      assert.equal(json.items[0]?.body, body);
+      assert.equal(json.items[0]?.link, 'https://example.com/hiring');
+      assert.match(json.items[0]?.authorUrl ?? '', /\/employers\//);
+
+      // The same filter, in the other three representations. This is the rule
+      // the board already holds for jobs and candidates: one query, every
+      // shape, or a reader who subscribes gets a different answer than a
+      // reader who browses.
+      const markdown = await (await get(`/updates.md?org=${acme.org.slug}`)).text();
+      assert.ok(markdown.includes(body), markdown.slice(0, 300));
+
+      const rss = await (await get(`/updates/feed?org=${acme.org.slug}`)).text();
+      assert.ok(rss.includes(body.slice(0, 40)), rss.slice(0, 400));
+      assert.match(rss, /<rss version="2.0"/);
+
+      const html = await (await get(`/employers/${acme.org.slug}`, { accept: 'text/html' })).text();
+      assert.ok(html.includes(body), 'the update belongs on the employer page');
+      assert.match(html, /Follow/);
+    });
+
+    test('you cannot post as an employer you do not post for', async () => {
+      if (pool === null) return;
+      const acme = await employer('Bcme');
+      const stranger = await employer('Ccme');
+      const response = await post(
+        '/api/v1/updates',
+        { org: acme.org.slug, body: 'We are hiring everybody, apply now.' },
+        stranger.auth,
+      );
+      assert.equal(response.status, 400);
+      const error = (await response.json()) as { error: { message: string } };
+      assert.match(error.error.message, /do not post for/);
+    });
+
+    test('the same update twice is refused', async () => {
+      if (pool === null) return;
+      const dup = await employer('Dcme');
+      const body = `Exactly the same thing, ${Date.now()}.`;
+      assert.equal((await post('/api/v1/updates', { org: dup.org.slug, body }, dup.auth)).status, 201);
+      const again = await post('/api/v1/updates', { org: dup.org.slug, body }, dup.auth);
+      assert.equal(again.status, 400);
+      assert.match(((await again.json()) as { error: { message: string } }).error.message, /already posted/);
+    });
+
+    test('five a day is the limit, and the sixth says so', async () => {
+      if (pool === null) return;
+      const chatty = await employer('Ecme');
+      for (let n = 0; n < 5; n += 1) {
+        const response = await post(
+          '/api/v1/updates',
+          { org: chatty.org.slug, body: `Something that happened, number ${n}, ${Date.now()}.` },
+          chatty.auth,
+        );
+        assert.equal(response.status, 201, `post ${n}: ${await response.text()}`);
+      }
+      const sixth = await post(
+        '/api/v1/updates',
+        { org: chatty.org.slug, body: `And one more, ${Date.now()}.` },
+        chatty.auth,
+      );
+      assert.equal(sixth.status, 429, await sixth.text());
+    });
+
+    test('an update is refused a link nobody else could open', async () => {
+      if (pool === null) return;
+      const acme = await employer('Fcme');
+      const response = await post(
+        '/api/v1/updates',
+        {
+          org: acme.org.slug,
+          body: 'Read about it on our internal wiki.',
+          link: 'http://127.0.0.1:8080/secret',
+        },
+        acme.auth,
+      );
+      assert.equal(response.status, 400);
+      assert.match(
+        ((await response.json()) as { error: { message: string } }).error.message,
+        /public http/,
+      );
+    });
+
+    test('posting as yourself needs a published resume, so the post has a page', async () => {
+      if (pool === null) return;
+      const nobody = await employer('Gcme');
+      const response = await post(
+        '/api/v1/updates',
+        { body: 'I am available for work starting in March.' },
+        nobody.auth,
+      );
+      assert.equal(response.status, 403);
+      assert.equal(((await response.json()) as { error: { code: string } }).error.code, 'no_profile');
+    });
+
+    test('following is idempotent, and unfollowing undoes it', async () => {
+      if (pool === null) return;
+      const acme = await employer('Hcme');
+      const reader = await employer('Icme');
+      const path = `/api/v1/orgs/${acme.org.slug}/follow`;
+
+      const first = (await (await post(path, {}, reader.auth)).json()) as {
+        following: boolean;
+        followers: number;
+      };
+      assert.equal(first.following, true);
+      assert.equal(first.followers, 1);
+
+      // Twice is once: a retried call must not be an error, and must not
+      // count twice.
+      const twice = (await (await post(path, {}, reader.auth)).json()) as { followers: number };
+      assert.equal(twice.followers, 1);
+
+      const mine = (await (await get('/api/v1/me/following', reader.auth)).json()) as {
+        items: { slug: string }[];
+      };
+      assert.ok(mine.items.some((item) => item.slug === acme.org.slug));
+
+      const gone = (await (await del(path, reader.auth)).json()) as {
+        following: boolean;
+        followers: number;
+      };
+      assert.equal(gone.following, false);
+      assert.equal(gone.followers, 0);
+    });
+
+    test('your feed is what you follow, and needs a credential', async () => {
+      if (pool === null) return;
+      const acme = await employer('Jcme');
+      const reader = await employer('Kcme');
+      const body = `Only followers should see this first: ${Date.now()}.`;
+      await post('/api/v1/updates', { org: acme.org.slug, body }, acme.auth);
+
+      assert.equal((await get('/api/v1/updates?following=true')).status, 401);
+
+      const before = (await (await get('/api/v1/updates?following=true', reader.auth)).json()) as {
+        items: { body: string }[];
+      };
+      assert.ok(!before.items.some((item) => item.body === body));
+
+      await post(`/api/v1/orgs/${acme.org.slug}/follow`, {}, reader.auth);
+      const after = (await (await get('/api/v1/updates?following=true', reader.auth)).json()) as {
+        items: { body: string }[];
+      };
+      assert.ok(after.items.some((item) => item.body === body), 'a followed update must appear');
+    });
+
+    test('an author nobody has is a 404, not the whole board', async () => {
+      // Answering an unanswerable filter with everything is how a reader ends
+      // up subscribed to the entire site believing they subscribed to one
+      // employer.
+      const response = await get('/api/v1/updates?org=nobody-by-that-name');
+      assert.equal(response.status, 404);
+      const markdown = await (await get('/updates.md?org=nobody-by-that-name')).text();
+      assert.match(markdown, /Nobody here is/);
+      assert.equal((markdown.match(/^## /gm) ?? []).length, 0, markdown.slice(0, 300));
     });
   });
 

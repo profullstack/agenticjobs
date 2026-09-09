@@ -76,6 +76,12 @@ export const Layout: FC<PropsWithChildren<PageProps>> = (props) => {
           href="/candidates/feed"
           title={`${boardName} candidates`}
         />
+        <link
+          rel="alternate"
+          type="application/rss+xml"
+          href="/updates/feed"
+          title={`${boardName} updates`}
+        />
         {/* The same listings as Markdown, for a reader that would rather have
             the document than the page. */}
         <link rel="alternate" type="text/markdown" href="/jobs.md" title={`${boardName} jobs`} />
@@ -115,6 +121,9 @@ export const Layout: FC<PropsWithChildren<PageProps>> = (props) => {
               </a>
               <a href="/employers" aria-current={path.startsWith('/employers') ? 'page' : undefined}>
                 Employers
+              </a>
+              <a href="/updates" aria-current={path.startsWith('/updates') ? 'page' : undefined}>
+                Updates
               </a>
               {isDirectory === true && (
                 <a href="/network" aria-current={path.startsWith('/network') ? 'page' : undefined}>

@@ -70,6 +70,15 @@ const USAGE = `agenticjobs ${VERSION} - an agent-friendly job board you can self
     resume save <file> [--slug s] [--title t]
     resume import <file>      pdf, docx, txt or md, converted to Markdown
 
+  Updates
+    news                      the updates on this board
+      --org <slug>              ...from one employer
+      --candidate <slug>        ...from one candidate
+      --following               ...from everyone you follow
+    news post <text>          post one; --link <url>, --org <slug> to post as an employer
+    follow <slug>             follow an employer; --candidate for a person
+    unfollow <slug>           stop
+
   Hiring
     post <file.md>            post a job; stays a draft until you publish
     new <url>                 import a job from a URL, as a draft
@@ -229,6 +238,12 @@ async function run(args: Args): Promise<number> {
       return commandPublish(args);
     case 'applications':
       return commandApplications(args);
+
+    case 'news':
+      return commandNews(args);
+    case 'follow':
+    case 'unfollow':
+      return commandFollow(args);
 
     case 'announce':
       return commandAnnounce(args);
@@ -900,6 +915,70 @@ async function commandApplications(args: Args): Promise<number> {
 }
 
 // --- federation -----------------------------------------------------------
+
+/**
+ * Updates, read and written.
+ *
+ * `news post` rather than a second top-level verb, because "post" already
+ * means a job here and a board where `post` sometimes means a job and
+ * sometimes means a status line is a board where somebody eventually
+ * publishes the wrong one.
+ */
+async function commandNews(args: Args): Promise<number> {
+  const client = clientFor(args);
+
+  if (args.positional[0] === 'post') {
+    const body = args.positional.slice(1).join(' ').trim();
+    if (body === '') {
+      process.stderr.write('Say something: agenticjobs news post "we shipped it" --link https://...\n');
+      return 1;
+    }
+    const link = flagString(args, 'link');
+    const org = flagString(args, 'org');
+    const posted = await client.postUpdate({
+      body,
+      ...(link === null || link === undefined ? {} : { link }),
+      ...(org === null || org === undefined ? {} : { org }),
+    });
+    return out(args, `Posted. It is on ${posted.author}.`, posted);
+  }
+
+  const org = flagString(args, 'org');
+  const candidate = flagString(args, 'candidate');
+  const result = await client.updates({
+    ...(org === null || org === undefined ? {} : { org }),
+    ...(candidate === null || candidate === undefined ? {} : { candidate }),
+    ...(flagBool(args, 'following') ? { following: true } : {}),
+  });
+  if (result.items.length === 0) return out(args, 'Nothing posted yet.', result);
+  const lines = result.items.map((update) =>
+    [
+      `${bold(update.author.name)} ${dim(ago(update.createdAt))}`,
+      `  ${update.body.replace(/\n/g, '\n  ')}`,
+      ...(update.link === null ? [] : [`  ${dim(update.link)}`]),
+    ].join('\n'),
+  );
+  return out(args, lines.join('\n\n'), result);
+}
+
+async function commandFollow(args: Args): Promise<number> {
+  const following = args.command === 'follow';
+  const candidate = flagBool(args, 'candidate');
+  const slug = args.positional[0] ?? '';
+  if (slug === '') {
+    process.stderr.write('Which one? agenticjobs follow <employer-slug> [--candidate]\n');
+    return 1;
+  }
+  const result = await clientFor(args).setFollow(
+    candidate ? { candidate: slug } : { org: slug },
+    following,
+  );
+  return out(
+    args,
+    `${following ? 'Following' : 'Not following'} ${slug}. ${result.followers} ${result.followers === 1 ? 'follower' : 'followers'}.`,
+    result,
+  );
+}
 
 async function commandAnnounce(args: Args): Promise<number> {
   const { announceOnce } = await import('../directory/announce.ts');
