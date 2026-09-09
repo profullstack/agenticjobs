@@ -164,8 +164,17 @@ export const ResumeEditor: FC<{
   error?: string;
   saved?: boolean;
 }> = ({ resume, html, warnings, error, saved }) => (
-  <div class="grid-2">
-    <div class="stack">
+  /*
+   * The preview sits below the editor, not beside it.
+   *
+   * It was in the sidebar, which is 20rem wide, and a resume rendered into
+   * 20rem is a column of two-word lines. A document needs the width of the
+   * page to be read at all, and the things that genuinely are short, the
+   * warnings and the share link, are what belong next to the form.
+   */
+  <div class="stack">
+    <div class="grid-2">
+      <div class="stack">
       <h1>{resume === null ? 'New resume' : resume.title}</h1>
       {error !== undefined && <Alert variant="error">{error}</Alert>}
       {saved === true && <Alert variant="success">Saved.</Alert>}
@@ -256,8 +265,8 @@ export const ResumeEditor: FC<{
       )}
     </div>
 
-    <aside class="stack">
-      {resume !== null && resume.visibility !== 'private' && resume.publicSlug !== null && (
+      <aside class="stack">
+        {resume !== null && resume.visibility !== 'private' && resume.publicSlug !== null && (
         <Card>
           <div class="card-header">
             <h2 class="card-title">
@@ -274,22 +283,28 @@ export const ResumeEditor: FC<{
           </p>
         </Card>
       )}
-      {warnings.length > 0 && (
-        <Alert variant="warning">
-          <strong>Worth a look:</strong>
-          <ul style="margin:.5rem 0 0;padding-left:1.1rem">
-            {warnings.map((warning) => (
-              <li>{warning}</li>
-            ))}
-          </ul>
-        </Alert>
-      )}
-      <Card>
-        <div class="card-header">
-          <h2 class="card-title">Preview</h2>
-        </div>
-        <Prose html={html} />
-      </Card>
-    </aside>
+        {warnings.length > 0 && (
+          <Alert variant="warning">
+            <strong>Worth a look:</strong>
+            <ul style="margin:.5rem 0 0;padding-left:1.1rem">
+              {warnings.map((warning) => (
+                <li>{warning}</li>
+              ))}
+            </ul>
+          </Alert>
+        )}
+      </aside>
+    </div>
+
+    <Card>
+      <div class="card-header">
+        <h2 class="card-title">Preview</h2>
+        <p class="card-description">
+          What an employer reads, and what {resume?.visibility === 'private' ? 'would be' : 'is'} on
+          your candidate page.
+        </p>
+      </div>
+      <Prose html={html} />
+    </Card>
   </div>
 );
