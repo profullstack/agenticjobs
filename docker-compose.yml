@@ -42,8 +42,6 @@ services:
       BOARD_NAME: ${BOARD_NAME:-Agentic Jobs}
       BOARD_TAGLINE: ${BOARD_TAGLINE:-Jobs posted here, not scraped from somewhere else.}
       BOARD_TOPICS: ${BOARD_TOPICS:-agentic,ai,engineering}
-      # Generate one and put it in .env before this reaches anything public.
-      SECRET: ${SECRET:-}
       DIRECTORY_URL: ${DIRECTORY_URL:-https://agenticjobs.work}
       ANNOUNCE: ${ANNOUNCE:-false}
       DIRECTORY: ${DIRECTORY:-false}

@@ -46,11 +46,6 @@ export async function startServer(overrides: Partial<Config> = {}): Promise<Runn
 
   console.log(`${config.boardName} on http://localhost:${config.port} (bound ${config.host})`);
   console.log(`  public url  ${config.publicUrl}`);
-  if (config.ephemeralSecret) {
-    // Not a warning about style: every session and device code minted before a
-    // restart stops verifying, which looks like random sign-outs in production.
-    console.warn('  SECRET is unset, so one was generated. Sessions will not survive a restart.');
-  }
 
   // Whether sign-in links can actually leave this process is the kind of
   // thing that should be visible at boot, not discovered by a person who

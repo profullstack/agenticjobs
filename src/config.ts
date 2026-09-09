@@ -17,7 +17,6 @@ export interface Config {
   boardName: string;
   boardTagline: string;
   topics: string[];
-  secret: string;
   /** Directory to announce to, or null to stay unlisted. */
   directoryUrl: string | null;
   announce: boolean;
@@ -27,8 +26,6 @@ export interface Config {
   resendApiKey: string | null;
   mailFrom: string;
   version: string;
-  /** True when SECRET was generated rather than supplied. */
-  ephemeralSecret: boolean;
 }
 
 function trimSlash(value: string): string {
@@ -81,13 +78,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const port = Number.parseInt(env['PORT'] ?? '8787', 10) || 8787;
   const publicUrl = trimSlash(env['PUBLIC_URL']?.trim() || `http://localhost:${port}`);
 
-  const supplied = env['SECRET']?.trim() ?? '';
-  // A missing secret is survivable for a laptop run and fatal for a deploy:
-  // every session and device code minted before a restart stops verifying.
-  // Generating one keeps `pnpm dev` working without making the failure quiet.
-  const ephemeralSecret = supplied === '';
-  const secret = ephemeralSecret ? randomBytes(32).toString('hex') : supplied;
-
   const directoryRaw = env['DIRECTORY_URL']?.trim() ?? '';
   const boardName = env['BOARD_NAME']?.trim() || 'Agentic Jobs';
 
@@ -106,8 +96,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       .map((topic) => topic.trim().toLowerCase())
       .filter((topic) => topic !== '')
       .slice(0, 12),
-    secret,
-    ephemeralSecret,
     directoryUrl: directoryRaw === '' ? null : trimSlash(directoryRaw),
     announce: flag(env['ANNOUNCE']),
     isDirectory: flag(env['DIRECTORY']),

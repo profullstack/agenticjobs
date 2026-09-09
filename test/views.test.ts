@@ -93,3 +93,23 @@ test('remote and contract filter, and they filter as themselves', async () => {
   // Paging resets: page 3 of the old search is not page 3 of the new one.
   assert.ok(!narrowed.includes('offset'), narrowed);
 });
+
+test('searching from a tagged page keeps the tag', async () => {
+  // A GET form submits its own fields and nothing else. Tags are set by
+  // clicking a badge rather than by a control, so without hidden inputs the
+  // search box silently threw away the filter the person had just applied.
+  const { Filters } = await import('../dist/views/jobs.js');
+  const { EMPTY_QUERY } = await import('../dist/schema/query.js');
+
+  const html = String(
+    Filters({ query: { ...EMPTY_QUERY, tags: ['javascript', 'react'], salaryMin: 100, org: 'acme' } }),
+  );
+
+  assert.match(html, /name="tags" value="javascript,react"/, 'tags must survive a search');
+  assert.match(html, /name="salaryMin" value="100"/, 'a salary floor must survive too');
+  assert.match(html, /name="org" value="acme"/, 'so must an employer filter');
+
+  // An unfiltered form carries no empty hidden fields.
+  const bare = String(Filters({ query: EMPTY_QUERY }));
+  assert.ok(!bare.includes('name="tags"'), 'no tags set means no hidden tags field');
+});
