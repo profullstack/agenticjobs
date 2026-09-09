@@ -89,12 +89,14 @@ const USAGE = `agenticjobs ${VERSION} - an agent-friendly job board you can self
 async function main(): Promise<number> {
   const args = parseArgs(process.argv.slice(2));
 
-  if (args.command === '' || flagBool(args, 'help', 'h')) {
-    process.stdout.write(USAGE);
-    return 0;
-  }
+  // Version is checked before the empty-command case, because `--version`
+  // on its own leaves no positional and would otherwise print the usage.
   if (flagBool(args, 'version', 'v') || args.command === 'version') {
     process.stdout.write(`${VERSION}\n`);
+    return 0;
+  }
+  if (args.command === '' || flagBool(args, 'help', 'h')) {
+    process.stdout.write(USAGE);
     return 0;
   }
 
