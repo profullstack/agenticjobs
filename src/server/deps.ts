@@ -1,10 +1,13 @@
 import type pg from 'pg';
 import type { Config } from '../config.ts';
 import type { Viewer } from '../core/auth.ts';
+import type { Mailer } from '../core/mail.ts';
 
 export interface Deps {
   pool: pg.Pool;
   config: Config;
+  /** Null when this instance sends no mail, which is a supported state. */
+  mailer: Mailer | null;
 }
 
 /**

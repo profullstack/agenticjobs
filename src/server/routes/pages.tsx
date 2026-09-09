@@ -46,6 +46,7 @@ import {
   updateResume,
 } from '../../core/resumes.ts';
 import { importDocument, ImportProblem } from '../../core/import.ts';
+import { deliverMagicLink } from '../../core/mail.ts';
 import { listInstances, listTopics } from '../../directory/registry.ts';
 import { federatedSearch, targetsFromDescriptors } from '../../directory/federate.ts';
 import { parseQuery } from '../../schema/query.ts';
@@ -276,7 +277,7 @@ export function pageRoutes(): Hono<AppEnv> {
   });
 
   pages.post('/login', async (c) => {
-    const { pool, config } = c.get('deps');
+    const { pool, config, mailer } = c.get('deps');
     const form = await formOf(c);
     const email = normaliseEmail(form['email']);
     if (email === null) {
@@ -291,13 +292,23 @@ export function pageRoutes(): Hono<AppEnv> {
     const next = safeRedirect(form['next']);
     const link = await startMagicLink(pool, email, next);
     const url = `${config.publicUrl}/auth/callback?token=${link.token}`;
-    if (config.smtpUrl === null) console.log(`magic link for ${email}: ${url}`);
+    const delivered = await deliverMagicLink({
+      mailer,
+      boardName: config.boardName,
+      email,
+      url,
+      redirect: next,
+    });
     // Sweeping here rather than on a timer keeps the process free of one.
     void sweepExpired(pool).catch(() => undefined);
 
+    // Never the link itself: whoever typed the address is not necessarily
+    // whoever owns it, so putting the link on this page hands them the
+    // account. `unsent` is about this board's mail setup and not about the
+    // address, so saying it tells a stranger nothing about who has an account.
     return c.html(
       <Layout {...shell(c)} title="Check your email" noindex>
-        <LoginPage sent={email} {...(config.smtpUrl === null ? { devLink: url } : {})} />
+        <LoginPage sent={email} unsent={!delivered} />
       </Layout>,
     );
   });

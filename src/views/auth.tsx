@@ -9,11 +9,11 @@
 import type { FC } from 'hono/jsx';
 import { Alert, Card, Field } from './layout.tsx';
 
-export const LoginPage: FC<{ sent?: string; error?: string; next?: string; devLink?: string }> = ({
+export const LoginPage: FC<{ sent?: string; error?: string; next?: string; unsent?: boolean }> = ({
   sent,
   error,
   next,
-  devLink,
+  unsent,
 }) => (
   <div style="max-width:26rem;margin:0 auto">
     <div class="stack">
@@ -22,19 +22,13 @@ export const LoginPage: FC<{ sent?: string; error?: string; next?: string; devLi
       {sent !== undefined ? (
         <Card>
           <div class="card-header">
-            <h2 class="card-title">Check your email</h2>
-            <p class="card-description">A sign-in link is on its way to {sent}. It lasts 15 minutes.</p>
+            <h2 class="card-title">{unsent === true ? 'That link was not sent' : 'Check your email'}</h2>
+            <p class="card-description">
+              {unsent === true
+                ? `A link for ${sent} was made, but this board could not send it. It is in the server log, where whoever runs this board can find it.`
+                : `A sign-in link is on its way to ${sent}. It lasts 15 minutes.`}
+            </p>
           </div>
-          {devLink !== undefined && (
-            <>
-              <p class="small muted">
-                No mail server is configured on this instance, so here is the link:
-              </p>
-              <p class="small">
-                <a href={devLink}>{devLink}</a>
-              </p>
-            </>
-          )}
         </Card>
       ) : (
         <>

@@ -23,6 +23,12 @@ let pool: { query: (sql: string, params?: unknown[]) => Promise<{ rows: Record<s
   null;
 let closePool: (() => Promise<void>) | null = null;
 let reason = '';
+/**
+ * What the board tried to send. A fake rather than the real mailer so the
+ * suite needs no provider, and so an ambient RESEND_API_KEY in someone's
+ * environment can never turn `pnpm test` into real email.
+ */
+const sentMail: { to: string; subject: string; text: string }[] = [];
 
 async function get(path: string, headers: Record<string, string> = {}): Promise<Response> {
   if (app === null) throw new Error('no app');
@@ -77,7 +83,12 @@ try {
     }),
     isDirectory: true,
   };
-  app = createApp(created, config) as never;
+  app = createApp(created, config, {
+    send: async (message: { to: string; subject: string; text: string }) => {
+      sentMail.push(message);
+      return true;
+    },
+  }) as never;
   await seed(created);
 } catch (error) {
   reason = error instanceof Error ? error.message : String(error);
@@ -255,6 +266,34 @@ describe('the API', { skip: reason === '' ? false : `no database: ${reason}` }, 
   });
 
   describe('signing up from a terminal', () => {
+    test('the link is emailed and never returned to the caller', async () => {
+      // The whole point of a magic link is that it reaches the address rather
+      // than whoever typed it. A response body carrying the token would make
+      // signing in as anyone a matter of knowing their address.
+      const email = `signup+${Date.now()}@example.com`;
+      const before = sentMail.length;
+      const response = await post('/api/v1/auth/magic-link', { email });
+      assert.equal(response.status, 200);
+
+      const raw = await response.text();
+      assert.ok(!raw.includes('/auth/callback'), raw);
+      assert.ok(!/token/i.test(raw), raw);
+      assert.equal((JSON.parse(raw) as { delivered: boolean }).delivered, true);
+
+      assert.equal(sentMail.length, before + 1);
+      const message = sentMail[sentMail.length - 1];
+      assert.equal(message?.to, email);
+      assert.match(message?.text ?? '', /\/auth\/callback\?token=/);
+    });
+
+    test('a link asked for by a terminal names that terminal in the email', async () => {
+      const email = `signup+${Date.now()}@example.com`;
+      await post('/api/v1/auth/magic-link', { email, redirect: '/device?code=WXYZ-1234' });
+      const message = sentMail[sentMail.length - 1];
+      assert.match(message?.subject ?? '', /Approve your terminal/);
+      assert.match(message?.text ?? '', /WXYZ-1234/);
+    });
+
     test('a magic link may carry a same-origin redirect', async () => {
       const response = await post('/api/v1/auth/magic-link', {
         email: `signup+${Date.now()}@example.com`,
@@ -322,6 +361,37 @@ describe('the API', { skip: reason === '' ? false : `no database: ${reason}` }, 
       assert.match(body, /uninstall\.sh/);
       // Never ask for root from a piped script.
       assert.ok(!/\bsudo\b/.test(body), 'the installer asks for sudo');
+    });
+  });
+
+  describe('the directory', () => {
+    test('a board refuses to list itself', async () => {
+      // The flagship is both a board and the directory it names, so this is
+      // the case that would otherwise put it in its own listing. Refused on
+      // the receiving side because anyone may POST any URL: guarding only the
+      // announcing end would let a third party do it on the board's behalf.
+      for (const url of [
+        'http://board.test',
+        'http://board.test/',
+        'http://BOARD.test',
+        'http://board.test:80',
+      ]) {
+        const response = await post('/api/v1/directory/announce', { url });
+        assert.equal(response.status, 400, url);
+        const body = (await response.json()) as { error: { code: string } };
+        assert.equal(body.error.code, 'self', url);
+      }
+    });
+
+    test('another board is still allowed to announce', async () => {
+      // This one is refused too, but for being unreachable rather than for
+      // being us - which is the assertion. The self check must not be so
+      // broad that it turns away the boards the directory exists to list.
+      const response = await post('/api/v1/directory/announce', {
+        url: 'http://other-board.invalid',
+      });
+      const body = (await response.json()) as { error?: { code: string } };
+      assert.equal(body.error?.code, 'unreachable', JSON.stringify(body));
     });
   });
 

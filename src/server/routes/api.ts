@@ -56,6 +56,8 @@ import {
   updateResume,
 } from '../../core/resumes.ts';
 import { importDocument, ImportProblem, MAX_UPLOAD_BYTES } from '../../core/import.ts';
+import { deliverMagicLink } from '../../core/mail.ts';
+import { sameOrigin } from '../../config.ts';
 import { announce, Blocked, listInstances, listTopics } from '../../directory/registry.ts';
 import { federatedSearch, targetsFromDescriptors } from '../../directory/federate.ts';
 import { FetchProblem } from '../../directory/fetch.ts';
@@ -522,7 +524,7 @@ export function apiRoutes(): Hono<AppEnv> {
   // --- sign in ----------------------------------------------------------
 
   api.post('/auth/magic-link', async (c) => {
-    const { pool, config } = c.get('deps');
+    const { pool, config, mailer } = c.get('deps');
     const body = await readBody(c);
     const email = normaliseEmail(body['email']);
     if (email === null) return fail(c, 400, 'invalid', 'That is not an email address.');
@@ -533,10 +535,14 @@ export function apiRoutes(): Hono<AppEnv> {
     const redirect = safeRedirect(body['redirect']);
     const link = await startMagicLink(pool, email, redirect);
     const url = `${config.publicUrl}/auth/callback?token=${link.token}`;
-    // Without SMTP the link is logged rather than silently dropped, which is
-    // what makes a laptop run work at all.
-    if (config.smtpUrl === null) console.log(`magic link for ${email}: ${url}`);
-    return c.json({ ok: true, expiresAt: link.expiresAt, delivered: config.smtpUrl !== null });
+    const delivered = await deliverMagicLink({
+      mailer,
+      boardName: config.boardName,
+      email,
+      url,
+      redirect,
+    });
+    return c.json({ ok: true, expiresAt: link.expiresAt, delivered });
   });
 
   api.post('/auth/device', async (c) => {
@@ -594,6 +600,13 @@ export function apiRoutes(): Hono<AppEnv> {
     }
     const body = await readBody(c);
     const url = typeof body['url'] === 'string' ? body['url'] : '';
+    // A directory does not list itself. Refused here rather than only at the
+    // announcing end, because anyone may POST any URL: without this, a third
+    // party could put this board into its own listing by announcing on its
+    // behalf.
+    if (sameOrigin(url, config.publicUrl)) {
+      return fail(c, 400, 'self', 'A board is not listed in its own directory.');
+    }
     try {
       const listing = await announce(pool, url);
       return c.json({ ok: true, instance: listing });

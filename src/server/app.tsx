@@ -17,10 +17,20 @@ import { mcpRoutes } from './routes/mcp.ts';
 import { passkeyRoutes } from './routes/passkey.ts';
 import { apiCors, securityHeaders, withViewer } from './middleware.ts';
 import { Layout } from '../views/layout.tsx';
+import { createMailer } from '../core/mail.ts';
+import type { Mailer } from '../core/mail.ts';
 import type { AppEnv, Deps } from './deps.ts';
 
-export function createApp(pool: pg.Pool, config: Config): Hono<AppEnv> {
-  const deps: Deps = { pool, config };
+/**
+ * The mailer is built once, here, and injectable so a test can watch what
+ * would have been sent without a provider or a network.
+ */
+export function createApp(
+  pool: pg.Pool,
+  config: Config,
+  mailer: Mailer | null = createMailer(config),
+): Hono<AppEnv> {
+  const deps: Deps = { pool, config, mailer };
   const app = new Hono<AppEnv>();
 
   app.use('*', withViewer(deps));

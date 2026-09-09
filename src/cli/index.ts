@@ -353,10 +353,11 @@ async function commandSignup(args: Args): Promise<number> {
   if (sent.delivered) {
     process.stdout.write(`A sign-in link is on its way to ${bold(email as string)}.\n`);
   } else {
-    // No mail server configured on that board. Saying so beats waiting for an
-    // email that is only ever going to appear in someone's server log.
+    // The board could not send it - either it is configured to send nothing,
+    // or its provider refused. Either way the link went to that board's log,
+    // and saying so beats waiting for an email that is never going to arrive.
     process.stdout.write(
-      `${server} has no mail server configured, so it logged the link instead of sending it.\n`,
+      `${server} could not send the email, so the link went to its server log instead.\n`,
     );
   }
   process.stdout.write(
@@ -821,12 +822,19 @@ async function commandApplications(args: Args): Promise<number> {
 
 async function commandAnnounce(args: Args): Promise<number> {
   const { announceOnce } = await import('../directory/announce.ts');
-  const { loadConfig: serverConfig } = await import('../config.ts');
+  const { loadConfig: serverConfig, sameOrigin } = await import('../config.ts');
   const config = serverConfig();
   const directory = flagString(args, 'directory') ?? config.directoryUrl;
   const self = flagString(args, 'url') ?? config.publicUrl;
   if (directory === null || directory === undefined) {
     process.stderr.write('No directory. Pass --directory <url> or set DIRECTORY_URL.\n');
+    return 1;
+  }
+  if (sameOrigin(directory, self)) {
+    // A board in its own listing is noise at best, so this refuses rather
+    // than doing it. The flagship is both a board and the directory, which
+    // makes this an easy command to run by accident.
+    process.stderr.write(`${directory} is this board. A board is not listed in its own directory.\n`);
     return 1;
   }
   await announceOnce(directory, self);
