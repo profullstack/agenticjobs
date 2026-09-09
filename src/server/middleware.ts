@@ -44,12 +44,17 @@ export function withViewer(deps: Deps): MiddlewareHandler<AppEnv> {
 /**
  * Security headers.
  *
- * The board ships no inline script and no third-party script, so the policy
- * can be the strict one: `script-src 'self'` covers the single progressive
- * enhancement file and nothing else. Styles need 'unsafe-inline' only because
- * a few components carry an inline `style` attribute for a computed width -
- * note that in CSP a style ATTRIBUTE is covered by style-src, not by
- * style-src-attr alone, which is a distinction that has cost time before.
+ * The board ships no inline script, so script-src needs no 'unsafe-inline'.
+ * It does ship exactly one third-party script - the CrawlProof stats tag in
+ * the layout - and that host has to be named here or the browser drops it with
+ * nothing to show for it but a console line nobody is looking at. A tracker
+ * that silently never runs is worse than no tracker: the numbers look like an
+ * audience rather than like a bug.
+ *
+ * Styles need 'unsafe-inline' only because a few components carry an inline
+ * `style` attribute for a computed width - note that in CSP a style ATTRIBUTE
+ * is covered by style-src, not by style-src-attr alone, which is a distinction
+ * that has cost time before.
  */
 export function securityHeaders(): MiddlewareHandler<AppEnv> {
   const policy = [
@@ -58,7 +63,7 @@ export function securityHeaders(): MiddlewareHandler<AppEnv> {
     `form-action 'self'`,
     `frame-ancestors 'none'`,
     `object-src 'none'`,
-    `script-src 'self'`,
+    `script-src 'self' https://crawlproof.com`,
     `style-src 'self' 'unsafe-inline'`,
     // Employer logos and avatars come from wherever the employer hosts them.
     // 'self' has to be listed explicitly: omitting it works in production and

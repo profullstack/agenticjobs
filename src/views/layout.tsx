@@ -11,7 +11,6 @@ import type { FC, PropsWithChildren } from 'hono/jsx';
 import { raw } from 'hono/html';
 import type { Viewer } from '../core/auth.ts';
 import { jsonForScript } from '../markup/escape.ts';
-import Script from "next/script";
 
 export interface PageProps {
   title: string;
@@ -159,7 +158,15 @@ export const Layout: FC<PropsWithChildren<PageProps>> = (props) => {
           </div>
         </footer>
         <script src="/assets/app.js" defer></script>
-              <Script data-site="98e94c73-a6c0-491d-aa41-4c58c93f5ee1" src="https://crawlproof.com/stats.js" strategy="afterInteractive" />
+        {/*
+          * CrawlProof, as a plain tag. `defer` is what `strategy` meant on the
+          * component this replaced: run after parsing, never block the page.
+          */}
+        <script
+          data-site="98e94c73-a6c0-491d-aa41-4c58c93f5ee1"
+          src="https://crawlproof.com/stats.js"
+          defer
+        ></script>
       </body>
     </html>
   );
