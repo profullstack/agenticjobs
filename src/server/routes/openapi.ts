@@ -38,6 +38,8 @@ export function openApiDocument(config: Config): Record<string, unknown> {
       { name: 'jobs', description: 'Search, read and post listings.' },
       { name: 'apply', description: 'The application flow an agent can complete.' },
       { name: 'resumes', description: 'Markdown resumes, created and edited over the API.' },
+      { name: 'candidates', description: 'People who published a resume here.' },
+      { name: 'employers', description: 'The organisations a listing belongs to.' },
       { name: 'auth', description: 'Device flow for terminals, magic links for browsers.' },
       { name: 'federation', description: 'The directory of instances, and search across them.' },
     ],
@@ -76,6 +78,15 @@ export function openApiDocument(config: Config): Record<string, unknown> {
           summary: 'One job, with its description rendered and its JSON-LD.',
           parameters: [pathParam('slug')],
           responses: { 200: ok('The job.'), 404: err() },
+        },
+        patch: {
+          tags: ['jobs'],
+          summary: 'Edit a listing, keeping its URL.',
+          description:
+            'Only the fields sent are touched. The slug never changes, because the slug is the listing everybody already has a link to.',
+          security: [{ bearer: [] }],
+          parameters: [pathParam('slug')],
+          responses: { 200: ok('The listing.'), 400: err(), 401: err(), 403: err(), 404: err() },
         },
       },
       '/api/v1/jobs/{slug}/apply-schema': {
@@ -125,7 +136,15 @@ export function openApiDocument(config: Config): Record<string, unknown> {
         },
       },
       '/api/v1/orgs': {
-        get: { tags: ['jobs'], summary: 'Employers with open listings.', responses: { 200: ok('Employers.') } },
+        get: { tags: ['employers'], summary: 'Employers with open listings.', responses: { 200: ok('Employers.') } },
+        post: {
+          tags: ['employers'],
+          // Worth saying out loud: you cannot post a job until you have one of
+          // these, and nothing else in the API tells you that.
+          summary: 'Add an employer. A job belongs to one, so this comes first.',
+          security: [{ bearer: [] }],
+          responses: { 201: ok('The employer.'), 400: err(), 401: err() },
+        },
       },
       '/api/v1/orgs/{slug}': {
         get: {
@@ -141,6 +160,51 @@ export function openApiDocument(config: Config): Record<string, unknown> {
           summary: 'Who this token belongs to, with their employers and resumes.',
           security: [{ bearer: [] }],
           responses: { 200: ok('The caller.'), 401: err() },
+        },
+      },
+      '/api/v1/candidates': {
+        get: {
+          tags: ['candidates'],
+          summary: 'Everyone who published a resume. Public.',
+          description:
+            'Add ?tags=javascript,react to narrow: several tags mean a candidate who lists all of them.',
+          parameters: [
+            {
+              name: 'tags',
+              in: 'query',
+              required: false,
+              schema: { type: 'string' },
+              description: 'Comma separated. Matched whole and case-insensitively.',
+            },
+          ],
+          responses: { 200: ok('Candidates.') },
+        },
+      },
+      '/api/v1/candidates/{slug}': {
+        get: {
+          tags: ['candidates'],
+          summary: 'One candidate, with their resume as Markdown. Public.',
+          description:
+            'Serves a link-shared resume as well as a listed one. The Markdown is canonical.',
+          parameters: [pathParam('slug')],
+          responses: { 200: ok('The candidate.'), 404: err() },
+        },
+      },
+      '/api/v1/jobs/import': {
+        post: {
+          tags: ['jobs'],
+          summary: 'Import a job from a URL, as a draft.',
+          description:
+            'Reads schema.org JobPosting when the page publishes it and the readable page when it does not, and says which. Importing the same URL again refreshes that listing rather than making a second one; pass "slug" to adopt a listing written by hand.',
+          security: [{ bearer: [] }],
+          responses: {
+            200: ok('The refreshed listing.'),
+            201: ok('The imported draft.'),
+            400: err(),
+            401: err(),
+            403: err(),
+            404: err(),
+          },
         },
       },
       '/api/v1/resumes': {
@@ -165,6 +229,20 @@ export function openApiDocument(config: Config): Record<string, unknown> {
           parameters: [pathParam('slug')],
           responses: { 200: ok('The resume.'), 401: err(), 404: err() },
         },
+        patch: {
+          tags: ['resumes'],
+          summary: 'Edit it. Sharing it is what mints its public address.',
+          security: [{ bearer: [] }],
+          parameters: [pathParam('slug')],
+          responses: { 200: ok('The resume.'), 401: err(), 404: err() },
+        },
+        delete: {
+          tags: ['resumes'],
+          summary: 'Delete it.',
+          security: [{ bearer: [] }],
+          parameters: [pathParam('slug')],
+          responses: { 200: ok('Deleted.'), 401: err(), 404: err() },
+        },
       },
       '/api/v1/resumes/import': {
         post: {
@@ -172,6 +250,61 @@ export function openApiDocument(config: Config): Record<string, unknown> {
           summary: 'Upload a PDF, DOCX, TXT or MD and get Markdown back.',
           security: [{ bearer: [] }],
           responses: { 201: ok('The converted resume.'), 400: err(), 413: err() },
+        },
+      },
+      '/api/v1/jobs/{slug}/{action}': {
+        post: {
+          tags: ['jobs'],
+          summary: 'publish, close or reopen a listing.',
+          security: [{ bearer: [] }],
+          parameters: [
+            pathParam('slug'),
+            {
+              name: 'action',
+              in: 'path',
+              required: true,
+              schema: { type: 'string', enum: ['publish', 'close', 'reopen'] },
+            },
+          ],
+          responses: { 200: ok('The listing.'), 401: err(), 403: err(), 404: err() },
+        },
+      },
+      '/api/v1/auth/magic-link': {
+        post: {
+          tags: ['auth'],
+          summary: 'Email a sign-in link.',
+          description:
+            'The link is emailed and never returned here. `delivered` reports a send that happened; false means it went to the server log instead.',
+          responses: { 200: ok('Whether it was delivered.'), 400: err() },
+        },
+      },
+      '/api/v1/auth/device/approve': {
+        post: {
+          tags: ['auth'],
+          summary: 'Approve a terminal, from a signed-in session.',
+          security: [{ bearer: [] }],
+          responses: { 200: ok('Approved.'), 400: err(), 401: err() },
+        },
+      },
+      '/api/v1/directory/topics': {
+        get: {
+          tags: ['federation'],
+          summary: 'What the listed boards are about. Directories only.',
+          responses: { 200: ok('Topics.'), 404: err() },
+        },
+      },
+      '/api/v1/descriptor': {
+        get: {
+          tags: ['federation'],
+          summary: 'This instance, as it describes itself.',
+          responses: { 200: ok('The descriptor.') },
+        },
+      },
+      '/api/v1/openapi.json': {
+        get: {
+          tags: ['federation'],
+          summary: 'This document.',
+          responses: { 200: ok('The document you are reading.') },
         },
       },
       '/api/v1/auth/device': {
