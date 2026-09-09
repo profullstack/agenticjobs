@@ -176,6 +176,57 @@ async function run(args: Args): Promise<number> {
       await closePool();
       return 0;
     }
+    /**
+     * Ask listed candidates to state their agent capacity.
+     *
+     * Prints the recipients and stops. `--send` is what actually mails them,
+     * and it is a separate word on purpose: this is the only command in the
+     * CLI that writes to other people, and the operator should have to say so
+     * after reading the list.
+     */
+    case 'ask-capacity': {
+      const { closePool, getPool } = await import('../db/pool.ts');
+      const { loadConfig: serverConfig } = await import('../config.ts');
+      const { createMailer } = await import('../core/mail.ts');
+      const { runCapacityAlerts } = await import('../core/capacity-alert.ts');
+
+      const config = serverConfig();
+      const send = flagBool(args, 'send');
+      const mailer = send ? createMailer(config) : null;
+
+      if (send && mailer === null) {
+        process.stderr.write('No RESEND_API_KEY, so nothing can be sent.\n');
+        await closePool();
+        return 1;
+      }
+
+      const results = await runCapacityAlerts({
+        pool: getPool(config.databaseUrl),
+        mailer,
+        boardName: config.boardName,
+        publicUrl: config.publicUrl,
+        send,
+      });
+
+      if (results.length === 0) {
+        process.stdout.write('Every listed candidate states their capacity.\n');
+        await closePool();
+        return 0;
+      }
+
+      for (const result of results) {
+        const status = result.sent === null ? 'would ask' : result.sent ? 'asked' : 'FAILED';
+        process.stdout.write(`${status}: ${result.target.name} <${result.target.email}>\n`);
+      }
+      const failed = results.filter((result) => result.sent === false).length;
+      process.stdout.write(
+        send
+          ? `\n${results.length - failed} sent, ${failed} failed.\n`
+          : `\n${results.length} candidate(s) would be asked. Re-run with --send to mail them.\n`,
+      );
+      await closePool();
+      return failed === 0 ? 0 : 1;
+    }
     case 'tui': {
       const { startTui } = await import('../tui/index.ts');
       await startTui(clientFor(args));

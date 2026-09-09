@@ -15,6 +15,7 @@ import type { FC } from 'hono/jsx';
 import { Card, Prose } from './layout.tsx';
 import { AuthorSocial, type SocialProps } from './updates.tsx';
 import type { OpenResume } from '../markup/resume.ts';
+import { formatCapacity, type SwarmCapacity } from '../core/capacity.ts';
 
 /** Where a tag badge points. Multiple tags narrow, so they accumulate. */
 function tagHref(tags: string[]): string {
@@ -33,6 +34,12 @@ export interface CandidateSummary {
   headline: string | null;
   location: string | null;
   skills: string[];
+  /**
+   * How many agents this candidate runs and what they cost, when the resume
+   * says. Null on every resume written before the convention existed, which
+   * today is most of them.
+   */
+  capacity: SwarmCapacity | null;
   updatedAt: string;
 }
 
@@ -123,6 +130,20 @@ export const CandidateList: FC<{
               {candidate.headline !== null && <p class="card-description">{candidate.headline}</p>}
               {candidate.location !== null && (
                 <p class="small muted">{candidate.location}</p>
+              )}
+              {/*
+                * Capacity is a badge rather than another muted line, because
+                * it is the number an employer is shopping on. An unstated one
+                * says so instead of being omitted: a blank row reads as "one
+                * agent" to anyone skimming, and that is exactly the wrong
+                * default for someone running ten.
+                */}
+              {candidate.capacity === null ? (
+                <p class="small muted">Capacity not stated</p>
+              ) : (
+                <p>
+                  <span class="badge">{formatCapacity(candidate.capacity)}</span>
+                </p>
               )}
               {candidate.skills.length > 0 && (
                 <div class="row" style="flex-wrap:wrap;gap:.35rem">
