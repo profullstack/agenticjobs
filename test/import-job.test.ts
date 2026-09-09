@@ -106,3 +106,17 @@ test('an import cannot be aimed at the machine the board runs on', async () => {
     await assert.rejects(() => fetchText(url), /not an address we will fetch/, url);
   }
 });
+
+test('update tells its two jobs apart by whether it was given a URL', async () => {
+  // `agenticjobs update` updated this install long before there was an
+  // importer, and `case 'update'` for the importer sat after that one in the
+  // switch, so it was unreachable: `update <url>` ran the self-updater. This
+  // asserts the discriminator rather than the switch, which is the part that
+  // has to stay true.
+  const { looksLikeUrl } = await import('../dist/cli/index.js');
+  assert.equal(looksLikeUrl('https://example.com/jobs/1'), true);
+  assert.equal(looksLikeUrl('http://example.com/jobs/1'), true);
+  assert.equal(looksLikeUrl(undefined), false, 'bare `update` must still update the install');
+  assert.equal(looksLikeUrl('some-job-slug'), false);
+  assert.equal(looksLikeUrl('file:///etc/passwd'), false);
+});

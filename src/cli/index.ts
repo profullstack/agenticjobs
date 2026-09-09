@@ -74,6 +74,7 @@ const USAGE = `agenticjobs ${VERSION} - an agent-friendly job board you can self
     post <file.md>            post a job; stays a draft until you publish
     new <url>                 import a job from a URL, as a draft
     update <url>              re-read that URL into the listing it created
+                              (with no URL, updates this install instead)
     publish <slug>            take a draft live
     close <slug>              close a listing
     applications <slug>       what came in
@@ -177,8 +178,14 @@ async function run(args: Args): Promise<number> {
       return commandSignup(args);
     case 'login':
       return commandLogin(args);
+    // `update` means two things, told apart by whether it was given a URL.
+    // `agenticjobs update` updates this install, which it did long before
+    // there was an importer and which people have in their fingers;
+    // `agenticjobs update <url>` re-reads that URL into the listing it made.
+    // A separate verb was the alternative, but "update the job at this URL" is
+    // what the command is for and is what it should be called.
     case 'update':
-      return runUpdate();
+      return looksLikeUrl(args.positional[0]) ? commandImport(args) : runUpdate();
     case 'uninstall':
       return runUninstall({ yes: flagBool(args, 'yes', 'y') });
     case 'where':
@@ -212,7 +219,6 @@ async function run(args: Args): Promise<number> {
     case 'post':
       return commandPost(args);
     case 'new':
-    case 'update':
       return commandImport(args);
     case 'publish':
     case 'close':
@@ -726,6 +732,17 @@ async function commandResume(args: Args): Promise<number> {
  * that listing instead of making a second copy of one job. Two verbs because
  * two intentions, one endpoint because there is only one sane behaviour.
  */
+/** A positional that is an http(s) URL, which is how `update` tells its two jobs apart. */
+export function looksLikeUrl(value: string | undefined): boolean {
+  if (value === undefined) return false;
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
 async function commandImport(args: Args): Promise<number> {
   const url = args.positional[0];
   if (url === undefined) {
