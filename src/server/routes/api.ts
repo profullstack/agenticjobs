@@ -44,6 +44,7 @@ import {
   normaliseInput,
   searchJobs,
   setStatus,
+  editJob,
   updateJobFromImport,
 } from '../../core/jobs.ts';
 import { extractJob, JobImportProblem, type ImportedJob } from '../../core/import-job.ts';
@@ -365,6 +366,59 @@ export function apiRoutes(): Hono<AppEnv> {
 
     const job = await createJob(pool, { ...input, sourceUrl: url });
     return c.json({ job, via: imported.via, warnings: imported.warnings, created: true }, 201);
+  });
+
+  /**
+   * Edit a listing.
+   *
+   * The board could create a job and publish it and close it, and could not
+   * change a word of it. A typo in a published listing could only be fixed by
+   * closing it and posting another one under a new URL, which breaks every
+   * link to it.
+   *
+   * Only the fields that are sent are touched, so this is also what makes an
+   * imported listing salvageable: an import off a page with no JobPosting data
+   * is approximate, and someone has to be able to tidy the result.
+   */
+  api.patch('/jobs/:slug', async (c) => {
+    const { pool } = c.get('deps');
+    const viewer = viewerOf(c);
+    if (viewer === null) return fail(c, 401, 'unauthenticated', 'Sign in first.');
+
+    const job = await getJobBySlug(pool, c.req.param('slug'), { includeUnpublished: true });
+    if (job === null) return fail(c, 404, 'not_found', 'No such job.');
+    if (!(await isMember(pool, viewer.id, job.org.id))) {
+      return fail(c, 403, 'not_a_member', `That listing belongs to ${job.org.name}.`);
+    }
+
+    const body = await readBody(c);
+    // Merged onto what the listing already says, then run through the same
+    // normaliser a new job goes through, so an edit cannot put a listing into
+    // a state a post could not have created.
+    const merged = normaliseInput(
+      {
+        title: body['title'] ?? job.title,
+        description: body['description'] ?? job.description,
+        employmentType: body['employmentType'] ?? job.employmentType,
+        workplace: body['workplace'] ?? job.workplace,
+        seniority: body['seniority'] ?? job.seniority ?? undefined,
+        location: body['location'] ?? job.location ?? undefined,
+        tags: body['tags'] ?? job.tags,
+        stack: body['stack'] ?? job.stack,
+        requirements: body['requirements'] ?? job.requirements,
+        responsibilities: body['responsibilities'] ?? job.responsibilities,
+        agentPolicy: body['agentPolicy'] ?? job.agentPolicy,
+        salaryMin: body['salaryMin'] ?? job.salary.min ?? undefined,
+        salaryMax: body['salaryMax'] ?? job.salary.max ?? undefined,
+        salaryCurrency: body['salaryCurrency'] ?? job.salary.currency,
+        salaryPeriod: body['salaryPeriod'] ?? job.salary.period,
+      },
+      job.org.id,
+    );
+    if (typeof merged === 'string') return fail(c, 400, 'invalid', merged);
+
+    const updated = await editJob(pool, job.id, merged);
+    return c.json({ job: updated ?? job });
   });
 
   api.post('/jobs/:slug/:action{publish|close|reopen}', async (c) => {

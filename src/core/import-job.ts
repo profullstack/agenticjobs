@@ -36,8 +36,17 @@ export interface ImportedJob {
 
 export class JobImportProblem extends Error {}
 
-/** Tags that carry no readable text, and whose contents must not become description. */
-const DEAD = /<(script|style|template|noscript|svg)[^>]*>[\s\S]*?<\/\1>/gi;
+/**
+ * Elements whose contents are never the job.
+ *
+ * The first group carries no readable text at all. The second is site
+ * furniture: a page without a <main> falls back to the whole <body>, and
+ * without this the listing ends up carrying "Back to gigs", the view counter,
+ * a testimonials block and an advertisement. That is what happened on the
+ * first real import, so this is not hypothetical tidying.
+ */
+const DEAD =
+  /<(script|style|template|noscript|svg|nav|header|footer|aside|form|button|select)[^>]*>[\s\S]*?<\/\1>/gi;
 
 function stripTags(html: string): string {
   return html

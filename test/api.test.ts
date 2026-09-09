@@ -415,6 +415,66 @@ describe('the API', { skip: reason === '' ? false : `no database: ${reason}` }, 
     });
   });
 
+  describe('editing a listing', () => {
+    test('a listing can be rewritten without changing its URL', async () => {
+      // Before this the board could publish and close a listing and not change
+      // a word of it, so a typo in a published job could only be fixed by
+      // closing it and posting again under a new slug, breaking every link.
+      if (pool === null) return;
+      const { createSession } = await import('../dist/core/auth.js');
+      const owner = await pool.query(`select user_id from memberships limit 1`);
+      const token = await createSession(pool as never, owner.rows[0]?.['user_id'], { label: 't' });
+      const auth = { authorization: `Bearer ${token}` };
+
+      const created = (await (
+        await post(
+          '/api/v1/jobs',
+          {
+            org: 'example-works',
+            title: `Editable ${Date.now()}`,
+            description: 'First draft, with a typpo.',
+            agentPolicy: 'welcome',
+          },
+          auth,
+        )
+      ).json()) as { job: { slug: string; title: string } };
+
+      const response = await app!.fetch(
+        new Request(`http://board.test/api/v1/jobs/${created.job.slug}`, {
+          method: 'PATCH',
+          headers: { 'content-type': 'application/json', ...auth },
+          body: JSON.stringify({ description: 'Second draft, spelled right.' }),
+        }),
+      );
+      assert.equal(response.status, 200);
+      const edited = (await response.json()) as { job: { slug: string; title: string; description: string } };
+
+      assert.equal(edited.job.slug, created.job.slug, 'the URL must survive an edit');
+      assert.equal(edited.job.description, 'Second draft, spelled right.');
+      // A field that was not sent keeps its value rather than being cleared.
+      assert.equal(edited.job.title, created.job.title);
+    });
+
+    test('editing someone else\'s listing is refused', async () => {
+      if (pool === null) return;
+      const { createSession, ensureUser } = await import('../dist/core/auth.js');
+      const stranger = await ensureUser(pool as never, `stranger+${Date.now()}@example.com`);
+      const token = await createSession(pool as never, stranger.id, { label: 't' });
+
+      const page = (await (await get('/api/v1/jobs?limit=1')).json()) as {
+        items: { slug: string }[];
+      };
+      const response = await app!.fetch(
+        new Request(`http://board.test/api/v1/jobs/${page.items[0]?.slug}`, {
+          method: 'PATCH',
+          headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+          body: JSON.stringify({ description: 'not mine to change' }),
+        }),
+      );
+      assert.equal(response.status, 403);
+    });
+  });
+
   describe('importing from a URL', () => {
     test('an unreachable page is refused with what happened, not a 500', async () => {
       if (pool === null) return;

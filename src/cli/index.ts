@@ -76,6 +76,7 @@ const USAGE = `agenticjobs ${VERSION} - an agent-friendly job board you can self
     update <url>              re-read that URL into the listing it created
       --slug <slug>             ...adopting a listing that was written by hand
                               (with no URL, updates this install instead)
+    edit <slug> <file.md>     rewrite a listing, keeping its URL
     publish <slug>            take a draft live
     close <slug>              close a listing
     applications <slug>       what came in
@@ -221,6 +222,8 @@ async function run(args: Args): Promise<number> {
       return commandPost(args);
     case 'new':
       return commandImport(args);
+    case 'edit':
+      return commandEdit(args);
     case 'publish':
     case 'close':
       return commandPublish(args);
@@ -778,6 +781,26 @@ async function commandImport(args: Args): Promise<number> {
   ].filter((line) => line !== '');
 
   return out(args, lines.join('\n'), result);
+}
+
+/**
+ * Rewrite a listing from a file, keeping its slug.
+ *
+ * The board could publish and close a listing and not change a word of it, so
+ * a typo could only be fixed by closing it and posting again under a new URL.
+ * This is also how an import off a page with no JobPosting data gets tidied.
+ */
+async function commandEdit(args: Args): Promise<number> {
+  const slug = args.positional[0];
+  const path = args.positional[1];
+  if (slug === undefined || path === undefined) {
+    process.stderr.write('Which listing, and from what? agenticjobs edit <slug> <file.md>\n');
+    return 1;
+  }
+  const { parseJobDocument } = await import('./jobfile.ts');
+  const input = parseJobDocument(await readFile(path, 'utf8'));
+  const result = await clientFor(args).editJob(slug, input);
+  return out(args, `Updated ${result.job.slug}.`, result);
 }
 
 async function commandPost(args: Args): Promise<number> {
