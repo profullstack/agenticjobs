@@ -13,8 +13,10 @@
 
 import { readFile } from 'node:fs/promises';
 import process from 'node:process';
+import { createInterface } from 'node:readline/promises';
 import { flagBool, flagList, flagNumber, flagString, parseArgs, type Args } from './args.ts';
 import { bold, dim } from './format.ts';
+import { installLine, update as runUpdate, uninstall as runUninstall, whereIsIt } from './manage.ts';
 import {
   ApiError,
   BoardClient,
@@ -36,7 +38,8 @@ import type { Job, JobQuery } from '../schema/index.ts';
 
 const USAGE = `agenticjobs ${VERSION} - an agent-friendly job board you can self-host
 
-  Boards
+  Account
+    signup [email]            create an account and sign this terminal in
     login [server]            sign in to a board (device flow)
     logout [server]           forget a board
     boards                    every board you are signed in to
@@ -81,6 +84,11 @@ const USAGE = `agenticjobs ${VERSION} - an agent-friendly job board you can self
     instances                 boards a directory knows about
     tui                       the full-screen client
     mcp                       stdio MCP server for the current board
+
+  This install
+    update                    update to the latest release
+    uninstall [--yes]         remove it; your logins are kept
+    where                     what was installed, and where
 
   --server <url>              act on a board other than the default
   --json                      machine-readable output, on every command
@@ -163,8 +171,16 @@ async function run(args: Args): Promise<number> {
       return new Promise<number>(() => undefined);
     }
 
+    case 'signup':
+      return commandSignup(args);
     case 'login':
       return commandLogin(args);
+    case 'update':
+      return runUpdate();
+    case 'uninstall':
+      return runUninstall({ yes: flagBool(args, 'yes', 'y') });
+    case 'where':
+      return whereIsIt();
     case 'logout':
       return commandLogout(args);
     case 'boards':
@@ -279,6 +295,91 @@ function jobLine(job: Job, where?: string): string {
 }
 
 // --- boards ---------------------------------------------------------------
+
+/**
+ * Sign up from a terminal.
+ *
+ * A terminal cannot follow a magic link and a brand new account has no browser
+ * session to approve a device code with, so signing up used to mean two
+ * commands and a detour through the website. This does it in one: it opens a
+ * device grant, then asks for a magic link that lands on /device with the code
+ * already filled in. One click in the mail creates the account, signs the
+ * browser in and puts the person on the approval page.
+ */
+async function commandSignup(args: Args): Promise<number> {
+  const target = flagString(args, 'server', 's') ?? DEFAULT_SERVER;
+  const server = normaliseServer(target);
+  const client = new BoardClient(server, { userAgent: userAgent() });
+
+  let name = server;
+  try {
+    const descriptor = await client.describe();
+    name = descriptor.name;
+    process.stdout.write(`${bold(descriptor.name)} - ${descriptor.tagline}\n\n`);
+  } catch {
+    process.stderr.write(`${server} did not answer as an agenticjobs board.\n`);
+    return 1;
+  }
+
+  let email = args.positional[0] ?? flagString(args, 'email');
+  if (email === undefined) {
+    if (!process.stdin.isTTY) {
+      process.stderr.write('Which email? agenticjobs signup you@example.com\n');
+      return 1;
+    }
+    const rl = createInterface({ input: process.stdin, output: process.stdout });
+    try {
+      email = (await rl.question('Email: ')).trim();
+    } finally {
+      rl.close();
+    }
+  }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email ?? '')) {
+    process.stderr.write('That does not look like an email address.\n');
+    return 1;
+  }
+
+  const grant = await client.startDeviceAuth(
+    `${process.env['USER'] ?? 'terminal'}@${process.env['HOSTNAME'] ?? 'machine'}`,
+  );
+
+  // The link lands on the approval page with the code already in the box, so
+  // there is nothing to copy between two windows.
+  const sent = await client.request<{ delivered: boolean }>('POST', '/api/v1/auth/magic-link', {
+    email,
+    redirect: `/device?code=${encodeURIComponent(grant.userCode)}`,
+  });
+
+  if (sent.delivered) {
+    process.stdout.write(`A sign-in link is on its way to ${bold(email as string)}.\n`);
+  } else {
+    // No mail server configured on that board. Saying so beats waiting for an
+    // email that is only ever going to appear in someone's server log.
+    process.stdout.write(
+      `${server} has no mail server configured, so it logged the link instead of sending it.\n`,
+    );
+  }
+  process.stdout.write(
+    `Open it, and approve this terminal. Your code is ${bold(grant.userCode)}.\n\nWaiting...\n`,
+  );
+
+  const token = await login(client, {
+    label: `${process.env['USER'] ?? 'terminal'}@${process.env['HOSTNAME'] ?? 'machine'}`,
+    // The grant is already open, so the prompt has nothing left to say.
+    onPrompt: () => undefined,
+    existing: grant,
+  });
+
+  let signedInAs: string | null = null;
+  try {
+    signedInAs = (await client.me()).user.email;
+  } catch {
+    // A token that polls but cannot read /me is odd, not fatal.
+  }
+  rememberBoard({ server, token, email: signedInAs ?? (email as string), name });
+  process.stdout.write(`\nSigned in to ${name} as ${signedInAs ?? email}.\n`);
+  return 0;
+}
 
 async function commandLogin(args: Args): Promise<number> {
   const target = args.positional[0] ?? flagString(args, 'server') ?? DEFAULT_SERVER;

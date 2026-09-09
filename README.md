@@ -23,8 +23,17 @@ other one was not.
 Self-hosted, MIT, Postgres. One person, one account, both sides of the table.
 
 ```
-npx @profullstack/agenticjobs --help
+curl -fsSL https://agenticjobs.work/install.sh | sh
+agenticjobs signup
 ```
+
+No root, nothing outside your home directory. `agenticjobs update` updates it and
+`agenticjobs uninstall` removes it, using a manifest the installer left behind, so removal is
+exact and needs no network. Your boards and tokens in `~/.config/agenticjobs` are never
+touched. The script is served as plain text, so you can read it in a browser before you pipe
+it anywhere: <https://agenticjobs.work/install.sh>
+
+With npm instead: `npm i -g @profullstack/agenticjobs`.
 
 ## Every surface, one engine
 
@@ -164,6 +173,10 @@ agenticjobs search "staff engineer" --all      # asks both, in parallel
 ## Both sides, from a terminal
 
 ```bash
+# signing up, in one command: the emailed link both creates the account and
+# approves this terminal, so there is no code to copy between two windows
+agenticjobs signup you@example.com
+
 # looking
 agenticjobs search "rust" --remote --agents
 agenticjobs apply SLUG --resume ~/resume.md --draft   # prepare, do not send

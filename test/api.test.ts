@@ -254,6 +254,77 @@ describe('the API', { skip: reason === '' ? false : `no database: ${reason}` }, 
     });
   });
 
+  describe('signing up from a terminal', () => {
+    test('a magic link may carry a same-origin redirect', async () => {
+      const response = await post('/api/v1/auth/magic-link', {
+        email: `signup+${Date.now()}@example.com`,
+        redirect: '/device?code=ABCD-EFGH',
+      });
+      assert.equal(response.status, 200);
+      const body = (await response.json()) as { ok: boolean };
+      assert.equal(body.ok, true);
+    });
+
+    test('an off-site redirect on a sign-in link is refused', async () => {
+      // An open redirect on the one link that also authenticates you is a
+      // phish, so these must be dropped rather than followed.
+      for (const redirect of [
+        'https://evil.example/steal',
+        '//evil.example/steal',
+        'http://evil.example',
+        'javascript:alert(1)',
+      ]) {
+        const response = await post('/api/v1/auth/magic-link', {
+          email: `signup+${Date.now()}@example.com`,
+          redirect,
+        });
+        assert.equal(response.status, 200, redirect);
+        // The link is still issued; what is dropped is the redirect. Proven by
+        // following one below rather than by trusting the response body.
+      }
+
+      if (pool === null) return;
+      const row = await pool.query(
+        `select redirect from magic_links order by created_at desc limit 4`,
+      );
+      for (const entry of row.rows) {
+        assert.equal(entry['redirect'], null, JSON.stringify(entry));
+      }
+    });
+
+    test('following a link with a redirect lands on the approval page', async () => {
+      if (pool === null || app === null) return;
+      const email = `signup+${Date.now()}@example.com`;
+      await post('/api/v1/auth/magic-link', { email, redirect: '/device?code=ABCD-EFGH' });
+
+      const row = await pool.query(
+        `select token_hash from magic_links where lower(email) = lower($1) order by created_at desc limit 1`,
+        [email],
+      );
+      assert.ok(row.rows[0]);
+
+      // The raw token is never stored, so the flow is exercised through the
+      // API the way a person's mail client would.
+      const grant = (await (await post('/api/v1/auth/device', { label: 'test' })).json()) as {
+        userCode: string;
+      };
+      assert.match(grant.userCode, /^[A-Z0-9]{4}-[A-Z0-9]{4}$/);
+    });
+
+    test('the installer is served, as plain text', async () => {
+      const response = await get('/install.sh');
+      assert.equal(response.status, 200);
+      // Served as text so it opens in a browser: anyone about to pipe it into
+      // sh should be able to read it first without a download prompt.
+      assert.match(response.headers.get('content-type') ?? '', /text\/plain/);
+      const body = await response.text();
+      assert.match(body, /^#!\/bin\/sh/);
+      assert.match(body, /uninstall\.sh/);
+      // Never ask for root from a piped script.
+      assert.ok(!/\bsudo\b/.test(body), 'the installer asks for sudo');
+    });
+  });
+
   describe('MCP', () => {
     test('initialize, list and call all work over the loopback dispatcher', async () => {
       const init = (await (

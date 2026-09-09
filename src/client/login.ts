@@ -15,6 +15,21 @@ export interface LoginOptions {
   onPrompt: (grant: { userCode: string; verifyUrl: string; expiresAt: number }) => void;
   /** Overridable so tests do not wait in real time. */
   sleep?: (ms: number) => Promise<void>;
+  /**
+   * A grant this caller already opened.
+   *
+   * Signing up needs the user code *before* the link is sent, because the link
+   * carries it. Without this, signup would open one grant to build the link and
+   * this function would immediately open a second, so the code in the mail
+   * would approve a terminal that is no longer listening.
+   */
+  existing?: {
+    deviceCode: string;
+    userCode: string;
+    verifyUrl: string;
+    interval: number;
+    expiresAt: number;
+  };
 }
 
 export class LoginError extends Error {}
@@ -23,6 +38,15 @@ export async function login(client: BoardClient, options: LoginOptions): Promise
   const sleep = options.sleep ?? ((ms: number) => new Promise((resolve) => setTimeout(resolve, ms)));
 
   let grant: Awaited<ReturnType<BoardClient['startDeviceAuth']>>;
+  if (options.existing !== undefined) {
+    grant = options.existing;
+    options.onPrompt({
+      userCode: grant.userCode,
+      verifyUrl: grant.verifyUrl,
+      expiresAt: grant.expiresAt,
+    });
+    return await poll(client, grant, options);
+  }
   try {
     grant = await client.startDeviceAuth(options.label);
   } catch (error) {
@@ -42,18 +66,27 @@ export async function login(client: BoardClient, options: LoginOptions): Promise
     expiresAt: grant.expiresAt,
   });
 
+  return poll(client, grant, options);
+}
+
+async function poll(
+  client: BoardClient,
+  grant: { deviceCode: string; interval: number },
+  options: LoginOptions,
+): Promise<string> {
+  const sleep = options.sleep ?? ((ms: number) => new Promise((resolve) => setTimeout(resolve, ms)));
   // The board says how often it wants to be asked. Ignoring that interval is
   // how a client gets itself rate-limited on the one request it cannot skip.
   const interval = Math.max(1, grant.interval || 2) * 1000;
 
   for (;;) {
     await sleep(interval);
-    const poll = await client.pollDeviceAuth(grant.deviceCode);
-    if (poll.status === 'approved' && typeof poll.token === 'string') {
-      client.setToken(poll.token);
-      return poll.token;
+    const answer = await client.pollDeviceAuth(grant.deviceCode);
+    if (answer.status === 'approved' && typeof answer.token === 'string') {
+      client.setToken(answer.token);
+      return answer.token;
     }
-    if (poll.status === 'expired') {
+    if (answer.status === 'expired') {
       throw new LoginError('That code expired before it was approved. Run the command again.');
     }
   }

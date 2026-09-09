@@ -56,6 +56,25 @@ export function discoveryRoutes(): Hono<AppEnv> {
     }
   });
 
+  /**
+   * The installer, at the root so the curl line is short enough to read aloud.
+   *
+   * Served as text/plain on purpose: anyone about to pipe a script into sh
+   * should be able to open the same URL in a browser and read it first, and a
+   * download prompt actively discourages that.
+   */
+  routes.get('/install.sh', async (c) => {
+    try {
+      const body = await readFile(join(publicDir(), 'install.sh'), 'utf8');
+      return c.body(body, 200, {
+        'content-type': 'text/plain; charset=utf-8',
+        'cache-control': 'public, max-age=300',
+      });
+    } catch {
+      return c.notFound();
+    }
+  });
+
   routes.get(WELL_KNOWN_PATH, async (c) => {
     const { pool, config } = c.get('deps');
     return c.json(await descriptorFor(pool, config), 200, {

@@ -23,6 +23,7 @@ import {
   normaliseEmail,
   pollDeviceAuth,
   requireAdmin,
+  safeRedirect,
   startDeviceAuth,
   startMagicLink,
   type Viewer,
@@ -525,7 +526,12 @@ export function apiRoutes(): Hono<AppEnv> {
     const body = await readBody(c);
     const email = normaliseEmail(body['email']);
     if (email === null) return fail(c, 400, 'invalid', 'That is not an email address.');
-    const link = await startMagicLink(pool, email, null);
+    // A terminal signing up asks for the link to land on /device with its code
+    // already filled in, so one click both creates the account and approves the
+    // terminal. safeRedirect keeps this to same-origin paths: an open redirect
+    // on a sign-in link is a phish.
+    const redirect = safeRedirect(body['redirect']);
+    const link = await startMagicLink(pool, email, redirect);
     const url = `${config.publicUrl}/auth/callback?token=${link.token}`;
     // Without SMTP the link is logged rather than silently dropped, which is
     // what makes a laptop run work at all.

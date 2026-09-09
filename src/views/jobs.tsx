@@ -133,18 +133,35 @@ export const Pagination: FC<{ page: JobPage<unknown>; query: JobQuery; base?: st
   );
 };
 
+export const InstallStrip: FC<{ publicUrl: string }> = ({ publicUrl }) => (
+  <div class="install-strip">
+    <div>
+      <strong>Use it from a terminal.</strong>{' '}
+      <span class="muted small">Search, apply and post without opening a page.</span>
+    </div>
+    <pre class="code-block install-line">curl -fsSL {publicUrl}/install.sh | sh</pre>
+    <p class="small muted install-note">
+      No root, nothing outside your home directory. Then{' '}
+      <code>agenticjobs signup</code>. Updating is <code>agenticjobs update</code> and removing
+      is <code>agenticjobs uninstall</code>. <a href="/docs">What it installs</a>.
+    </p>
+  </div>
+);
+
 export const JobList: FC<{
   page: JobPage<Job>;
   query: JobQuery;
   boardName: string;
   tagline: string;
-}> = ({ page, query, boardName, tagline }) => (
+  publicUrl: string;
+}> = ({ page, query, boardName, tagline, publicUrl }) => (
   <div class="stack">
     <div>
       <h1>{boardName}</h1>
       <p class="lede">{tagline}</p>
     </div>
     <Filters query={query} />
+    <InstallStrip publicUrl={publicUrl} />
     {page.items.length === 0 ? (
       <Empty>
         <p>Nothing matches that yet.</p>

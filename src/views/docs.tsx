@@ -121,18 +121,75 @@ Chief Programmer (1842 - 1843)
 
     <Card>
       <div class="card-header">
-        <h2 class="card-title">Terminals</h2>
+        <h2 class="card-title">Install it</h2>
+        <p class="card-description">
+          One line. No root, and nothing outside your home directory.
+        </p>
+      </div>
+      <pre class="code-block">curl -fsSL {publicUrl}/install.sh | sh</pre>
+      <p class="small muted">
+        Read it first if you like: <a href="/install.sh">{publicUrl}/install.sh</a> is served as
+        plain text so it opens in a browser rather than downloading.
+      </p>
+      <p class="small">
+        It needs Node 24 or newer, installs under <code>~/.local</code>, and writes a manifest of
+        every path it touched. With npm instead: <code>npm i -g @profullstack/agenticjobs</code>.
+      </p>
+    </Card>
+
+    <Card>
+      <div class="card-header">
+        <h2 class="card-title">Sign up, from the terminal</h2>
+        <p class="card-description">
+          One command. It emails you a link that both creates the account and approves this
+          terminal, so there is no code to copy between two windows.
+        </p>
       </div>
       <pre class="code-block">
-        {`npm i -g @profullstack/agenticjobs
-agenticjobs login ${publicUrl}
-agenticjobs search "staff engineer" --remote
-agenticjobs apply SLUG --resume ~/resume.md
+        {`agenticjobs signup you@example.com
+agenticjobs whoami`}
+      </pre>
+      <p class="small muted">
+        Already have an account? <code>agenticjobs login {publicUrl}</code>. Sign-in is the device
+        flow: the board shows a short code, you approve it in a browser, and no password ever
+        crosses the terminal. A terminal token can read and apply and is never an administrator.
+      </p>
+      <p class="small muted">
+        Several boards at once is the normal case, so every command takes <code>--server</code>,
+        and <code>agenticjobs boards</code> lists them.
+      </p>
+    </Card>
+
+    <Card>
+      <div class="card-header">
+        <h2 class="card-title">Using it</h2>
+      </div>
+      <pre class="code-block">
+        {`agenticjobs search "staff engineer" --remote --agents
+agenticjobs apply SLUG --resume ~/resume.md --draft
+agenticjobs drafts
+agenticjobs submit <id>
 agenticjobs tui`}
       </pre>
       <p class="small muted">
-        Sign-in is the device flow: the terminal shows a code, you approve it in a browser, and no
-        credential crosses the terminal. Several boards can be signed in at once.
+        Hiring works from the same account: <code>agenticjobs post job.md --org acme</code>, then{' '}
+        <code>agenticjobs publish</code> when you have read it.
+      </p>
+    </Card>
+
+    <Card>
+      <div class="card-header">
+        <h2 class="card-title">Updating and removing it</h2>
+      </div>
+      <pre class="code-block">
+        {`agenticjobs update
+agenticjobs where
+agenticjobs uninstall --yes`}
+      </pre>
+      <p class="small muted">
+        The installer leaves a manifest and an uninstall script beside what it installed, so
+        removal is exact and works with no network. Your boards and tokens in{' '}
+        <code>~/.config/agenticjobs</code> are never touched.
       </p>
     </Card>
 

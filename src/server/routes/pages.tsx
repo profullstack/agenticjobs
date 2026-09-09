@@ -127,6 +127,7 @@ export function pageRoutes(): Hono<AppEnv> {
           query={query}
           boardName={config.boardName}
           tagline={config.boardTagline}
+          publicUrl={config.publicUrl}
         />
       </Layout>,
     );

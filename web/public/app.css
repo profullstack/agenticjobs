@@ -729,3 +729,33 @@ legend {
   justify-content: space-between;
   padding: 0.2rem 0;
 }
+
+/* --- install strip ------------------------------------------------------
+ *
+ * On the home page, under the filters. People who would rather use the
+ * terminal should not have to go and find the docs to discover there is one.
+ */
+
+.install-strip {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--muted);
+  padding: 0.9rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.install-strip .install-line {
+  background: var(--background);
+  margin: 0;
+  /* The command is the point, so it stays selectable on one line and scrolls
+     rather than wrapping into something that pastes wrong. */
+  white-space: pre;
+  overflow-x: auto;
+  user-select: all;
+}
+
+.install-strip .install-note {
+  margin: 0;
+}
