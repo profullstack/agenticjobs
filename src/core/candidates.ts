@@ -27,6 +27,10 @@ function skillsOf(resume: Resume, limit = 8): string[] {
   const fromBullets = section.markdown
     .split('\n')
     .map((line) => line.replace(/^\s*[-*]\s+/, '').trim())
+    // A skills bullet is very often "**Languages:** JavaScript, Go", and the
+    // label is a category rather than a skill. Without dropping it the first
+    // badge on the card reads "**Languages:** JavaScript".
+    .map((line) => line.replace(/^\*{0,2}[^*:]{1,40}:\*{0,2}\s*/, ''))
     .filter((line) => line !== '' && !line.startsWith('#'));
 
   const flattened = fromBullets.flatMap((line) =>
@@ -38,11 +42,12 @@ function skillsOf(resume: Resume, limit = 8): string[] {
   for (const skill of flattened) {
     // A sentence is prose that happened to be in the skills section, not a
     // skill, and a badge is the wrong shape for it.
-    if (skill === '' || skill.length > 40) continue;
-    const key = skill.toLowerCase();
+    const cleaned = skill.replace(/\*\*/g, '').replace(/^`|`$/g, '').trim();
+    if (cleaned === '' || cleaned.length > 40) continue;
+    const key = cleaned.toLowerCase();
     if (seen.has(key)) continue;
     seen.add(key);
-    out.push(skill);
+    out.push(cleaned);
     if (out.length >= limit) break;
   }
   return out;
