@@ -111,7 +111,15 @@ a:hover {
   flex-wrap: wrap;
 }
 
-.nav a {
+/*
+ * `:not(.btn)` is load bearing. `.nav a` outranks `.btn`, so "Post a job" and
+ * "Sign in" used to paint --muted-foreground on the --primary background:
+ * two nearly identical lightnesses (0.53 on 0.52 light, 0.71 on 0.72 dark),
+ * so the label was invisible until the hover rule repainted it as a plain nav
+ * link. Excluding buttons here leaves them to .btn, which pairs --primary
+ * with --primary-foreground and stays legible in both states.
+ */
+.nav a:not(.btn) {
   color: var(--muted-foreground);
   text-decoration: none;
   font-size: 0.9rem;
@@ -120,8 +128,8 @@ a:hover {
   border-radius: calc(var(--radius) - 4px);
 }
 
-.nav a:hover,
-.nav a[aria-current='page'] {
+.nav a:not(.btn):hover,
+.nav a:not(.btn)[aria-current='page'] {
   color: var(--foreground);
   background: var(--secondary);
 }
