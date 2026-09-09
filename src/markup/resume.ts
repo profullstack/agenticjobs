@@ -71,7 +71,13 @@ export interface OpenResume {
 const KINDS: [RegExp, string][] = [
   [/^(work\s+)?experience$|^employment$|^work\s+history$/i, 'experience'],
   [/^education$|^academic/i, 'education'],
-  [/^skills?$|^technical\s+skills?$|^areas?\s+of\s+expertise$/i, 'skills'],
+  // "Core Skills" and "Key Skills" are as common as the bare word, and a
+  // resume that used one of them had an empty skills list on its candidate
+  // card while the section sat right there in the document.
+  [
+    /^(core\s+|key\s+|technical\s+|primary\s+)?skills?$|^areas?\s+of\s+expertise$|^skills?\s+&?\s*(tools|technologies)$/i,
+    'skills',
+  ],
   [/^projects?$|^open\s+source$/i, 'projects'],
   [/^summary$|^about$|^profile$|^objective$/i, 'summary'],
   [/^links?$|^elsewhere$|^profiles?$/i, 'links'],

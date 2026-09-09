@@ -125,3 +125,15 @@ test('the template is itself valid, with no warnings that matter', () => {
   assert.ok(resume.sections.some((section) => section.kind === 'experience'));
   assert.deepEqual(resume.warnings, []);
 });
+
+test('a section called "Core Skills" is still the skills section', () => {
+  // A resume using this heading showed an empty skills list on its candidate
+  // card while the section sat right there in the document.
+  for (const heading of ['Skills', 'Core Skills', 'Key Skills', 'Technical Skills']) {
+    const parsed = parseResume(`# A Person\n\n## ${heading}\n\n- TypeScript\n- Postgres\n`);
+    const section = parsed.sections.find((item) => item.kind === 'skills');
+    assert.ok(section, `"${heading}" should be the skills section`);
+    // The written name is kept even though the kind is normalised.
+    assert.equal(section?.title, heading);
+  }
+});
