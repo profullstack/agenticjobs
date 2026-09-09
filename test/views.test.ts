@@ -203,3 +203,38 @@ test('the candidates page subscribes to candidates', async () => {
   // which is right. What must not happen is the filter being handed to it.
   assert.ok(!html.includes('/feed.rss?tags='), 'the filter must not go to the everything feed');
 });
+
+test('the third-party script is a real tag, and the policy lets it run', async () => {
+  // A bot PR added the stats tag as Next.js's <Script> component. This is a
+  // Hono app: `next` is not a dependency, so it broke tsc and the image build.
+  // The quieter half was the policy - script-src was 'self' only, so once the
+  // import was fixed the browser would still have dropped the script and the
+  // numbers would have read as no audience rather than as a bug.
+  const { Layout } = await import('../dist/views/layout.js');
+  const { securityHeaders } = await import('../dist/server/middleware.js');
+
+  const html = String(
+    Layout({
+      title: 'A board',
+      viewer: null,
+      boardName: 'A board',
+      publicUrl: 'https://example.test',
+      path: '/',
+      children: 'x',
+    }),
+  );
+
+  assert.match(html, /<script[^>]+src="https:\/\/crawlproof\.com\/stats\.js"/);
+  assert.match(html, /data-site="98e94c73-a6c0-491d-aa41-4c58c93f5ee1"/);
+  // `defer` is what the component's strategy="afterInteractive" meant.
+  assert.match(html, /src="https:\/\/crawlproof\.com\/stats\.js"[^>]*defer/);
+  assert.ok(!html.includes('strategy='), 'no framework component attributes survive into the HTML');
+
+  // And the policy actually permits the host it now loads from.
+  const headers = new Headers();
+  await securityHeaders()({ res: { headers } } as never, async () => undefined);
+  const policy = headers.get('content-security-policy') ?? '';
+
+  assert.match(policy, /script-src [^;]*'self'/, "the board's own script still runs");
+  assert.match(policy, /script-src [^;]*https:\/\/crawlproof\.com/, 'and so does the stats tag');
+});
