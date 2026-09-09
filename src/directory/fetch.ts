@@ -36,6 +36,28 @@ export interface FetchOptions {
  * HTTP client at an address the origin check already rejected.
  */
 export async function fetchJson(url: string, options: FetchOptions = {}): Promise<unknown> {
+  const text = await fetchRaw(url, 'application/json', options);
+  try {
+    return JSON.parse(text) as unknown;
+  } catch {
+    throw new FetchProblem(`${url} did not answer with JSON`);
+  }
+}
+
+/**
+ * The same guarded fetch, for a document rather than an API.
+ *
+ * Importing a job means fetching a URL a stranger chose, so every guard here
+ * matters: `publishable` refuses localhost and the private ranges, redirects
+ * may not leave the origin they started on, the body is measured as it
+ * arrives, and there is a timeout. None of that is worth reimplementing next
+ * to the copy that already had it.
+ */
+export async function fetchText(url: string, options: FetchOptions = {}): Promise<string> {
+  return fetchRaw(url, 'text/html, application/xhtml+xml;q=0.9, */*;q=0.5', options);
+}
+
+async function fetchRaw(url: string, accept: string, options: FetchOptions): Promise<string> {
   const origin = publishable(url);
   if (origin === null) throw new FetchProblem(`${url} is not an address we will fetch`);
 
@@ -52,7 +74,7 @@ export async function fetchJson(url: string, options: FetchOptions = {}): Promis
         redirect: 'manual',
         signal: controller.signal,
         headers: {
-          accept: 'application/json',
+          accept,
           'user-agent': USER_AGENT,
           ...(options.body === undefined ? {} : { 'content-type': 'application/json' }),
         },
@@ -79,12 +101,7 @@ export async function fetchJson(url: string, options: FetchOptions = {}): Promis
       if (Number.isFinite(declared) && declared > cap) {
         throw new FetchProblem(`${target} declared ${declared} bytes`);
       }
-      const text = await readCapped(response, cap);
-      try {
-        return JSON.parse(text) as unknown;
-      } catch {
-        throw new FetchProblem(`${target} did not answer with JSON`);
-      }
+      return readCapped(response, cap);
     }
     throw new FetchProblem(`${url} redirected too many times`);
   } catch (error) {

@@ -40,10 +40,13 @@ import {
   countJobs,
   createJob,
   getJobBySlug,
+  getJobBySourceUrl,
   normaliseInput,
   searchJobs,
   setStatus,
+  updateJobFromImport,
 } from '../../core/jobs.ts';
+import { extractJob, JobImportProblem, type ImportedJob } from '../../core/import-job.ts';
 import { createOrg, getOrgBySlug, isMember, listOrgs, listOrgsForUser } from '../../core/orgs.ts';
 import {
   createResume,
@@ -60,7 +63,7 @@ import { deliverMagicLink } from '../../core/mail.ts';
 import { sameOrigin } from '../../config.ts';
 import { announce, Blocked, listInstances, listTopics } from '../../directory/registry.ts';
 import { federatedSearch, targetsFromDescriptors } from '../../directory/federate.ts';
-import { FetchProblem } from '../../directory/fetch.ts';
+import { FetchProblem, fetchText } from '../../directory/fetch.ts';
 import { parseQuery } from '../../schema/query.ts';
 import { jobPostingJsonLd } from '../../schema/jsonld.ts';
 import { parseResume } from '../../markup/resume.ts';
@@ -272,6 +275,81 @@ export function apiRoutes(): Hono<AppEnv> {
       return c.json({ job: published ?? job }, 201);
     }
     return c.json({ job }, 201);
+  });
+
+  /**
+   * Import a job from a URL, or refresh one already imported.
+   *
+   * The only thing a URL is for on this board. It reads the page, takes the
+   * JobPosting data if the page publishes any and the readable text if it does
+   * not, and leaves the result as a DRAFT for a person to check. Extraction
+   * from a page nobody designed for it is approximate, and a board whose pitch
+   * is that nothing is scraped cannot publish a scrape unread.
+   *
+   * Posting the same URL twice refreshes the listing that came from it rather
+   * than making a second one, so this is both `new` and `update`.
+   */
+  api.post('/jobs/import', async (c) => {
+    const { pool } = c.get('deps');
+    const viewer = viewerOf(c);
+    if (viewer === null) return fail(c, 401, 'unauthenticated', 'Sign in to import a job.');
+
+    const body = await readBody(c);
+    const url = typeof body['url'] === 'string' ? body['url'].trim() : '';
+    if (url === '') return fail(c, 400, 'invalid', 'Which URL? Send "url": "https://...".');
+
+    let imported: ImportedJob;
+    try {
+      imported = extractJob(await fetchText(url, { maxBytes: 2 * 1024 * 1024 }), url);
+    } catch (error) {
+      if (error instanceof JobImportProblem) return fail(c, 400, 'import_failed', error.message);
+      if (error instanceof FetchProblem) return fail(c, 400, 'unreachable', error.message);
+      throw error;
+    }
+
+    // A URL that was imported before updates that listing. Doing otherwise
+    // would leave two copies of one job on a board that claims each listing is
+    // a real distinct opening.
+    const existing = await getJobBySourceUrl(pool, url);
+    if (existing !== null) {
+      if (!(await isMember(pool, viewer.id, existing.org.id))) {
+        return fail(c, 403, 'not_a_member', `That listing belongs to ${existing.org.name}.`);
+      }
+      const updated = await updateJobFromImport(pool, existing.id, {
+        title: imported.title,
+        description: imported.description,
+        sourceUrl: url,
+        ...(imported.employmentType === undefined ? {} : { employmentType: imported.employmentType }),
+        ...(imported.workplace === undefined ? {} : { workplace: imported.workplace }),
+        ...(imported.location === undefined ? {} : { location: imported.location }),
+      });
+      return c.json({ job: updated ?? existing, via: imported.via, warnings: imported.warnings, created: false });
+    }
+
+    const orgSlug = typeof body['org'] === 'string' ? body['org'] : '';
+    const org = orgSlug === '' ? null : await getOrgBySlug(pool, orgSlug);
+    if (org === null) {
+      return fail(c, 400, 'no_org', 'Name the employer to import under, as "org": "<slug>".');
+    }
+    if (!(await isMember(pool, viewer.id, org.id))) {
+      return fail(c, 403, 'not_a_member', `You are not a member of ${org.name}.`);
+    }
+
+    const input = normaliseInput(
+      {
+        title: imported.title,
+        description: imported.description,
+        agentPolicy: typeof body['agentPolicy'] === 'string' ? body['agentPolicy'] : 'welcome',
+        ...(imported.employmentType === undefined ? {} : { employmentType: imported.employmentType }),
+        ...(imported.workplace === undefined ? {} : { workplace: imported.workplace }),
+        ...(imported.location === undefined ? {} : { location: imported.location }),
+      },
+      org.id,
+    );
+    if (typeof input === 'string') return fail(c, 400, 'invalid', input);
+
+    const job = await createJob(pool, { ...input, sourceUrl: url });
+    return c.json({ job, via: imported.via, warnings: imported.warnings, created: true }, 201);
   });
 
   api.post('/jobs/:slug/:action{publish|close|reopen}', async (c) => {
