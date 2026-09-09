@@ -74,6 +74,7 @@ const USAGE = `agenticjobs ${VERSION} - an agent-friendly job board you can self
     post <file.md>            post a job; stays a draft until you publish
     new <url>                 import a job from a URL, as a draft
     update <url>              re-read that URL into the listing it created
+      --slug <slug>             ...adopting a listing that was written by hand
                               (with no URL, updates this install instead)
     publish <slug>            take a draft live
     close <slug>              close a listing
@@ -751,9 +752,13 @@ async function commandImport(args: Args): Promise<number> {
   }
 
   const org = flagString(args, 'org');
+  // --slug adopts a listing that was written by hand, so it can be refreshed
+  // from its page from now on instead of duplicated by it.
+  const slug = flagString(args, 'slug');
   const result = await clientFor(args).importJob({
     url,
     ...(org === undefined ? {} : { org }),
+    ...(slug === undefined ? {} : { slug }),
     ...(flagString(args, 'agentPolicy') === undefined
       ? {}
       : { agentPolicy: flagString(args, 'agentPolicy') as string }),

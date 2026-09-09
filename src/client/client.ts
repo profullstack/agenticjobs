@@ -202,6 +202,7 @@ export class BoardClient {
   async importJob(input: {
     url: string;
     org?: string;
+    slug?: string;
     agentPolicy?: string;
   }): Promise<{ job: Job; via: string; warnings: string[]; created: boolean }> {
     return this.request('POST', '/api/v1/jobs/import', input);

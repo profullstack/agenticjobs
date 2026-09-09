@@ -415,6 +415,54 @@ describe('the API', { skip: reason === '' ? false : `no database: ${reason}` }, 
     });
   });
 
+  describe('importing from a URL', () => {
+    test('an unreachable page is refused with what happened, not a 500', async () => {
+      if (pool === null) return;
+      const { createSession } = await import('../dist/core/auth.js');
+      const owner = await pool.query(`select user_id from memberships limit 1`);
+      const token = await createSession(pool as never, owner.rows[0]?.['user_id'], { label: 't' });
+
+      const response = await post(
+        '/api/v1/jobs/import',
+        { url: 'https://not-a-real-host.invalid/jobs/1', org: 'example-works' },
+        { authorization: `Bearer ${token}` },
+      );
+      assert.equal(response.status, 400);
+      const body = (await response.json()) as { error: { code: string } };
+      assert.equal(body.error.code, 'unreachable');
+    });
+
+    test('an import aimed at this machine is refused', async () => {
+      if (pool === null) return;
+      const { createSession } = await import('../dist/core/auth.js');
+      const owner = await pool.query(`select user_id from memberships limit 1`);
+      const token = await createSession(pool as never, owner.rows[0]?.['user_id'], { label: 't' });
+
+      const response = await post(
+        '/api/v1/jobs/import',
+        { url: 'http://127.0.0.1:8787/admin', org: 'example-works' },
+        { authorization: `Bearer ${token}` },
+      );
+      assert.equal(response.status, 400);
+      const body = (await response.json()) as { error: { message: string } };
+      assert.match(body.error.message, /not an address we will fetch/);
+    });
+
+    test('adopting a slug that does not exist says so rather than importing', async () => {
+      if (pool === null) return;
+      const { createSession } = await import('../dist/core/auth.js');
+      const owner = await pool.query(`select user_id from memberships limit 1`);
+      const token = await createSession(pool as never, owner.rows[0]?.['user_id'], { label: 't' });
+
+      const response = await post(
+        '/api/v1/jobs/import',
+        { url: 'https://example.com/jobs/1', slug: 'no-such-listing-here' },
+        { authorization: `Bearer ${token}` },
+      );
+      assert.equal(response.status, 404);
+    });
+  });
+
   describe('the directory', () => {
     test('a board refuses to list itself', async () => {
       // The flagship is both a board and the directory it names, so this is
