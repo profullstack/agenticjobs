@@ -131,6 +131,17 @@ export const JobCard: FC<{
 
 export const Filters: FC<{ query: JobQuery; action?: string }> = ({ query, action = '/' }) => (
   <form class="filters" method="get" action={action}>
+    {/*
+      * A GET form submits its own fields and nothing else, so anything set by
+      * a link rather than a control is dropped the moment somebody searches.
+      * Tags are set by clicking a badge, which meant searching from a tagged
+      * page silently threw the tag away. These carry them through.
+      */}
+    {query.tags.length > 0 && <input type="hidden" name="tags" value={query.tags.join(',')} />}
+    {query.salaryMin !== null && (
+      <input type="hidden" name="salaryMin" value={String(query.salaryMin)} />
+    )}
+    {query.org !== null && <input type="hidden" name="org" value={query.org} />}
     <div class="filters-inline">
       <Field label="Search" name="q">
         <input

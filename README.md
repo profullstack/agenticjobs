@@ -123,7 +123,7 @@ requires this software.
 ```bash
 git clone https://github.com/profullstack/agenticjobs
 cd agenticjobs
-cp .env.example .env          # set SECRET and PUBLIC_URL
+cp .env.example .env          # set PUBLIC_URL
 docker compose up -d
 ```
 
@@ -139,8 +139,8 @@ pnpm start
 ```
 
 Deploying to Railway: the repo has a `railway.json`, so add a Postgres and point a
-service at this Dockerfile. `PUBLIC_URL` and `SECRET` are the two variables that
-matter.
+service at this Dockerfile. `PUBLIC_URL` is the variable that matters: every
+absolute URL the board hands out is built from it.
 
 ### Sending the sign-in email
 
