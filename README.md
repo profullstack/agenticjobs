@@ -207,7 +207,12 @@ agenticjobs submit <id>                               # you decide
 agenticjobs post job.md --org acme                    # creates a draft
 agenticjobs publish staff-engineer                    # you decide
 agenticjobs applications staff-engineer
+agenticjobs decide <id> hired                         # reviewing, rejected or hired
 ```
+
+Deciding records the outcome on the board and does not email anyone. Telling a
+candidate is still yours to do, and a board that sent the rejection for you would be
+writing in your name.
 
 Sign-in is the device flow: the terminal shows a short code, you approve it in a
 browser, and no credential crosses the terminal. A terminal token can read and apply

@@ -458,6 +458,171 @@ describe('the API', { skip: reason === '' ? false : `no database: ${reason}` }, 
     });
   });
 
+  describe('deciding on an application', () => {
+    /**
+     * An employer, a published listing, and one application sitting on it.
+     *
+     * Built per test rather than shared, because a decision is a write and
+     * tests that share a row start depending on the order they run in.
+     */
+    const pipeline = async (name: string) => {
+      const { createSession, ensureUser } = await import('../dist/core/auth.js');
+      const { createOrg } = await import('../dist/core/orgs.js');
+      const stamp = `${Date.now()}${Math.random().toString(36).slice(2, 7)}`;
+      const user = await ensureUser(pool as never, `dec+${stamp}@example.com`, name);
+      const token = await createSession(pool as never, user.id, { label: 't' });
+      const org = await createOrg(pool as never, user.id, { name: `${name} ${stamp}` });
+      if (typeof org === 'string') throw new Error(org);
+      const auth = { authorization: `Bearer ${token}` };
+
+      const created = (await (
+        await post(
+          '/api/v1/jobs',
+          {
+            org: org.slug,
+            title: `Decide ${stamp}`,
+            description: 'A listing that takes applications on the board.',
+            agentPolicy: 'welcome',
+          },
+          auth,
+        )
+      ).json()) as { job: { slug: string } };
+      await post(`/api/v1/jobs/${created.job.slug}/publish`, {}, auth);
+
+      await post(`/api/v1/jobs/${created.job.slug}/apply`, {
+        name: 'A Candidate',
+        email: `cand+${stamp}@example.com`,
+        cover: 'I would like to do the job.',
+      });
+
+      const inbox = (await (
+        await get(`/api/v1/jobs/${created.job.slug}/applications`, auth)
+      ).json()) as { items: { id: string; status: string }[] };
+      assert.equal(inbox.items.length, 1, 'expected exactly one application');
+      return { auth, slug: created.job.slug, application: inbox.items[0]! };
+    };
+
+    test('an employer can move an application through to hired', async () => {
+      if (pool === null) return;
+      const { auth, slug, application } = await pipeline('Deciders');
+      assert.equal(application.status, 'new');
+
+      for (const status of ['reviewing', 'hired']) {
+        const response = await post(
+          `/api/v1/applications/${application.id}/decision`,
+          { status },
+          auth,
+        );
+        assert.equal(response.status, 200, status);
+        const body = (await response.json()) as { application: { status: string } };
+        assert.equal(body.application.status, status);
+      }
+
+      // The decision is what the next reader sees, not just what the write
+      // returned - the whole complaint was that the badge never changed.
+      const inbox = (await (await get(`/api/v1/jobs/${slug}/applications`, auth)).json()) as {
+        items: { status: string; decidedAt: string | null }[];
+      };
+      assert.equal(inbox.items[0]?.status, 'hired');
+      assert.ok(inbox.items[0]?.decidedAt, 'a decision records when it was made');
+    });
+
+    test("the candidate-side statuses are not an employer's to set", async () => {
+      // `new` and `draft` belong to the applicant. An employer who could set
+      // them could un-send an application or push it back to unread.
+      if (pool === null) return;
+      const { auth, application } = await pipeline('Statuses');
+      for (const status of ['new', 'draft', 'nonsense', '']) {
+        const response = await post(
+          `/api/v1/applications/${application.id}/decision`,
+          { status },
+          auth,
+        );
+        assert.equal(response.status, 400, status);
+      }
+    });
+
+    test("someone else's pipeline is not yours, and says nothing about itself", async () => {
+      // 404 rather than 403 on purpose: an application id is the only thing a
+      // caller would have to guess, so "not yours" must be indistinguishable
+      // from "no such thing" or the endpoint enumerates real ids.
+      if (pool === null) return;
+      const mine = await pipeline('Mine');
+      const theirs = await pipeline('Theirs');
+
+      const response = await post(
+        `/api/v1/applications/${theirs.application.id}/decision`,
+        { status: 'rejected' },
+        mine.auth,
+      );
+      assert.equal(response.status, 404);
+
+      const missing = await post(
+        `/api/v1/applications/00000000-0000-4000-8000-000000000000/decision`,
+        { status: 'rejected' },
+        mine.auth,
+      );
+      assert.equal(missing.status, 404);
+      assert.deepEqual(
+        (await response.json()) as unknown,
+        (await missing.json()) as unknown,
+        'a stranger and a ghost must be told the same thing',
+      );
+
+      // And the row they could not touch is untouched.
+      const inbox = (await (
+        await get(`/api/v1/jobs/${theirs.slug}/applications`, theirs.auth)
+      ).json()) as { items: { status: string }[] };
+      assert.equal(inbox.items[0]?.status, 'new');
+    });
+
+    test('an id that is not an id is a 404, not a crash', async () => {
+      // It arrives straight off a URL, and Postgres raises a type error on
+      // anything that is not a uuid.
+      if (pool === null) return;
+      const { auth } = await pipeline('Malformed');
+      const response = await post(
+        '/api/v1/applications/not-a-uuid/decision',
+        { status: 'hired' },
+        auth,
+      );
+      assert.equal(response.status, 404);
+    });
+
+    test('a draft nobody sent cannot be decided on', async () => {
+      // An employer cannot see a draft, so an employer cannot reject one out
+      // from under the candidate who has not released it yet.
+      if (pool === null) return;
+      const { auth, slug } = await pipeline('Drafts');
+      const { createSession, ensureUser } = await import('../dist/core/auth.js');
+      const stamp = `${Date.now()}${Math.random().toString(36).slice(2, 7)}`;
+      const candidate = await ensureUser(pool as never, `draft+${stamp}@example.com`, 'Candidate');
+      const candidateToken = await createSession(pool as never, candidate.id, { label: 't' });
+
+      const draft = (await (
+        await post(
+          `/api/v1/jobs/${slug}/apply`,
+          {
+            name: 'Not Sent',
+            email: `ns+${stamp}@example.com`,
+            cover: 'Hold this.',
+            submit: false,
+          },
+          { authorization: `Bearer ${candidateToken}` },
+        )
+      ).json()) as { applicationId?: string; submitted?: boolean };
+      assert.ok(draft.applicationId, 'expected a draft to be created');
+      assert.equal(draft.submitted, false, 'expected it to be held, not sent');
+
+      const response = await post(
+        `/api/v1/applications/${draft.applicationId}/decision`,
+        { status: 'rejected' },
+        auth,
+      );
+      assert.equal(response.status, 404);
+    });
+  });
+
   describe('updates and following', () => {
     /** A person, an employer they post for, and a token. */
     const employer = async (name: string) => {

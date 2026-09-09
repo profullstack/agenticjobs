@@ -238,3 +238,59 @@ test('the third-party script is a real tag, and the policy lets it run', async (
   assert.match(policy, /script-src [^;]*'self'/, "the board's own script still runs");
   assert.match(policy, /script-src [^;]*https:\/\/crawlproof\.com/, 'and so does the stats tag');
 });
+
+test('an employer can act on an application from the page they read it on', async () => {
+  // The status badge existed from the first release and nothing could change
+  // it, so every applicant read "new" forever. The buttons are the fix; the
+  // status the application is already in is not offered as one of them.
+  const { ManageJobPage } = await import('../dist/views/post.js');
+
+  const job = {
+    id: 'j',
+    slug: 'a-job',
+    title: 'A job',
+    description: '',
+    org: { id: 'o', slug: 'o', name: 'Org' },
+    employmentType: 'full-time',
+    workplace: 'remote',
+    seniority: null,
+    location: 'Remote',
+    remoteRegions: [],
+    salary: { min: null, max: null, currency: 'USD', period: 'year', equity: null },
+    tags: [],
+    stack: [],
+    requirements: [],
+    responsibilities: [],
+    agentPolicy: 'welcome',
+    apply: { via: 'board', schema: { fields: [] } },
+    status: 'published',
+    publishedAt: new Date().toISOString(),
+    createdAt: '',
+    expiresAt: null,
+  };
+  const application = {
+    id: 'a1b2c3d4-0000-4000-8000-000000000000',
+    jobId: 'j',
+    answers: { name: 'A Candidate', email: 'c@example.com' },
+    agent: null,
+    status: 'reviewing',
+    submittedAt: new Date().toISOString(),
+    createdAt: new Date().toISOString(),
+    resume: null,
+    resumeTitle: null,
+  };
+
+  const html = String(
+    ManageJobPage({ job, html: '', applications: [application], publicUrl: 'http://b.test' }),
+  );
+
+  // A POST, not a link: a GET that hires someone can be prefetched.
+  assert.match(
+    html,
+    /action="\/me\/jobs\/a-job\/applications\/a1b2c3d4-0000-4000-8000-000000000000\/decision"/,
+  );
+  assert.match(html, /value="rejected"/, 'reject must be offered');
+  assert.match(html, /value="hired"/, 'hire must be offered');
+  assert.ok(!html.includes('value="reviewing"'), 'the status it is already in is not a button');
+  assert.ok(!html.includes('value="new"'), 'the candidate-side statuses are never offered');
+});

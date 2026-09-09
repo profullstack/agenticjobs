@@ -30,6 +30,7 @@ import {
 } from '../../core/auth.ts';
 import {
   createApplication,
+  decideApplication,
   listApplications,
   listDraftApplications,
   recentApplicationCount,
@@ -85,6 +86,7 @@ import { announce, Blocked, listInstances, listTopics } from '../../directory/re
 import { federatedSearch, targetsFromDescriptors } from '../../directory/federate.ts';
 import { FetchProblem, fetchText } from '../../directory/fetch.ts';
 import { parseQuery } from '../../schema/query.ts';
+import { APPLICATION_DECISIONS, isApplicationDecision } from '../../schema/job.ts';
 import { jobPostingJsonLd } from '../../schema/jsonld.ts';
 import { parseResume } from '../../markup/resume.ts';
 import { renderMarkdown } from '../../markup/markdown.ts';
@@ -483,6 +485,36 @@ export function apiRoutes(): Hono<AppEnv> {
       }),
     );
     return c.json({ job: job.slug, items: withResumes, total: withResumes.length });
+  });
+
+  /**
+   * Decide on one application.
+   *
+   * Addressed by application id rather than nested under the job, because a
+   * decision is about the application and the caller already holds its id
+   * from `GET /jobs/{slug}/applications`. Membership is enforced inside
+   * `decideApplication`, so there is no ownership check to forget here.
+   */
+  api.post('/applications/:id/decision', async (c) => {
+    const { pool } = c.get('deps');
+    const viewer = viewerOf(c);
+    if (viewer === null) return fail(c, 401, 'unauthenticated', 'Sign in first.');
+
+    const body = await c.req.json().catch(() => ({}) as Record<string, unknown>);
+    const status = (body as { status?: unknown }).status;
+    if (!isApplicationDecision(status)) {
+      return fail(c, 400, 'bad_status', `status must be one of ${APPLICATION_DECISIONS.join(', ')}.`);
+    }
+
+    const application = await decideApplication(pool, {
+      id: c.req.param('id'),
+      userId: viewer.id,
+      status,
+    });
+    if (application === null) {
+      return fail(c, 404, 'not_found', 'No such application on a listing you can act for.');
+    }
+    return c.json({ application });
   });
 
   /**

@@ -13,11 +13,14 @@ import {
   APPLICATION_STATUSES,
   type AgentDisclosure,
   type Application,
+  type ApplicationDecision,
   type ApplicationStatus,
   type ApplySchema,
   type Job,
 } from '../schema/index.ts';
 import { clean } from '../schema/text.ts';
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 interface ApplicationRow {
   id: string;
@@ -224,24 +227,60 @@ export async function listApplications(
   jobId: string,
   limit = 100,
 ): Promise<Application[]> {
-  const result = await pool.query<ApplicationRow>(
-    `select id, job_id, answers, agent, status, created_at, submitted_at
+  const result = await pool.query<ApplicationRow & { decided_at: string | null }>(
+    `select id, job_id, answers, agent, status, created_at, submitted_at, decided_at
        from applications
       where job_id = $1 and submitted_at is not null
       order by created_at desc
       limit $2`,
     [jobId, Math.min(500, Math.max(1, limit))],
   );
-  return result.rows.map(toApplication);
+  return result.rows.map((row) => ({ ...toApplication(row), decidedAt: row.decided_at }));
 }
 
-export async function setApplicationStatus(
+/**
+ * Record an employer's decision on one application.
+ *
+ * The membership test is part of the `update` rather than a check before it.
+ * The obvious shape - read the application, look up its job, ask `isMember`,
+ * then write - is three round trips describing a world that can change
+ * between them, and the id here comes from outside: an application id is the
+ * only thing a caller needs to guess to write to another employer's pipeline.
+ * As one statement, a caller who is not a member updates zero rows and gets
+ * the same `null` as one who named an application that does not exist. That
+ * is deliberate: distinguishing "not yours" from "no such thing" tells an
+ * unauthorised caller which ids are real.
+ *
+ * Drafts are excluded by `submitted_at is not null` for the same reason
+ * `listApplications` excludes them. An employer cannot see a draft, so an
+ * employer cannot decide on one, and a candidate who has not sent theirs yet
+ * cannot have it rejected out from under them.
+ */
+export async function decideApplication(
   pool: pg.Pool,
-  id: string,
-  status: ApplicationStatus,
-): Promise<boolean> {
-  const result = await pool.query(`update applications set status = $2 where id = $1`, [id, status]);
-  return (result.rowCount ?? 0) > 0;
+  { id, userId, status }: { id: string; userId: string; status: ApplicationDecision },
+): Promise<Application | null> {
+  // Postgres raises `invalid input syntax for type uuid` on anything that is
+  // not one, which would surface a 500 for what is really "no such
+  // application". The id reaches here straight from a URL, so a typo is the
+  // expected case rather than the odd one.
+  if (!UUID.test(id)) return null;
+
+  const result = await pool.query<ApplicationRow & { decided_at: string | null }>(
+    `update applications a
+        set status = $3, decided_at = now(), decided_by = $2
+       from jobs j, memberships m
+      where a.id = $1
+        and j.id = a.job_id
+        and m.org_id = j.org_id
+        and m.user_id = $2
+        and a.submitted_at is not null
+     returning a.id, a.job_id, a.answers, a.agent, a.status,
+               a.created_at, a.submitted_at, a.decided_at`,
+    [id, userId, status],
+  );
+  const row = result.rows[0];
+  return row === undefined ? null : { ...toApplication(row), decidedAt: row.decided_at };
 }
 
 /**

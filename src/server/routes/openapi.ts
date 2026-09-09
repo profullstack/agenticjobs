@@ -117,6 +117,22 @@ export function openApiDocument(config: Config): Record<string, unknown> {
           responses: { 200: ok('The applications.'), 401: err(), 403: err() },
         },
       },
+      '/api/v1/applications/{id}/decision': {
+        post: {
+          tags: ['apply'],
+          summary: 'Move an application to reviewing, rejected or hired.',
+          description:
+            'The employer side of an application. Members of the employer only; a caller who is not one gets the same 404 as a caller who named an application that does not exist, so the endpoint cannot be used to discover ids. Setting a decision does not notify the candidate - the board records what you decided and leaves telling them to you.',
+          security: [{ bearer: [] }],
+          parameters: [pathParam('id')],
+          responses: {
+            200: ok('The application, with its new status.'),
+            400: err(),
+            401: err(),
+            404: err(),
+          },
+        },
+      },
       '/api/v1/applications/drafts': {
         get: {
           tags: ['apply'],
