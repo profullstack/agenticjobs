@@ -21,7 +21,13 @@ self.addEventListener('install', (event) => {
   event.waitUntil(
     caches
       .open(SHELL)
-      .then((cache) => cache.addAll(ASSETS))
+      // `cache: 'reload'` because addAll goes through the HTTP cache by
+      // default, and these assets are served with max-age=3600. Without it the
+      // worker faithfully caches whatever stale copy the HTTP cache is still
+      // holding, under a fresh cache name, and the result is a cache that
+      // looks correct and serves the old file for an hour. That is exactly
+      // what happened to the mobile fix.
+      .then((cache) => cache.addAll(ASSETS.map((asset) => new Request(asset, { cache: 'reload' }))))
       .then(() => self.skipWaiting()),
   );
 });
@@ -52,7 +58,9 @@ self.addEventListener('fetch', (event) => {
     event.respondWith(
       caches.open(SHELL).then((cache) =>
         cache.match(request).then((hit) => {
-          const fresh = fetch(request)
+          // Same reason as install: revalidating through the HTTP cache can
+          // refresh the entry with the copy it already had.
+          const fresh = fetch(new Request(request.url, { cache: 'reload' }))
             .then((response) => {
               if (response.ok) void cache.put(request, response.clone());
               return response;

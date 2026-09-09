@@ -51,3 +51,16 @@ test('a cached shell asset is refreshed rather than served forever', () => {
   const handler = /if \(ASSETS\.includes\(url\.pathname\)\) \{[\s\S]*?\n  \}/.exec(swSource)?.[0] ?? '';
   assert.match(handler, /cache\.put\(/, 'shell assets must be revalidated into the cache');
 });
+
+test('the shell is cached from the network, not from the HTTP cache', () => {
+  // The assets are served with max-age=3600, and both addAll and a plain
+  // revalidating fetch go through the HTTP cache by default. Without
+  // cache: 'reload' the worker caches whatever stale copy the HTTP cache is
+  // holding, under a correct-looking cache name, and serves it for an hour.
+  // The mobile fix was invisible in a real browser for exactly this reason
+  // even after the cache name had moved.
+  assert.match(swSource, /addAll\([\s\S]*cache: 'reload'/, 'install must bypass the HTTP cache');
+
+  const handler = /if \(ASSETS\.includes\(url\.pathname\)\) \{[\s\S]*?\n  \}/.exec(swSource)?.[0] ?? '';
+  assert.match(handler, /cache: 'reload'/, 'revalidation must bypass the HTTP cache too');
+});
