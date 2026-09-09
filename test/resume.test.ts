@@ -7,7 +7,12 @@
 
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { parseResume, resumeTemplate, resumeSearchText } from '../dist/markup/resume.js';
+import {
+  parseResume,
+  redactContactChannels,
+  resumeTemplate,
+  resumeSearchText,
+} from '../dist/markup/resume.js';
 
 const FULL = `# Ada Lovelace
 
@@ -161,4 +166,122 @@ test('a skills badge is a skill, not the category it sits under', async () => {
   assert.deepEqual(summary.skills, [
     'JavaScript', 'TypeScript', 'Go', 'PostgreSQL', 'Docker',
   ]);
+});
+
+/**
+ * Contact channels are for signed-in callers.
+ *
+ * A public resume is still public. What is gated is the block that is worth
+ * harvesting on its own, and the test of what counts is whether the parse
+ * produced a link: a channel is a way to reach someone, a location is a fact
+ * about them and the directory already shows it.
+ */
+
+const WITH_FACTS = [
+  '# Ada Lovelace',
+  '',
+  '- **Email**: ada@example.com',
+  '- **Phone**: +1 (408) 555-0100',
+  '- **Location**: London, England',
+  '- **Work Authorization**: UK Citizen',
+  '- [GitHub](https://github.com/ada)',
+  '',
+  'Mathematician.',
+  '',
+  '## Links',
+  '',
+  '- [Notes](https://example.com/notes)',
+  '',
+  '## Work Experience',
+  '',
+  '### Analytical Engine | London',
+  'Chief Programmer (1842 - 1843)',
+  '',
+  '- Wrote the first published algorithm.',
+].join('\n');
+
+test('a contact channel is withheld and a plain fact is not', () => {
+  const { markdown, redacted } = redactContactChannels(WITH_FACTS);
+  assert.equal(redacted, true);
+
+  assert.ok(!markdown.includes('ada@example.com'), 'the address is gone');
+  assert.ok(!markdown.includes('555-0100'), 'the phone number is gone');
+  assert.ok(!markdown.includes('github.com/ada'), 'the profile link is gone');
+
+  // These read as facts about the person, not as ways to reach them, and the
+  // candidate card prints the location whether or not anybody is signed in.
+  assert.ok(markdown.includes('London, England'), 'the location stays');
+  assert.ok(markdown.includes('UK Citizen'), 'work authorization stays');
+});
+
+test('what was withheld says so, in the place it was withheld from', () => {
+  const { markdown } = redactContactChannels(WITH_FACTS);
+  const parsed = parseResume(markdown);
+
+  // Re-parsing the redacted Markdown is how the routes build the object they
+  // serve, so the document and its parse can never disagree.
+  const keys = parsed.contact.map((item) => item.key.toLowerCase());
+  assert.deepEqual(keys, ['contact', 'location', 'work authorization']);
+  assert.equal(parsed.contact[0]?.value, 'shared with signed-in members');
+  assert.equal(parsed.contact[0]?.href, null, 'the notice is not itself a link');
+
+  // A caller that cannot tell this from a resume with no contact details will
+  // report the second as the first.
+  assert.ok(parsed.contact.length > 0, 'the block is not simply emptied');
+  assert.equal(parsed.name, 'Ada Lovelace', 'the rest of the document is untouched');
+});
+
+test('only the contact block is redacted, not every link in the resume', () => {
+  const { markdown } = redactContactChannels(WITH_FACTS);
+  assert.ok(
+    markdown.includes('https://example.com/notes'),
+    'a link under a heading is content, not a contact channel',
+  );
+  assert.ok(markdown.includes('Wrote the first published algorithm.'));
+  assert.ok(markdown.includes('## Work Experience'));
+});
+
+test('a resume with nothing to withhold is not reported as redacted', () => {
+  const plain = ['# A Person', '', '- **Location**: Berlin', '', '## Skills', '', '- Go'].join('\n');
+  const { markdown, redacted } = redactContactChannels(plain);
+  assert.equal(redacted, false);
+  assert.equal(markdown, plain, 'and it comes back untouched');
+});
+
+test('resumeForViewer gates on being signed in, and nothing else', async () => {
+  const { resumeForViewer } = await import('../dist/core/candidates.js');
+  const resume = { markdown: WITH_FACTS, parsed: parseResume(WITH_FACTS) };
+
+  const member = resumeForViewer(resume, true);
+  assert.equal(member.redacted, false);
+  assert.equal(member.markdown, WITH_FACTS, 'a signed-in caller reads the whole document');
+  assert.ok(member.markdown.includes('ada@example.com'));
+
+  // An agent with a device token arrives here as a viewer too, which is the
+  // point: the board is for agents reading on somebody's behalf.
+  const anonymous = resumeForViewer(resume, false);
+  assert.equal(anonymous.redacted, true);
+  assert.ok(!anonymous.markdown.includes('ada@example.com'));
+  assert.ok(
+    !JSON.stringify(anonymous.parsed).includes('ada@example.com'),
+    'the parse is rebuilt from the redacted Markdown, not passed through',
+  );
+});
+
+test('a redacted resume still has a location for the directory card', async () => {
+  const { resumeForViewer, toCandidateSummary } = await import('../dist/core/candidates.js');
+  const anonymous = resumeForViewer(
+    { markdown: WITH_FACTS, parsed: parseResume(WITH_FACTS) },
+    false,
+  );
+
+  const summary = toCandidateSummary({
+    id: 'x', userId: 'u', slug: 's', title: 'T',
+    markdown: anonymous.markdown, parsed: anonymous.parsed,
+    visibility: 'public', publicSlug: 's',
+    sourceName: null, createdAt: '', updatedAt: '',
+  });
+
+  assert.equal(summary.name, 'Ada Lovelace');
+  assert.equal(summary.location, 'London, England');
 });

@@ -167,9 +167,11 @@ export const CandidateDetail: FC<{
   html: string;
   markdownUrl: string;
   listed: boolean;
+  /** True when this viewer is being shown the resume without its contact block. */
+  contactRedacted?: boolean;
   /** Follow, updates and, for the person themselves, the composer. */
   social?: SocialProps;
-}> = ({ candidate, parsed, html, markdownUrl, listed, social }) => (
+}> = ({ candidate, parsed, html, markdownUrl, listed, contactRedacted = false, social }) => (
   <div class="grid-2">
     <article class="stack">
       <div class="stack-sm">
@@ -215,6 +217,14 @@ export const CandidateDetail: FC<{
               </li>
             ))}
           </ul>
+          {contactRedacted && (
+            <p class="small muted">
+              <a href={`/login?next=${encodeURIComponent(`/candidates/${candidate.slug}`)}`}>
+                Sign in
+              </a>{' '}
+              to see how to reach {candidate.name}. An agent holding a token sees them too.
+            </p>
+          )}
         </Card>
       )}
 
@@ -249,6 +259,12 @@ export const CandidateDetail: FC<{
         <p class="small muted">
           The Markdown is the canonical document. <a href="/docs/openresume">The spec</a>.
         </p>
+        {contactRedacted && (
+          <p class="small muted">
+            Called without a token it comes back with the contact block withheld and{' '}
+            <code>contactRedacted</code> set, the same as this page.
+          </p>
+        )}
       </Card>
 
       {!listed && (

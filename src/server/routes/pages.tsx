@@ -68,7 +68,13 @@ import { ManageJobPage, NewEmployerPage, PostJobPage } from '../../views/post.ts
 import { NetworkPage, NetworkSearchPage } from '../../views/network.tsx';
 import { DocsPage, SpecPage } from '../../views/docs.tsx';
 import { CandidateDetail, CandidateList } from '../../views/candidates.tsx';
-import { allTags, tagsFrom, toCandidateSummary, withTags } from '../../core/candidates.ts';
+import {
+  allTags,
+  resumeForViewer,
+  tagsFrom,
+  toCandidateSummary,
+  withTags,
+} from '../../core/candidates.ts';
 import {
   BODY_MAX,
   candidateSlugFor,
@@ -309,6 +315,7 @@ export function pageRoutes(): Hono<AppEnv> {
 
     const summary = toCandidateSummary(resume);
     const viewer = c.get('viewer');
+    const shown = resumeForViewer(resume, viewer !== null);
     const target: Target = { kind: 'candidate', userId: resume.userId };
     const [updates, followers, following] = await Promise.all([
       listUpdatesFor(pool, target),
@@ -346,10 +353,11 @@ export function pageRoutes(): Hono<AppEnv> {
       >
         <CandidateDetail
           candidate={summary}
-          parsed={resume.parsed}
-          html={renderMarkdown(resume.markdown, { headingOffset: 1 })}
+          parsed={shown.parsed}
+          html={renderMarkdown(shown.markdown, { headingOffset: 1 })}
           markdownUrl={`${config.publicUrl}/api/v1/candidates/${summary.slug}`}
           listed={resume.visibility === 'public'}
+          contactRedacted={shown.redacted}
           social={social}
         />
       </Layout>,
@@ -400,16 +408,23 @@ export function pageRoutes(): Hono<AppEnv> {
     const resume = await getPublicResume(pool, slug);
     if (resume === null) return c.notFound();
     const name = toCandidateSummary(resume).name;
+    const shown = resumeForViewer(resume, c.get('viewer') !== null);
 
     if (format === 'md') {
-      return c.body(resume.markdown, 200, {
+      return c.body(shown.markdown, 200, {
         'content-type': 'text/markdown; charset=utf-8',
         'content-disposition': `attachment; filename="${filename(name, 'html').replace(/\.html$/, '.md')}"`,
       });
     }
 
     // The original upload, when it is the thing being asked for.
-    if (format === 'pdf' || format === 'docx') {
+    //
+    // Not to an anonymous caller once anything has been withheld: those bytes
+    // are whatever the candidate uploaded, the contact block included, and
+    // there is no redacting a PDF somebody else typeset. Skipping the
+    // shortcut falls through to a copy generated from the redacted Markdown,
+    // which is the same thing the page is showing them.
+    if ((format === 'pdf' || format === 'docx') && !shown.redacted) {
       const source = await publicResumeSource(pool, slug);
       const wanted = format === 'pdf' ? 'pdf' : 'wordprocessingml';
       if (source !== null && source.mime.includes(wanted)) {
@@ -421,8 +436,8 @@ export function pageRoutes(): Hono<AppEnv> {
     }
 
     const html = resumeHtml({
-      markdown: resume.markdown,
-      parsed: resume.parsed,
+      markdown: shown.markdown,
+      parsed: shown.parsed,
       title: resume.title,
     });
     if (format === 'html') {
@@ -430,7 +445,7 @@ export function pageRoutes(): Hono<AppEnv> {
     }
 
     try {
-      const bytes = format === 'pdf' ? await resumePdf(html) : await resumeDocx(resume.markdown);
+      const bytes = format === 'pdf' ? await resumePdf(html) : await resumeDocx(shown.markdown);
       return c.body(new Uint8Array(bytes), 200, {
         'content-type': CONTENT_TYPE[format],
         'content-disposition': `attachment; filename="${filename(name, format)}"`,

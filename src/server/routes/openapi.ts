@@ -202,7 +202,11 @@ export function openApiDocument(config: Config): Record<string, unknown> {
           tags: ['candidates'],
           summary: 'One candidate, with their resume as Markdown. Public.',
           description:
-            'Serves a link-shared resume as well as a listed one. The Markdown is canonical.',
+            'Serves a link-shared resume as well as a listed one. The Markdown is canonical. ' +
+            'Called without a session or token, the contact block comes back with every ' +
+            'channel withheld and contactRedacted set to true; the rest of the document is ' +
+            'whole, and facts that are not channels, such as location, stay. Send a token to ' +
+            'read the addresses.',
           parameters: [pathParam('slug')],
           responses: { 200: ok('The candidate.'), 404: err() },
         },
