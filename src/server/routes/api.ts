@@ -298,6 +298,28 @@ export function apiRoutes(): Hono<AppEnv> {
     const url = typeof body['url'] === 'string' ? body['url'].trim() : '';
     if (url === '') return fail(c, 400, 'invalid', 'Which URL? Send "url": "https://...".');
 
+    // Which listing this is about is settled before anything is fetched, so a
+    // bad slug costs no network request and answers with the actual problem
+    // rather than whatever the page happened to do.
+    //
+    // A URL imported before refreshes the listing that came from it; importing
+    // it again would leave two copies of one job on a board that claims each
+    // listing is a distinct real opening. `slug` adopts a listing written by
+    // hand into the importer, and is the only way an existing listing gets a
+    // source URL: without it, a job posted before the importer existed can
+    // never be refreshed from its page, only duplicated by it.
+    const slug = typeof body['slug'] === 'string' ? body['slug'].trim() : '';
+    const existing =
+      slug === ''
+        ? await getJobBySourceUrl(pool, url)
+        : await getJobBySlug(pool, slug, { includeUnpublished: true });
+    if (slug !== '' && existing === null) {
+      return fail(c, 404, 'not_found', `No listing here has the slug ${slug}.`);
+    }
+    if (existing !== null && !(await isMember(pool, viewer.id, existing.org.id))) {
+      return fail(c, 403, 'not_a_member', `That listing belongs to ${existing.org.name}.`);
+    }
+
     let imported: ImportedJob;
     try {
       imported = extractJob(await fetchText(url, { maxBytes: 2 * 1024 * 1024 }), url);
@@ -307,14 +329,7 @@ export function apiRoutes(): Hono<AppEnv> {
       throw error;
     }
 
-    // A URL that was imported before updates that listing. Doing otherwise
-    // would leave two copies of one job on a board that claims each listing is
-    // a real distinct opening.
-    const existing = await getJobBySourceUrl(pool, url);
     if (existing !== null) {
-      if (!(await isMember(pool, viewer.id, existing.org.id))) {
-        return fail(c, 403, 'not_a_member', `That listing belongs to ${existing.org.name}.`);
-      }
       const updated = await updateJobFromImport(pool, existing.id, {
         title: imported.title,
         description: imported.description,
