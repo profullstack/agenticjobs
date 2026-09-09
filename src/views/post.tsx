@@ -20,7 +20,11 @@ export const PostJobPage: FC<{
   orgs: Organisation[];
   error?: string;
   values?: Record<string, string>;
-}> = ({ orgs, error, values = {} }) => (
+  /** True when this board has a model key, so the brief box is worth showing. */
+  canDraft?: boolean;
+  /** What was typed into it, so a failed draft does not lose the brief. */
+  brief?: string;
+}> = ({ orgs, error, values = {}, canDraft = false, brief = '' }) => (
   <div class="grid-2">
     <div class="stack">
       <h1>Post a job</h1>
@@ -34,6 +38,35 @@ export const PostJobPage: FC<{
           Add the employer first: <a href="/me/employers/new">add an employer</a>.
         </Alert>
       ) : (
+        <>
+        {canDraft && (
+          <form class="stack-sm" method="post" action="/post/draft">
+            <Field
+              label="Write it with an agent"
+              name="brief"
+              hint="A sentence or two is enough. It fills the form in below and posts nothing: you read and edit every field, and it still stays a draft after that."
+            >
+              <textarea
+                class="textarea"
+                id="brief"
+                name="brief"
+                rows={3}
+                placeholder="Senior Go engineer, remote in European timezones, to own our payments service."
+              >
+                {brief}
+              </textarea>
+            </Field>
+            <div class="row">
+              <button class="btn btn-secondary" type="submit">
+                Draft it
+              </button>
+              <span class="small muted">
+                It will not invent a salary. Pay comes from what you write here, or stays empty.
+              </span>
+            </div>
+          </form>
+        )}
+
         <form class="stack" method="post" action="/post">
           <Field label="Employer" name="org">
             <select class="select" id="org" name="org" required>
@@ -179,6 +212,7 @@ export const PostJobPage: FC<{
             Create draft
           </button>
         </form>
+        </>
       )}
     </div>
 
