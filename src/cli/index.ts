@@ -35,7 +35,11 @@ import {
 import { VERSION } from '../config.ts';
 import { ago, formatSalary } from '../schema/text.ts';
 import { APPLICATION_DECISIONS, isApplicationDecision } from '../schema/job.ts';
-import type { Job, JobQuery } from '../schema/index.ts';
+// The vocabulary, not the storage: core/resumes.ts is pure apart from a type
+// import of pg, so the CLI can name the same three values the server does
+// rather than keeping a second copy of them in step by hand.
+import { VISIBILITIES } from '../core/resumes.ts';
+import type { Job, JobQuery, Organisation } from '../schema/index.ts';
 
 const USAGE = `agenticjobs ${VERSION} - an agent-friendly job board you can self-host
 
@@ -68,8 +72,12 @@ const USAGE = `agenticjobs ${VERSION} - an agent-friendly job board you can self
   Resumes
     resume list
     resume show <slug>
-    resume save <file> [--slug s] [--title t]
+    resume save <file> [--slug s] [--title t] [--visibility v]
     resume import <file>      pdf, docx, txt or md, converted to Markdown
+    resume publish <slug>     list it at /candidates
+    resume unpublish <slug>   make it private again
+    resume visibility <slug> <private|link|public>
+    resume delete <slug> --yes
 
   Updates
     news                      the updates on this board
@@ -81,6 +89,11 @@ const USAGE = `agenticjobs ${VERSION} - an agent-friendly job board you can self
     unfollow <slug>           stop
 
   Hiring
+    employer list             the employers you can post under
+    employer show <slug>
+    employer create <name>    [--website u] [--description d] [--logo u]
+    employer update <slug>    [--name n] [--website u] [--description d]
+    employer delete <slug> --yes
     post <file.md>            post a job; stays a draft until you publish
     new <url>                 import a job from a URL, as a draft
     update <url>              re-read that URL into the listing it created
@@ -279,6 +292,10 @@ async function run(args: Args): Promise<number> {
 
     case 'resume':
       return commandResume(args);
+
+    case 'employer':
+    case 'employers':
+      return commandEmployer(args);
 
     case 'post':
       return commandPost(args);
@@ -771,11 +788,17 @@ async function commandResume(args: Args): Promise<number> {
     }
     const slug = flagString(args, 'slug');
     const title = flagString(args, 'title');
+    const visibility = visibilityFrom(args);
+    if (visibility instanceof Error) {
+      process.stderr.write(`${visibility.message}\n`);
+      return 1;
+    }
     const saved = await client.saveResume(await readFile(path, 'utf8'), {
       ...(slug === undefined ? {} : { slug }),
       ...(title === undefined ? {} : { title }),
+      ...(visibility === undefined ? {} : { visibility }),
     });
-    return out(args, 'Saved.', saved);
+    return out(args, savedMessage(client.server, saved), saved);
   }
 
   if (action === 'import') {
@@ -787,16 +810,235 @@ async function commandResume(args: Args): Promise<number> {
     const { importDocument } = await import('../core/import.ts');
     const imported = await importDocument(path, await readFile(path));
     const title = flagString(args, 'title');
+    const visibility = visibilityFrom(args);
+    if (visibility instanceof Error) {
+      process.stderr.write(`${visibility.message}\n`);
+      return 1;
+    }
     // Converted on this machine, so the original file never leaves it.
     const saved = await client.saveResume(imported.markdown, {
       ...(title === undefined ? {} : { title }),
+      ...(visibility === undefined ? {} : { visibility }),
     });
     for (const warning of imported.warnings) process.stderr.write(`note: ${warning}\n`);
-    return out(args, `Converted from ${imported.via} and saved.`, saved);
+    return out(args, `Converted from ${imported.via}. ${savedMessage(client.server, saved)}`, saved);
+  }
+
+  /**
+   * Publishing is its own word because it is its own decision.
+   *
+   * Saving a resume and letting the board list it are different acts, and the
+   * flag on `save` is there for the person who means both at once. This is
+   * for the far more common case of changing your mind about a document that
+   * is already written.
+   */
+  if (action === 'publish' || action === 'unpublish' || action === 'visibility') {
+    const slug = args.positional[1];
+    if (slug === undefined) {
+      process.stderr.write(`Which one? agenticjobs resume ${action} <slug>\n`);
+      return 1;
+    }
+
+    let wanted: string;
+    if (action === 'publish') wanted = 'public';
+    else if (action === 'unpublish') wanted = 'private';
+    else {
+      const given = args.positional[2];
+      if (given === undefined || !(VISIBILITIES as readonly string[]).includes(given)) {
+        process.stderr.write(
+          `Which visibility? agenticjobs resume visibility <slug> <${VISIBILITIES.join('|')}>\n`,
+        );
+        return 1;
+      }
+      wanted = given;
+    }
+
+    const result = await client.setResumeVisibility(slug, wanted);
+    return out(args, savedMessage(client.server, result), result);
+  }
+
+  if (action === 'delete') {
+    const slug = args.positional[1];
+    if (slug === undefined) {
+      process.stderr.write('Which one? agenticjobs resume delete <slug>\n');
+      return 1;
+    }
+    if (!flagBool(args, 'yes', 'y')) {
+      process.stderr.write(
+        `This deletes ${slug} and cannot be undone. Add --yes if you mean it.\n`,
+      );
+      return 1;
+    }
+    const removed = await client.deleteResume(slug);
+    return out(args, `Deleted ${slug}.`, removed);
   }
 
   process.stderr.write(`No resume command called "${action}".\n`);
   return 1;
+}
+
+// --- employers ------------------------------------------------------------
+
+/**
+ * The employer you post under, from the terminal.
+ *
+ * Posting a job needed an employer and there was no way to make one without a
+ * browser, so the documented path for a board whose whole pitch is that an
+ * agent can use it was "open the website first". This is the missing half.
+ */
+async function commandEmployer(args: Args): Promise<number> {
+  const action = args.positional[0] ?? 'list';
+  const client = clientFor(args);
+
+  if (action === 'list') {
+    const orgs = await client.myOrgs();
+    if (orgs.length === 0) {
+      return out(
+        args,
+        `No employers yet. ${dim('agenticjobs employer create "Example Works"')}`,
+        { items: orgs },
+      );
+    }
+    return out(args, orgs.map(employerLine).join('\n'), { items: orgs });
+  }
+
+  if (action === 'show') {
+    const slug = args.positional[1];
+    if (slug === undefined) {
+      process.stderr.write('Which one? agenticjobs employer show <slug>\n');
+      return 1;
+    }
+    const result = await client.request<{ org: Organisation; jobs: { total: number } }>(
+      'GET',
+      `/api/v1/orgs/${encodeURIComponent(slug)}`,
+    );
+    return out(
+      args,
+      [
+        employerLine(result.org),
+        result.org.description === null ? '' : `  ${result.org.description}`,
+        `  ${dim(`${result.jobs.total} published`)}`,
+      ]
+        .filter((line) => line !== '')
+        .join('\n'),
+      result,
+    );
+  }
+
+  if (action === 'create') {
+    const name = args.positional.slice(1).join(' ').trim() || (flagString(args, 'name') ?? '');
+    if (name === '') {
+      process.stderr.write('What is it called? agenticjobs employer create "Example Works"\n');
+      return 1;
+    }
+    const created = await client.createOrg({ name, ...employerFields(args) });
+    return out(
+      args,
+      `Created ${created.org.slug}.\n${dim(`  post to it: agenticjobs post job.md --org ${created.org.slug}`)}`,
+      created,
+    );
+  }
+
+  if (action === 'update') {
+    const slug = args.positional[1];
+    if (slug === undefined) {
+      process.stderr.write('Which one? agenticjobs employer update <slug> --name "New Name"\n');
+      return 1;
+    }
+    const name = flagString(args, 'name');
+    const fields = { ...(name === undefined ? {} : { name }), ...employerFields(args) };
+    if (Object.keys(fields).length === 0) {
+      process.stderr.write(
+        'Nothing to change. Pass --name, --website, --description or --logo.\n',
+      );
+      return 1;
+    }
+    const updated = await client.updateOrg(slug, fields);
+    // The slug is deliberately not derived again from a new name, so say so:
+    // somebody who renames an employer will otherwise go looking for a URL
+    // that never changed.
+    return out(
+      args,
+      `Updated ${updated.org.name}. ${dim(`Still ${updated.org.slug}, so every link to it still works.`)}`,
+      updated,
+    );
+  }
+
+  if (action === 'delete') {
+    const slug = args.positional[1];
+    if (slug === undefined) {
+      process.stderr.write('Which one? agenticjobs employer delete <slug> --yes\n');
+      return 1;
+    }
+    if (!flagBool(args, 'yes', 'y')) {
+      process.stderr.write(`This deletes ${slug} and cannot be undone. Add --yes if you mean it.\n`);
+      return 1;
+    }
+    const removed = await client.deleteOrg(slug);
+    return out(args, `Deleted ${slug}.`, removed);
+  }
+
+  process.stderr.write(`No employer command called "${action}".\n`);
+  return 1;
+}
+
+/**
+ * The optional details, only when they were given.
+ *
+ * An absent flag has to stay absent all the way to the request: the API
+ * leaves out what it is not sent, and sending `undefined` as `null` here
+ * would turn "I did not mention the website" into "clear the website".
+ */
+function employerFields(args: Args): Record<string, string> {
+  const website = flagString(args, 'website');
+  const description = flagString(args, 'description');
+  const logo = flagString(args, 'logo', 'logo-url');
+  return {
+    ...(website === undefined ? {} : { website }),
+    ...(description === undefined ? {} : { description }),
+    ...(logo === undefined ? {} : { logoUrl: logo }),
+  };
+}
+
+function employerLine(org: Organisation): string {
+  const bits = [org.slug, org.website].filter(
+    (bit): bit is string => typeof bit === 'string' && bit !== '',
+  );
+  return `${org.name}  ${dim(bits.join('  '))}`;
+}
+
+/** `--visibility public`, checked here so a typo is not silently ignored. */
+function visibilityFrom(args: Args): string | undefined | Error {
+  const given = flagString(args, 'visibility');
+  if (given === undefined) return undefined;
+  if (!(VISIBILITIES as readonly string[]).includes(given)) {
+    return new Error(`Not a visibility: ${given}. Use ${VISIBILITIES.join(', ')}.`);
+  }
+  return given;
+}
+
+/**
+ * What happened, said in terms of who can now see it.
+ *
+ * "Saved." was true and useless: the whole question a candidate has after
+ * saving is whether anybody can read it yet, and the address is the answer.
+ */
+function savedMessage(server: string, result: unknown): string {
+  const resume = (result as { resume?: { visibility?: string; publicSlug?: string | null } })
+    ?.resume;
+  const visibility = resume?.visibility;
+  const publicSlug = resume?.publicSlug ?? null;
+
+  if (visibility === 'public' && publicSlug !== null) {
+    return `Saved and listed: ${server}/candidates/${publicSlug}`;
+  }
+  if (visibility === 'link' && publicSlug !== null) {
+    return `Saved. Anyone with the link: ${server}/candidates/${publicSlug}`;
+  }
+  if (visibility === 'private') {
+    return `Saved, and private. ${dim('agenticjobs resume publish <slug> lists it.')}`;
+  }
+  return 'Saved.';
 }
 
 // --- hiring ---------------------------------------------------------------

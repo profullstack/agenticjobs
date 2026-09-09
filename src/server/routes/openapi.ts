@@ -170,6 +170,24 @@ export function openApiDocument(config: Config): Record<string, unknown> {
           parameters: [pathParam('slug')],
           responses: { 200: ok('The employer.'), 404: err() },
         },
+        patch: {
+          tags: ['employers'],
+          summary: 'Change an employer. Only the fields you send move.',
+          description:
+            'An absent field is left alone and an explicit null clears it, so a caller that knows about a name cannot blank a website it never read. Renaming never moves the slug: that slug is the URL every listing already points at.',
+          security: [{ bearer: [] }],
+          parameters: [pathParam('slug')],
+          responses: { 200: ok('The employer.'), 400: err(), 401: err(), 403: err(), 404: err() },
+        },
+        delete: {
+          tags: ['employers'],
+          summary: 'Delete an employer that never published a listing.',
+          description:
+            'Listings and the applications sent to them cascade, so this is refused with 409 once anything has gone live. Drafts do not count: nobody has seen one.',
+          security: [{ bearer: [] }],
+          parameters: [pathParam('slug')],
+          responses: { 200: ok('Deleted.'), 401: err(), 403: err(), 404: err(), 409: err() },
+        },
       },
       '/api/v1/me': {
         get: {
