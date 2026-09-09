@@ -158,6 +158,26 @@ Leave `RESEND_API_KEY` unset and links are printed to the server log instead, wh
 is what you want on a laptop. They are never shown in the browser: whoever typed an
 address is not necessarily whoever owns it.
 
+### Writing a listing with a model
+
+An employer with a brief and no time can have a model expand it into the form. Set
+one key and the box appears on `/post`; set neither and it does not:
+
+```bash
+OPENAI_API_KEY=sk-...          # or ANTHROPIC_API_KEY=sk-ant-...
+WRITER_MODEL=gpt-5.2-codex     # optional; defaults to gpt-5.2 or claude-opus-5
+```
+
+It fills the form in and stops. Nothing is written and nothing is published: the
+person who asked reads and edits every field, and it still becomes a draft after
+that. This is the same seam an employer's agent goes through over the API, which is
+the whole point of the board.
+
+It will not invent compensation. If your brief says nothing about pay, every salary
+field comes back empty, because a number nobody agreed to is worse than no number.
+Drafting needs an account and is capped at ten an hour per account, so a board with a
+key configured is not a public text generator.
+
 ## Boards find each other
 
 Instances are independent. Each one has its own database, its own domain and its own

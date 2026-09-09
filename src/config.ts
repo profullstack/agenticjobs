@@ -25,6 +25,18 @@ export interface Config {
   /** Resend API key, or null to print sign-in links instead of sending them. */
   resendApiKey: string | null;
   mailFrom: string;
+  /**
+   * Model keys for agent-assisted drafting on the post form.
+   *
+   * Whichever is set turns the feature on; neither leaves it off and absent
+   * from the page rather than present and broken. Two providers because this
+   * is software other people self-host, and a board that only works if you
+   * bank with one vendor is not self-hostable.
+   */
+  anthropicApiKey: string | null;
+  openaiApiKey: string | null;
+  /** Overrides the per-provider default model. */
+  writerModel: string | null;
   version: string;
 }
 
@@ -101,12 +113,15 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     isDirectory: flag(env['DIRECTORY']),
     resendApiKey: env['RESEND_API_KEY']?.trim() || null,
     mailFrom: env['MAIL_FROM']?.trim() || defaultMailFrom(publicUrl, boardName),
+    anthropicApiKey: env['ANTHROPIC_API_KEY']?.trim() || null,
+    openaiApiKey: env['OPENAI_API_KEY']?.trim() || null,
+    writerModel: env['WRITER_MODEL']?.trim() || null,
     version: env['npm_package_version']?.trim() || VERSION,
   };
 }
 
 /** Kept in step with package.json by the release script. */
-export const VERSION = '0.9.0';
+export const VERSION = '0.10.0';
 export const SOFTWARE_NAME = 'agenticjobs';
 
 /**

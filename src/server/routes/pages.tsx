@@ -100,6 +100,14 @@ import {
   resumePdf,
   type MediaFormat,
 } from '../../core/markdown-media.ts';
+import {
+  AgentWriterProblem,
+  draftListing,
+  DRAFTS_PER_HOUR,
+  recentDraftCount,
+  recordDraft,
+  writerProvider,
+} from '../../core/agentwriter.ts';
 import { readSpec } from './specs.ts';
 import type { AppEnv } from '../deps.ts';
 
@@ -951,18 +959,78 @@ export function pageRoutes(): Hono<AppEnv> {
   // --- posting ----------------------------------------------------------
 
   pages.get('/post', async (c) => {
-    const { pool } = c.get('deps');
+    const { pool, config } = c.get('deps');
     const viewer = requireViewer(c);
     if (viewer instanceof Response) return viewer;
     return c.html(
       <Layout {...shell(c)} title="Post a job" noindex>
-        <PostJobPage orgs={await listOrgsForUser(pool, viewer.id)} />
+        <PostJobPage
+          orgs={await listOrgsForUser(pool, viewer.id)}
+          canDraft={writerProvider(config) !== null}
+        />
       </Layout>,
     );
   });
 
+  /**
+   * A brief, turned into a filled-in form.
+   *
+   * It renders the form and stops. Nothing is written, nothing is published,
+   * and the person who asked reads every field before a listing exists, which
+   * is the same seam an employer's agent goes through when it posts over the
+   * API and lands a draft.
+   */
+  pages.post('/post/draft', async (c) => {
+    const { pool, config } = c.get('deps');
+    const viewer = requireViewer(c);
+    if (viewer instanceof Response) return viewer;
+
+    const form = await formOf(c);
+    const orgs = await listOrgsForUser(pool, viewer.id);
+    const brief = form['brief'] ?? '';
+    const canDraft = writerProvider(config) !== null;
+
+    const render = (values: Record<string, string>, error?: string, status = 200): Html =>
+      c.html(
+        <Layout {...shell(c)} title="Post a job" noindex>
+          <PostJobPage
+            orgs={orgs}
+            canDraft={canDraft}
+            brief={brief}
+            {...(error === undefined ? {} : { error })}
+            values={values}
+          />
+        </Layout>,
+        status === 200 ? 200 : 400,
+      );
+
+    if (!canDraft) return render(form, 'This board has no model configured.', 400);
+
+    // Counted before the model is called: a request that failed still cost the
+    // board something and still came from somebody.
+    if ((await recentDraftCount(pool, viewer.id)) >= DRAFTS_PER_HOUR) {
+      return render(form, `That is ${DRAFTS_PER_HOUR} drafts in an hour. Try again later.`, 400);
+    }
+    await recordDraft(pool, viewer.id);
+
+    try {
+      const org = orgs.find((candidate) => candidate.slug === form['org']);
+      const drafted = await draftListing(
+        brief,
+        { boardName: config.boardName, orgName: org?.name ?? null },
+        config,
+      );
+      // The employer's own choice of org survives the round trip; the model
+      // does not get to pick who is hiring.
+      return render({ ...drafted, ...(form['org'] === undefined ? {} : { org: form['org'] }) });
+    } catch (error) {
+      if (error instanceof AgentWriterProblem) return render(form, error.message, 400);
+      throw error;
+    }
+  });
+
   pages.post('/post', async (c) => {
-    const { pool } = c.get('deps');
+    const { pool, config } = c.get('deps');
     const viewer = requireViewer(c);
     if (viewer instanceof Response) return viewer;
 
@@ -972,7 +1040,12 @@ export function pageRoutes(): Hono<AppEnv> {
     const fail = (message: string): Html =>
       c.html(
         <Layout {...shell(c)} title="Post a job" noindex>
-          <PostJobPage orgs={orgs} error={message} values={form} />
+          <PostJobPage
+            orgs={orgs}
+            error={message}
+            values={form}
+            canDraft={writerProvider(config) !== null}
+          />
         </Layout>,
         400,
       );
