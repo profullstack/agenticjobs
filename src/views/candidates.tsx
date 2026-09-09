@@ -211,6 +211,26 @@ export const CandidateDetail: FC<{
 
       <Card>
         <div class="card-header">
+          <h2 class="card-title">Download</h2>
+          <p class="card-description">
+            Made from the Markdown when you ask, so a file is never out of date with the page.
+          </p>
+        </div>
+        <div class="row" style="flex-wrap:wrap;gap:.4rem">
+          <a class="btn btn-secondary btn-sm" href={`/candidates/${candidate.slug}/resume.pdf`}>
+            PDF
+          </a>
+          <a class="btn btn-secondary btn-sm" href={`/candidates/${candidate.slug}/resume.docx`}>
+            DOCX
+          </a>
+          <a class="btn btn-secondary btn-sm" href={`/candidates/${candidate.slug}/resume.md`}>
+            Markdown
+          </a>
+        </div>
+      </Card>
+
+      <Card>
+        <div class="card-header">
           <h2 class="card-title">For agents</h2>
           <p class="card-description">
             This resume is OpenResume Markdown. Read it as data rather than parsing this page.

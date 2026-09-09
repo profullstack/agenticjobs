@@ -43,6 +43,7 @@ import {
   ensurePublicSlug,
   getPublicResume,
   getResume,
+  publicResumeSource,
   listPublicResumes,
   isVisibility,
   listResumes,
@@ -66,6 +67,15 @@ import { NetworkPage, NetworkSearchPage } from '../../views/network.tsx';
 import { DocsPage, SpecPage } from '../../views/docs.tsx';
 import { CandidateDetail, CandidateList } from '../../views/candidates.tsx';
 import { allTags, tagsFrom, toCandidateSummary, withTags } from '../../core/candidates.ts';
+import {
+  CONTENT_TYPE,
+  ConversionProblem,
+  filename,
+  resumeDocx,
+  resumeHtml,
+  resumePdf,
+  type MediaFormat,
+} from '../../core/markdown-media.ts';
 import { readSpec } from './specs.ts';
 import type { AppEnv } from '../deps.ts';
 
@@ -292,6 +302,67 @@ export function pageRoutes(): Hono<AppEnv> {
         />
       </Layout>,
     );
+  });
+
+  /**
+   * The resume as a file.
+   *
+   * The Markdown is canonical and everything here is a rendering of it, made
+   * on request and never stored. An uploaded original is the exception: if
+   * somebody handed us a PDF, giving that back beats giving back a PDF we
+   * regenerated from our parse of their PDF.
+   */
+  pages.get('/candidates/:slug/resume.:format{md|html|pdf|docx}', async (c) => {
+    const { pool, config } = c.get('deps');
+    const slug = c.req.param('slug');
+    const format = c.req.param('format') as 'md' | MediaFormat;
+
+    const resume = await getPublicResume(pool, slug);
+    if (resume === null) return c.notFound();
+    const name = toCandidateSummary(resume).name;
+
+    if (format === 'md') {
+      return c.body(resume.markdown, 200, {
+        'content-type': 'text/markdown; charset=utf-8',
+        'content-disposition': `attachment; filename="${filename(name, 'html').replace(/\.html$/, '.md')}"`,
+      });
+    }
+
+    // The original upload, when it is the thing being asked for.
+    if (format === 'pdf' || format === 'docx') {
+      const source = await publicResumeSource(pool, slug);
+      const wanted = format === 'pdf' ? 'pdf' : 'wordprocessingml';
+      if (source !== null && source.mime.includes(wanted)) {
+        return c.body(new Uint8Array(source.bytes), 200, {
+          'content-type': source.mime,
+          'content-disposition': `attachment; filename="${filename(name, format)}"`,
+        });
+      }
+    }
+
+    const html = resumeHtml({
+      markdown: resume.markdown,
+      parsed: resume.parsed,
+      title: resume.title,
+    });
+    if (format === 'html') {
+      return c.body(html, 200, { 'content-type': CONTENT_TYPE.html });
+    }
+
+    try {
+      const bytes = format === 'pdf' ? await resumePdf(html) : await resumeDocx(resume.markdown);
+      return c.body(new Uint8Array(bytes), 200, {
+        'content-type': CONTENT_TYPE[format],
+        'content-disposition': `attachment; filename="${filename(name, format)}"`,
+      });
+    } catch (error) {
+      if (error instanceof ConversionProblem) {
+        // 503 rather than 500: the document is fine and the converter is not,
+        // so this is worth retrying and worth telling an operator about.
+        return c.text(`That file could not be made. ${error.message}\n`, 503);
+      }
+      throw error;
+    }
   });
 
   pages.get('/employers', async (c) => {
