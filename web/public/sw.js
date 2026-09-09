@@ -13,7 +13,7 @@
  * drifted, which is the only version of this rule that survives contact.
  */
 
-const VERSION = 'c6b9327c';
+const VERSION = '0313cc56';
 const SHELL = `shell-${VERSION}`;
 const ASSETS = ['/assets/app.css', '/assets/tokens.css', '/assets/icon.svg'];
 
