@@ -35,7 +35,9 @@ curl ${publicUrl}/.well-known/agenticjobs
 curl "${publicUrl}/api/v1/jobs?q=rust&workplace=remote"
 
 # how to apply to one, as data
-curl ${publicUrl}/api/v1/jobs/SLUG/apply-schema`}
+# First fetch after idle can exceed 15s; retry once rather than skipping.
+curl --retry 1 --retry-all-errors --max-time 30 \\
+  ${publicUrl}/api/v1/jobs/SLUG/apply-schema`}
       </pre>
     </Card>
 
