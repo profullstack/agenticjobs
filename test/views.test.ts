@@ -46,3 +46,50 @@ test('the resume preview is below the editor, not squeezed into the sidebar', ()
     'the preview must come after the sidebar closes',
   );
 });
+
+test('remote and contract filter, and they filter as themselves', async () => {
+  // They are not tags: a job's tag list does not contain "remote", so linking
+  // them as tags=remote would search for a word that is not there and return
+  // nothing. Each links to the filter that actually holds it.
+  const { JobCard, facetHref } = await import('../dist/views/jobs.js');
+  const { EMPTY_QUERY } = await import('../dist/schema/query.js');
+
+  const job = {
+    id: 'j',
+    slug: 'a-job',
+    title: 'A job',
+    description: '',
+    org: { slug: 'o', name: 'Org' },
+    employmentType: 'contract',
+    workplace: 'remote',
+    seniority: null,
+    location: 'Remote',
+    remoteRegions: [],
+    salary: { min: null, max: null, currency: 'USD', period: 'year', equity: null },
+    tags: ['javascript'],
+    stack: [],
+    requirements: [],
+    responsibilities: [],
+    agentPolicy: 'welcome',
+    apply: { via: 'board', schema: { fields: [] } },
+    status: 'published',
+    publishedAt: new Date().toISOString(),
+    createdAt: '',
+    expiresAt: null,
+  };
+
+  const html = String(JobCard({ job, query: EMPTY_QUERY }));
+  assert.match(html, /href="\/\?workplace=remote"/, 'remote must filter by workplace');
+  assert.match(html, /href="\/\?employmentType=contract"/, 'contract must filter by type');
+  assert.ok(!html.includes('tags=remote'), 'remote is not a tag');
+
+  // A facet clicked from a filtered page narrows it rather than replacing it.
+  const narrowed = facetHref(
+    { ...EMPTY_QUERY, tags: ['javascript'], offset: 50 },
+    { workplace: 'remote' },
+  );
+  assert.match(narrowed, /tags=javascript/);
+  assert.match(narrowed, /workplace=remote/);
+  // Paging resets: page 3 of the old search is not page 3 of the new one.
+  assert.ok(!narrowed.includes('offset'), narrowed);
+});

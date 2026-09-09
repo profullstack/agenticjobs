@@ -5,13 +5,31 @@
 import type { FC } from 'hono/jsx';
 import type { Job, JobPage, JobQuery, Organisation } from '../schema/index.ts';
 import { ago, formatSalary } from '../schema/text.ts';
-import { queryToParams } from '../schema/query.ts';
+import { EMPTY_QUERY, queryToParams } from '../schema/query.ts';
 import { EMPLOYMENT_TYPES, SENIORITIES, WORKPLACES, AGENT_POLICIES } from '../schema/job.ts';
 import { AgentPolicyBadge, Alert, Badge, Card, Empty, Field, Prose } from './layout.tsx';
 
 /** Where a job tag points. Tags accumulate, so they narrow the search. */
 export function jobTagHref(tags: string[]): string {
   return tags.length === 0 ? '/' : `/?tags=${encodeURIComponent(tags.join(','))}`;
+}
+
+/**
+ * Where a facet badge points.
+ *
+ * `remote` and `contract` are not tags, they are the workplace and employment
+ * type, and each already has its own filter. Linking them as `tags=remote`
+ * would search the tag list for a word that is not in it and return nothing,
+ * so they link to the filter that actually holds them.
+ *
+ * Built from the current query rather than from scratch, so clicking one from
+ * a filtered page narrows further instead of throwing the rest away. Paging
+ * resets, because page 3 of the old search is not page 3 of the new one.
+ */
+export function facetHref(query: JobQuery | undefined, patch: Partial<JobQuery>): string {
+  const params = queryToParams({ ...(query ?? EMPTY_QUERY), ...patch, offset: 0 });
+  const search = params.toString();
+  return search === '' ? '/' : `/?${search}`;
 }
 
 /**
@@ -29,7 +47,9 @@ export const JobCard: FC<{
   instanceName?: string;
   /** Tags already being filtered on, so clicking another adds to them. */
   tags?: string[];
-}> = ({ job, origin, instanceName, tags = [] }) => {
+  /** The search this card is part of, so a facet narrows it. */
+  query?: JobQuery;
+}> = ({ job, origin, instanceName, tags = [], query }) => {
   const salary = formatSalary(job.salary);
   const href = origin === undefined ? `/jobs/${job.slug}` : `${origin}/jobs/${job.slug}`;
   // Tags and stack are one row of badges to a reader, so they are deduplicated
@@ -58,10 +78,37 @@ export const JobCard: FC<{
           {job.location !== null && ` - ${job.location}`}
         </div>
         <div class="job-meta">
-          <Badge variant="outline">{job.workplace}</Badge>
-          <Badge variant="outline">{job.employmentType}</Badge>
-          {job.seniority !== null && <Badge variant="outline">{job.seniority}</Badge>}
-          <AgentPolicyBadge policy={job.agentPolicy} />
+          {origin === undefined ? (
+            <>
+              <a class="badge badge-outline" href={facetHref(query, { workplace: job.workplace })}>
+                {job.workplace}
+              </a>
+              <a
+                class="badge badge-outline"
+                href={facetHref(query, { employmentType: job.employmentType })}
+              >
+                {job.employmentType}
+              </a>
+              {job.seniority !== null && (
+                <a
+                  class="badge badge-outline"
+                  href={facetHref(query, { seniority: job.seniority })}
+                >
+                  {job.seniority}
+                </a>
+              )}
+              <a class="badge-plain" href={facetHref(query, { agentPolicy: job.agentPolicy })}>
+                <AgentPolicyBadge policy={job.agentPolicy} />
+              </a>
+            </>
+          ) : (
+            <>
+              <Badge variant="outline">{job.workplace}</Badge>
+              <Badge variant="outline">{job.employmentType}</Badge>
+              {job.seniority !== null && <Badge variant="outline">{job.seniority}</Badge>}
+              <AgentPolicyBadge policy={job.agentPolicy} />
+            </>
+          )}
           {origin === undefined
             ? badges.slice(0, 6).map((item) => (
                 <a class="badge" href={jobTagHref(add(item))}>
@@ -230,7 +277,7 @@ export const JobList: FC<{
     ) : (
       <ul class="job-list">
         {page.items.map((job) => (
-          <JobCard job={job} tags={query.tags} />
+          <JobCard job={job} tags={query.tags} query={query} />
         ))}
       </ul>
     )}
@@ -265,10 +312,23 @@ export const JobDetail: FC<{
           </p>
         </div>
         <div class="job-meta">
-          <Badge variant="outline">{job.workplace}</Badge>
-          <Badge variant="outline">{job.employmentType}</Badge>
-          {job.seniority !== null && <Badge variant="outline">{job.seniority}</Badge>}
-          <AgentPolicyBadge policy={job.agentPolicy} />
+          <a class="badge badge-outline" href={facetHref(undefined, { workplace: job.workplace })}>
+            {job.workplace}
+          </a>
+          <a
+            class="badge badge-outline"
+            href={facetHref(undefined, { employmentType: job.employmentType })}
+          >
+            {job.employmentType}
+          </a>
+          {job.seniority !== null && (
+            <a class="badge badge-outline" href={facetHref(undefined, { seniority: job.seniority })}>
+              {job.seniority}
+            </a>
+          )}
+          <a class="badge-plain" href={facetHref(undefined, { agentPolicy: job.agentPolicy })}>
+            <AgentPolicyBadge policy={job.agentPolicy} />
+          </a>
           {salary !== null && <Badge variant="primary">{salary}</Badge>}
         </div>
         <Prose html={html} />
