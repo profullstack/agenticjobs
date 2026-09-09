@@ -208,6 +208,11 @@ export class BoardClient {
     return this.request('POST', '/api/v1/jobs/import', input);
   }
 
+  /** Change a listing's content. Only the fields sent are touched. */
+  async editJob(slug: string, input: Record<string, unknown>): Promise<{ job: Job }> {
+    return this.request('PATCH', `/api/v1/jobs/${encodeURIComponent(slug)}`, input);
+  }
+
   async publishJob(slug: string): Promise<{ job: Job }> {
     return this.request('POST', `/api/v1/jobs/${encodeURIComponent(slug)}/publish`);
   }

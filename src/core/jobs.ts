@@ -540,6 +540,48 @@ export async function updateJobFromImport(
   return getJobById(pool, id);
 }
 
+/**
+ * Rewrite a listing's content.
+ *
+ * Takes the same shape `createJob` takes, so an edit cannot put a listing into
+ * a state a post could not have created. Slug, status and org are untouched:
+ * the slug is the listing's public URL and editing must not break links to it.
+ */
+export async function editJob(pool: pg.Pool, id: string, input: JobInput): Promise<Job | null> {
+  await pool.query(
+    `update jobs
+        set title = $2, description = $3, employment_type = $4, workplace = $5,
+            seniority = $6, location = $7, remote_regions = $8,
+            salary_min = $9, salary_max = $10, salary_currency = $11,
+            salary_period = $12, salary_equity = $13,
+            tags = $14, stack = $15, requirements = $16, responsibilities = $17,
+            agent_policy = $18, expires_at = $19, updated_at = now()
+      where id = $1`,
+    [
+      id,
+      input.title,
+      input.description,
+      input.employmentType,
+      input.workplace,
+      input.seniority,
+      input.location,
+      input.remoteRegions,
+      input.salaryMin,
+      input.salaryMax,
+      input.salaryCurrency,
+      input.salaryPeriod,
+      input.salaryEquity,
+      input.tags,
+      input.stack,
+      input.requirements,
+      input.responsibilities,
+      input.agentPolicy,
+      input.expiresAt,
+    ],
+  );
+  return getJobById(pool, id);
+}
+
 /** The listing imported from this URL, if there is one. */
 export async function getJobBySourceUrl(pool: pg.Pool, url: string): Promise<Job | null> {
   const result = await pool.query<{ id: string }>(
