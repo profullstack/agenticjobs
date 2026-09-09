@@ -43,6 +43,7 @@ interface JobRow {
   salary_currency: string;
   salary_period: string;
   salary_equity: string | null;
+  salary_unpaid: boolean | null;
   tags: string[];
   stack: string[];
   requirements: string[];
@@ -70,7 +71,7 @@ interface JobRow {
 const SELECT = `
   select j.id, j.slug, j.title, j.description, j.employment_type, j.workplace, j.seniority,
          j.location, j.remote_regions, j.salary_min, j.salary_max, j.salary_currency,
-         j.salary_period, j.salary_equity, j.tags, j.stack, j.requirements, j.responsibilities,
+         j.salary_period, j.salary_equity, j.salary_unpaid, j.tags, j.stack, j.requirements, j.responsibilities,
          j.agent_policy, j.apply_via, j.apply_url, j.apply_email, j.apply_schema,
          j.apply_source_url, j.status,
          j.published_at, j.expires_at, j.created_at, j.updated_at,
@@ -126,6 +127,7 @@ export function toJob(row: JobRow): Job {
       currency: row.salary_currency,
       period: isSalaryPeriod(row.salary_period) ? row.salary_period : 'year',
       equity: row.salary_equity,
+      unpaid: row.salary_unpaid === true,
     },
     tags: row.tags ?? [],
     stack: row.stack ?? [],
@@ -271,6 +273,7 @@ export interface JobInput {
   salaryCurrency: string;
   salaryPeriod: string;
   salaryEquity: string | null;
+  salaryUnpaid: boolean;
   tags: string[];
   stack: string[];
   requirements: string[];
@@ -303,8 +306,12 @@ export function normaliseInput(input: Record<string, unknown>, orgId: string): J
   const seniority = isSeniority(input['seniority']) ? input['seniority'] : null;
   const agentPolicy = isAgentPolicy(input['agentPolicy']) ? input['agentPolicy'] : 'disclose';
 
-  const salaryMin = money(input['salaryMin']);
-  const salaryMax = money(input['salaryMax']);
+  // Unpaid wins over any number that came with it. A form can post a stale
+  // range alongside a ticked box, and "unpaid, $40k - $60k a year" is not a
+  // listing anybody can act on.
+  const salaryUnpaid = truthy(input['salaryUnpaid']);
+  const salaryMin = salaryUnpaid ? null : money(input['salaryMin']);
+  const salaryMax = salaryUnpaid ? null : money(input['salaryMax']);
   if (salaryMin !== null && salaryMax !== null && salaryMax < salaryMin) {
     return 'The top of the salary range is below the bottom of it.';
   }
@@ -328,6 +335,7 @@ export function normaliseInput(input: Record<string, unknown>, orgId: string): J
     salaryCurrency: (clean(input['salaryCurrency'], 3) || 'USD').toUpperCase(),
     salaryPeriod: isSalaryPeriod(input['salaryPeriod']) ? input['salaryPeriod'] : 'year',
     salaryEquity: clean(input['salaryEquity'], 60) || null,
+    salaryUnpaid,
     tags: parseList(input['tags'], 12),
     stack: parseList(input['stack'], 20),
     requirements: lines(input['requirements'], 20),
@@ -394,6 +402,20 @@ export function normaliseApplySchema(input: unknown): ApplySchema | null {
   return out.length === 0 ? null : { fields: out };
 }
 
+/**
+ * A boolean as it arrives from either surface.
+ *
+ * An HTML checkbox posts the string "on" and posts nothing at all when it is
+ * clear, while the API sends a real boolean. Both have to mean the same thing,
+ * and an absent field has to read as false rather than as "unchanged", or a
+ * form that clears the box would never clear it.
+ */
+function truthy(value: unknown): boolean {
+  if (typeof value === 'boolean') return value;
+  if (typeof value !== 'string') return false;
+  return ['1', 'true', 'yes', 'on'].includes(value.trim().toLowerCase());
+}
+
 function money(value: unknown): number | null {
   if (value === null || value === undefined || value === '') return null;
   const parsed = Number.parseInt(String(value).replace(/[^0-9]/g, ''), 10);
@@ -440,10 +462,10 @@ export async function createJob(pool: pg.Pool, input: JobInput): Promise<Job> {
     `insert into jobs (
        slug, org_id, title, description, employment_type, workplace, seniority, location,
        remote_regions, salary_min, salary_max, salary_currency, salary_period, salary_equity,
-       tags, stack, requirements, responsibilities, agent_policy, apply_via, apply_url,
-       apply_email, apply_schema, apply_source_url, expires_at, status
+       salary_unpaid, tags, stack, requirements, responsibilities, agent_policy, apply_via,
+       apply_url, apply_email, apply_schema, apply_source_url, expires_at, status
      ) values (
-       $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,'draft'
+       $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,'draft'
      ) returning id`,
     [
       slug,
@@ -460,6 +482,7 @@ export async function createJob(pool: pg.Pool, input: JobInput): Promise<Job> {
       input.salaryCurrency,
       input.salaryPeriod,
       input.salaryEquity,
+      input.salaryUnpaid,
       input.tags,
       input.stack,
       input.requirements,
@@ -554,9 +577,9 @@ export async function editJob(pool: pg.Pool, id: string, input: JobInput): Promi
         set title = $2, description = $3, employment_type = $4, workplace = $5,
             seniority = $6, location = $7, remote_regions = $8,
             salary_min = $9, salary_max = $10, salary_currency = $11,
-            salary_period = $12, salary_equity = $13,
-            tags = $14, stack = $15, requirements = $16, responsibilities = $17,
-            agent_policy = $18, expires_at = $19, updated_at = now()
+            salary_period = $12, salary_equity = $13, salary_unpaid = $14,
+            tags = $15, stack = $16, requirements = $17, responsibilities = $18,
+            agent_policy = $19, expires_at = $20, updated_at = now()
       where id = $1`,
     [
       id,
@@ -572,6 +595,7 @@ export async function editJob(pool: pg.Pool, id: string, input: JobInput): Promi
       input.salaryCurrency,
       input.salaryPeriod,
       input.salaryEquity,
+      input.salaryUnpaid,
       input.tags,
       input.stack,
       input.requirements,

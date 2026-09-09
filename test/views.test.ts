@@ -9,6 +9,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { ResumeEditor } from '../dist/views/me.js';
+import { PostJobPage } from '../dist/views/post.js';
 
 const resume = {
   id: 'r',
@@ -293,4 +294,35 @@ test('an employer can act on an application from the page they read it on', asyn
   assert.match(html, /value="hired"/, 'hire must be offered');
   assert.ok(!html.includes('value="reviewing"'), 'the status it is already in is not a button');
   assert.ok(!html.includes('value="new"'), 'the candidate-side statuses are never offered');
+});
+
+test('the post form can say a role is unpaid', () => {
+  // "No way to post an unpaid internship" was the report: leaving the range
+  // empty is indistinguishable from not answering, and 0 in the range sorts
+  // and filters as a paid job worth nothing.
+  const org = {
+    id: 'o',
+    slug: 'acme',
+    name: 'Acme',
+    website: null,
+    logoUrl: null,
+    description: null,
+    createdAt: '',
+  };
+  const html = String(PostJobPage({ orgs: [org] }));
+  assert.match(html, /name="salaryUnpaid"/, 'the control has to exist to be usable');
+  assert.match(html, /type="checkbox"/);
+  // Scoped to this input: the form has other checked controls, so a bare
+  // search for "checked" passes no matter what this box does.
+  const box = (source) => /<input[^>]*name="salaryUnpaid"[^>]*>/.exec(source)?.[0] ?? '';
+  assert.ok(
+    !box(html).includes('checked'),
+    `off unless the employer says otherwise, got ${box(html)}`,
+  );
+
+  const ticked = String(PostJobPage({ orgs: [org], values: { salaryUnpaid: 'on' } }));
+  assert.ok(
+    box(ticked).includes('checked'),
+    `a rejected form comes back with the box still ticked, got ${box(ticked)}`,
+  );
 });

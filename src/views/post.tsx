@@ -107,6 +107,20 @@ export const PostJobPage: FC<{
             <p class="hint" style="margin-top:0">
               A listing without a number gets fewer and worse applications. Say the range.
             </p>
+            <p class="hint" style="margin-top:0">
+              <label>
+                <input
+                  type="checkbox"
+                  name="salaryUnpaid"
+                  value="on"
+                  checked={values['salaryUnpaid'] === 'on'}
+                />{' '}
+                This role is unpaid
+              </label>{' '}
+              An unpaid internship or volunteer post says so here. It reads as Unpaid rather
+              than as a listing whose author skipped the question, and any range below is
+              ignored.
+            </p>
             <div class="row">
               <input class="input" type="number" name="salaryMin" placeholder="from" style="width:8rem" value={values['salaryMin'] ?? ''} />
               <input class="input" type="number" name="salaryMax" placeholder="to" style="width:8rem" value={values['salaryMax'] ?? ''} />
