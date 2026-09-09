@@ -180,18 +180,46 @@ export class BoardClient {
 
   async saveResume(
     markdown: string,
-    options: { slug?: string; title?: string } = {},
+    options: { slug?: string; title?: string; visibility?: string } = {},
   ): Promise<unknown> {
-    if (options.slug !== undefined) {
-      return this.request('PATCH', `/api/v1/resumes/${encodeURIComponent(options.slug)}`, {
-        markdown,
-        ...(options.title === undefined ? {} : { title: options.title }),
-      });
-    }
-    return this.request('POST', '/api/v1/resumes', {
+    const body = {
       markdown,
       ...(options.title === undefined ? {} : { title: options.title }),
-    });
+      ...(options.visibility === undefined ? {} : { visibility: options.visibility }),
+    };
+    if (options.slug !== undefined) {
+      return this.request('PATCH', `/api/v1/resumes/${encodeURIComponent(options.slug)}`, body);
+    }
+    return this.request('POST', '/api/v1/resumes', body);
+  }
+
+  /** Change only a resume's visibility, leaving the document alone. */
+  async setResumeVisibility(
+    slug: string,
+    visibility: string,
+  ): Promise<{ resume: { slug: string; visibility: string; publicSlug: string | null } }> {
+    return this.request('PATCH', `/api/v1/resumes/${encodeURIComponent(slug)}`, { visibility });
+  }
+
+  async deleteResume(slug: string): Promise<{ ok: boolean }> {
+    return this.request('DELETE', `/api/v1/resumes/${encodeURIComponent(slug)}`);
+  }
+
+  /** The employers this account belongs to, which is not the public list. */
+  async myOrgs(): Promise<Organisation[]> {
+    return (await this.me()).orgs;
+  }
+
+  async createOrg(input: Record<string, unknown>): Promise<{ org: Organisation }> {
+    return this.request('POST', '/api/v1/orgs', input);
+  }
+
+  async updateOrg(slug: string, input: Record<string, unknown>): Promise<{ org: Organisation }> {
+    return this.request('PATCH', `/api/v1/orgs/${encodeURIComponent(slug)}`, input);
+  }
+
+  async deleteOrg(slug: string): Promise<{ ok: boolean; deleted: string }> {
+    return this.request('DELETE', `/api/v1/orgs/${encodeURIComponent(slug)}`);
   }
 
   async postJob(input: Record<string, unknown>): Promise<{ job: Job }> {

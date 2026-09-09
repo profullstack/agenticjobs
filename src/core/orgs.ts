@@ -134,6 +134,93 @@ export async function createOrg(
   }
 }
 
+/**
+ * Change an employer's details, one field at a time.
+ *
+ * Only the fields that were sent move. An employer edited from a form that
+ * only carries a name must not have its website silently cleared, and an
+ * agent updating a description has no business also blanking a logo it never
+ * read. `null` is therefore a value that clears a field and `undefined` is
+ * "leave it", which is the distinction the whole signature exists to keep.
+ *
+ * The slug never moves, even when the name does. It is the URL that listings,
+ * links and the directory all point at, and a rename is the most ordinary
+ * thing an employer does: a company that becomes "Example Works Inc" has not
+ * become a different employer, and every link to it must survive that.
+ */
+export async function updateOrg(
+  pool: pg.Pool,
+  slug: string,
+  input: Partial<OrgInput>,
+): Promise<Organisation | string> {
+  const existing = await getOrgBySlug(pool, slug);
+  if (existing === null) return `No employer here with the slug ${slug}.`;
+
+  let name = existing.name;
+  if (input.name !== undefined) {
+    name = clean(input.name, 120);
+    if (name.length < 2) return 'An employer name of at least 2 characters is required.';
+  }
+
+  const website = input.website === undefined ? existing.website : normaliseUrl(input.website);
+  const logoUrl = input.logoUrl === undefined ? existing.logoUrl : normaliseUrl(input.logoUrl);
+  const description =
+    input.description === undefined
+      ? existing.description
+      : clean(input.description, 2000) || null;
+
+  const result = await pool.query<OrgRow>(
+    `update organisations set name = $2, website = $3, description = $4, logo_url = $5
+      where id = $1
+      returning id, slug, name, website, logo_url, description, created_at`,
+    [existing.id, name, website, description, logoUrl],
+  );
+  const row = result.rows[0];
+  return row === undefined ? `No employer here with the slug ${slug}.` : toOrg(row);
+}
+
+/** An employer's listings, split by whether they were ever public. */
+export async function countJobsForOrg(
+  pool: pg.Pool,
+  orgId: string,
+): Promise<{ total: number; live: number }> {
+  const result = await pool.query<{ total: string; live: string }>(
+    `select count(*)::text as total,
+            count(*) filter (where status <> 'draft')::text as live
+       from jobs where org_id = $1`,
+    [orgId],
+  );
+  const row = result.rows[0];
+  return { total: Number(row?.total ?? 0), live: Number(row?.live ?? 0) };
+}
+
+/**
+ * Delete an employer that never published anything.
+ *
+ * `jobs.org_id` cascades and `applications.job_id` cascades behind it, so a
+ * plain delete here would quietly take published listings and every
+ * application people sent to them. A listing that has been public is part of
+ * a record other people are in, and one line of SQL is not the right amount
+ * of ceremony for removing it.
+ *
+ * Drafts are different: nobody has seen them, nothing can have been sent to
+ * one, and an employer whose listings are all drafts is almost always an
+ * employer typed in wrong five minutes ago. Those cascade, which is what
+ * makes this useful rather than a delete that always refuses.
+ *
+ * The refusal is permanent by design and says so, because there is no
+ * unpublish-and-then-delete path to send somebody down: closing a listing
+ * keeps it, which is the point of closing it.
+ */
+export async function deleteOrg(pool: pg.Pool, orgId: string): Promise<true | string> {
+  const jobs = await countJobsForOrg(pool, orgId);
+  if (jobs.live > 0) {
+    return `That employer has ${jobs.live} listing${jobs.live === 1 ? '' : 's'} that went live, and the applications sent to them would go too. An employer that has posted publicly stays.`;
+  }
+  const result = await pool.query(`delete from organisations where id = $1`, [orgId]);
+  return result.rowCount === 0 ? 'No such employer.' : true;
+}
+
 export async function listOrgs(pool: pg.Pool, limit = 100): Promise<Organisation[]> {
   const result = await pool.query<OrgRow>(
     `select o.id, o.slug, o.name, o.website, o.logo_url, o.description, o.created_at

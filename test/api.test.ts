@@ -55,6 +55,21 @@ async function del(path: string, headers: Record<string, string> = {}): Promise<
   return app.fetch(new Request(`http://board.test${path}`, { method: 'DELETE', headers }));
 }
 
+async function patch(
+  path: string,
+  body: unknown,
+  headers: Record<string, string> = {},
+): Promise<Response> {
+  if (app === null) throw new Error('no app');
+  return app.fetch(
+    new Request(`http://board.test${path}`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json', ...headers },
+      body: JSON.stringify(body),
+    }),
+  );
+}
+
 /**
  * Set up at module scope, not in before().
  *
@@ -455,6 +470,107 @@ describe('the API', { skip: reason === '' ? false : `no database: ${reason}` }, 
         assert.ok(schema.endpoint, `${item.slug} must publish an endpoint`);
         assert.ok((schema.schema?.fields ?? []).length > 0, `${item.slug} must publish fields`);
       }
+    });
+  });
+
+  describe('employers, as CRUD', () => {
+    /** A signed-in account with one employer of its own. */
+    const employer = async (name: string) => {
+      const { createSession, ensureUser } = await import('../dist/core/auth.js');
+      const { createOrg } = await import('../dist/core/orgs.js');
+      const stamp = `${Date.now()}${Math.random().toString(36).slice(2, 7)}`;
+      const user = await ensureUser(pool as never, `org+${stamp}@example.com`, name);
+      const token = await createSession(pool as never, user.id, { label: 't' });
+      const org = await createOrg(pool as never, user.id, {
+        name: `${name} ${stamp}`,
+        website: 'https://example.com',
+      });
+      if (typeof org === 'string') throw new Error(org);
+      return { org, stamp, auth: { authorization: `Bearer ${token}` } };
+    };
+
+    test('a rename keeps the slug, because the slug is the URL', async () => {
+      if (pool === null) return;
+      const { org, auth, stamp } = await employer('Rename Co');
+
+      const response = await patch(`/api/v1/orgs/${org.slug}`, { name: `Renamed ${stamp}` }, auth);
+      assert.equal(response.status, 200);
+      const body = (await response.json()) as { org: { slug: string; name: string } };
+      assert.equal(body.org.name, `Renamed ${stamp}`);
+      assert.equal(body.org.slug, org.slug, 'a company that renamed is not a different employer');
+
+      // The old address is the one every listing and link already points at,
+      // so the test that matters is that it still resolves.
+      assert.equal((await get(`/api/v1/orgs/${org.slug}`)).status, 200);
+    });
+
+    test('a patch leaves alone what it does not carry', async () => {
+      if (pool === null) return;
+      const { org, auth } = await employer('Partial Co');
+
+      // Only a description. A caller that never read the website must not be
+      // able to clear it by not mentioning it.
+      await patch(`/api/v1/orgs/${org.slug}`, { description: 'We make examples.' }, auth);
+      const kept = (await (await get(`/api/v1/orgs/${org.slug}`)).json()) as {
+        org: { website: string | null; description: string | null };
+      };
+      assert.equal(kept.org.description, 'We make examples.');
+      assert.ok(kept.org.website?.includes('example.com'), 'the website survived a patch about something else');
+
+      // An explicit null is the way to actually clear one.
+      await patch(`/api/v1/orgs/${org.slug}`, { website: null }, auth);
+      const cleared = (await (await get(`/api/v1/orgs/${org.slug}`)).json()) as {
+        org: { website: string | null };
+      };
+      assert.equal(cleared.org.website, null);
+    });
+
+    test('somebody else cannot edit or delete your employer', async () => {
+      if (pool === null) return;
+      const { org } = await employer('Mine Co');
+      const stranger = await employer('Stranger Co');
+
+      assert.equal((await patch(`/api/v1/orgs/${org.slug}`, { name: 'Theirs' }, stranger.auth)).status, 403);
+      assert.equal((await del(`/api/v1/orgs/${org.slug}`, stranger.auth)).status, 403);
+      // And with no token at all, which is a different code path.
+      assert.equal((await patch(`/api/v1/orgs/${org.slug}`, { name: 'Theirs' })).status, 401);
+    });
+
+    test('an employer that published cannot be deleted, one that never did can', async () => {
+      if (pool === null) return;
+      const { org, auth, stamp } = await employer('Delete Co');
+
+      // Nothing attached yet: it goes.
+      const spare = await employer('Spare Co');
+      const gone = await del(`/api/v1/orgs/${spare.org.slug}`, spare.auth);
+      assert.equal(gone.status, 200);
+      assert.equal((await get(`/api/v1/orgs/${spare.org.slug}`)).status, 404);
+
+      // One published listing, and the same call is refused - because the
+      // cascade would take the listing and every application with it.
+      const job = (await (
+        await post(
+          '/api/v1/jobs',
+          {
+            org: org.slug,
+            title: `Kept Role ${stamp}`,
+            description: 'A listing that has been public, which is why its employer stays.',
+            agentPolicy: 'welcome',
+          },
+          auth,
+        )
+      ).json()) as { job: { slug: string } };
+      await post(`/api/v1/jobs/${job.job.slug}/publish`, {}, auth);
+
+      const refused = await del(`/api/v1/orgs/${org.slug}`, auth);
+      assert.equal(refused.status, 409);
+      const problem = (await refused.json()) as { error?: { message?: string } };
+      assert.match(
+        problem.error?.message ?? '',
+        /listing/i,
+        'the refusal has to say what is in the way',
+      );
+      assert.equal((await get(`/api/v1/jobs/${job.job.slug}`)).status, 200, 'the listing survived');
     });
   });
 

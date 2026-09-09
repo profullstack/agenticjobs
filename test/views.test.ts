@@ -360,12 +360,32 @@ test('the docs say how to get listed as a candidate, not only how to apply', () 
 
 test('the docs say how to post a job, employer first', () => {
   const html = docs();
-  const orgs = html.indexOf('/api/v1/orgs');
+  const employer = html.indexOf('agenticjobs employer create');
   const post = html.indexOf('agenticjobs post job.md');
-  assert.ok(orgs !== -1, 'creating the employer has to be on the page');
+  assert.ok(employer !== -1, 'creating the employer has to be on the page');
   assert.ok(post !== -1, 'and so does posting the listing');
-  assert.ok(orgs < post, 'in that order: a listing has nowhere to go without an employer');
+  assert.ok(employer < post, 'in that order: a listing has nowhere to go without an employer');
   assert.match(html, /agent_policy|agentPolicy/, 'the field this board exists for');
   assert.match(html, /draft/i, 'a posted job is a draft until a person publishes it');
   assert.match(html, /agenticjobs publish/);
+});
+
+/**
+ * Both flows have to be doable with the client the page tells you to install.
+ *
+ * They were documented as curl with a hand-copied bearer token, because the
+ * CLI genuinely could not create an employer or publish a resume. Asserting
+ * the commands rather than the endpoints is what keeps the page from drifting
+ * back to that: a curl example passes an endpoint assertion happily.
+ */
+test('neither flow sends you to curl for a step the CLI cannot do', () => {
+  const html = docs();
+  assert.match(html, /agenticjobs employer create/, 'employers are made from the terminal');
+  assert.match(html, /agenticjobs resume publish/, 'and resumes are listed from it');
+  // The REST equivalents stay documented; what must not come back is a curl
+  // as the only way through either flow.
+  assert.ok(
+    !/curl -X (POST|PATCH) [^\n]*\/api\/v1\/(orgs|resumes)/.test(html),
+    'a curl with a bearer token is no longer the documented path for either step',
+  );
 });

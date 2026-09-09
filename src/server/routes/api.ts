@@ -49,7 +49,15 @@ import {
   updateJobFromImport,
 } from '../../core/jobs.ts';
 import { extractJob, JobImportProblem, type ImportedJob } from '../../core/import-job.ts';
-import { createOrg, getOrgBySlug, isMember, listOrgs, listOrgsForUser } from '../../core/orgs.ts';
+import {
+  createOrg,
+  deleteOrg,
+  getOrgBySlug,
+  isMember,
+  listOrgs,
+  listOrgsForUser,
+  updateOrg,
+} from '../../core/orgs.ts';
 import {
   createResume,
   deleteResume,
@@ -581,6 +589,67 @@ export function apiRoutes(): Hono<AppEnv> {
     });
     if (typeof created === 'string') return fail(c, 400, 'invalid', created);
     return c.json({ org: created }, 201);
+  });
+
+  /**
+   * Change an employer.
+   *
+   * Absent fields are left alone rather than cleared, so a caller that knows
+   * about a name and nothing else cannot blank a website it never read. That
+   * is also what makes this safe to call from a script that only ever sets
+   * one thing.
+   */
+  api.patch('/orgs/:slug', async (c) => {
+    const { pool } = c.get('deps');
+    const viewer = viewerOf(c);
+    if (viewer === null) return fail(c, 401, 'unauthenticated', 'Sign in to edit an employer.');
+
+    const org = await getOrgBySlug(pool, c.req.param('slug'));
+    if (org === null) return fail(c, 404, 'not_found', 'No such employer.');
+    if (!(await isMember(pool, viewer.id, org.id))) {
+      return fail(c, 403, 'not_a_member', `You are not a member of ${org.name}.`);
+    }
+
+    const body = await readBody(c);
+    const field = (key: string): string | null | undefined => {
+      const value = body[key];
+      if (value === undefined) return undefined;
+      // An explicit null clears the field; a string sets it. Anything else is
+      // not an answer, so it is treated as not having been sent.
+      if (value === null) return null;
+      return typeof value === 'string' ? value : undefined;
+    };
+
+    const updated = await updateOrg(pool, org.slug, {
+      ...(field('name') === undefined ? {} : { name: field('name') ?? '' }),
+      ...(field('website') === undefined ? {} : { website: field('website') }),
+      ...(field('description') === undefined ? {} : { description: field('description') }),
+      ...(field('logoUrl') === undefined ? {} : { logoUrl: field('logoUrl') }),
+    });
+    if (typeof updated === 'string') return fail(c, 400, 'invalid', updated);
+    return c.json({ org: updated });
+  });
+
+  /**
+   * Delete an employer that never published anything.
+   *
+   * The rule lives in the model rather than here, because it is a fact about
+   * what deleting an organisation drags with it and not a fact about HTTP.
+   */
+  api.delete('/orgs/:slug', async (c) => {
+    const { pool } = c.get('deps');
+    const viewer = viewerOf(c);
+    if (viewer === null) return fail(c, 401, 'unauthenticated', 'Sign in to delete an employer.');
+
+    const org = await getOrgBySlug(pool, c.req.param('slug'));
+    if (org === null) return fail(c, 404, 'not_found', 'No such employer.');
+    if (!(await isMember(pool, viewer.id, org.id))) {
+      return fail(c, 403, 'not_a_member', `You are not a member of ${org.name}.`);
+    }
+
+    const removed = await deleteOrg(pool, org.id);
+    if (typeof removed === 'string') return fail(c, 409, 'has_listings', removed);
+    return c.json({ ok: true, deleted: org.slug });
   });
 
   // --- me and resumes ---------------------------------------------------
