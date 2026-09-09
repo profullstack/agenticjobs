@@ -9,6 +9,7 @@
 
 import type { Resume } from './resumes.ts';
 import type { CandidateSummary } from '../views/candidates.tsx';
+import { parseCapacity } from './capacity.ts';
 import { type OpenResume, parseResume, redactContactChannels } from '../markup/resume.ts';
 
 /** Contact keys that read as a place rather than an address. */
@@ -128,6 +129,11 @@ export function toCandidateSummary(resume: Resume): CandidateSummary {
     headline: resume.parsed?.headline ?? null,
     location: locationOf(resume),
     skills: skillsOf(resume),
+    // Capacity is a summary field for the same reason location is: it is what
+    // an employer filters on before opening anything. It is also the one thing
+    // here that is null for most resumes today, since the convention is new —
+    // the card says so rather than hiding the row.
+    capacity: parseCapacity(resume.parsed?.contact ?? []),
     updatedAt: resume.updatedAt,
   };
 }

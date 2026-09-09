@@ -67,6 +67,34 @@ export interface OpenResume {
   warnings: string[];
 }
 
+/**
+ * The headline, cleaned of markup — and never an email address.
+ *
+ * Stripping emphasis only at the ends left the middle in place, so a resume
+ * opening `**Operated by:** DevilX (someone@example.com)` was listed publicly
+ * with the literal `**` still in it *and* with an address in the headline. The
+ * candidate directory is explicit that the contact block is kept out of the
+ * summary, because a page listing a hundred addresses is a mailing list for
+ * whoever fetches it once — a headline that smuggles one past that check
+ * defeats it just as thoroughly, and it was live.
+ *
+ * A headline containing an address is dropped rather than redacted. What is
+ * left after cutting the address out of "Operated by: X (a@b.com)" is not a
+ * headline anybody wrote, and the resume body still says whatever it says to
+ * a signed-in reader.
+ */
+function cleanHeadline(line: string): string | null {
+  const stripped = line
+    .trim()
+    // Emphasis anywhere, not just at the ends.
+    .replace(/\*\*|__/g, '')
+    .replace(/^[*_]+|[*_]+$/g, '')
+    .trim();
+  if (stripped === '') return null;
+  if (/[^\s@]+@[^\s@]+\.[^\s@]+/.test(stripped)) return null;
+  return stripped;
+}
+
 /** Section names we normalise, so "Work Experience" and "Experience" match. */
 const KINDS: [RegExp, string][] = [
   [/^(work\s+)?experience$|^employment$|^work\s+history$/i, 'experience'],
@@ -177,7 +205,7 @@ export function parseResume(source: string): OpenResume {
       if (line.trim() !== '' && headline === null && !line.startsWith('#')) {
         // A single prose line under the name, before any section, reads as a
         // headline on every resume that has one.
-        headline = line.trim().replace(/^[*_]+|[*_]+$/g, '');
+        headline = cleanHeadline(line);
       }
       continue;
     }
@@ -325,6 +353,14 @@ export function resumeTemplate(name = 'Your Name'): string {
 export const CONTACT_WITHHELD = 'shared with signed-in members';
 
 /**
+ * An email address sitting in prose rather than in a contact bullet.
+ *
+ * Global, because a line may carry more than one and replacing only the first
+ * withholds nothing.
+ */
+const EMAIL_IN_TEXT = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g;
+
+/**
  * The contact block, minus every way to actually reach the person.
  *
  * A published resume is a document its owner chose to make public, but the
@@ -385,6 +421,24 @@ export function redactContactChannels(source: string): { markdown: string; redac
           redacted = true;
           continue;
         }
+        out.push(line);
+        continue;
+      }
+
+      // A prose line, not a bullet — and this is where an address actually
+      // escaped. Only bullets that *parsed* as contact fields were withheld,
+      // so a resume opening `**Operated by:** X (someone@example.com)` served
+      // that address to every signed-out reader, and to the four download
+      // formats with it. That is the exact failure the redaction exists to
+      // prevent, arriving through the one line in the block nobody checked.
+      //
+      // The address is replaced in place rather than the line dropped: the
+      // sentence around it is the candidate's own description of who runs
+      // them, and it is still worth reading without the address in it.
+      if (EMAIL_IN_TEXT.test(line)) {
+        out.push(line.replace(EMAIL_IN_TEXT, CONTACT_WITHHELD));
+        redacted = true;
+        continue;
       }
     }
 

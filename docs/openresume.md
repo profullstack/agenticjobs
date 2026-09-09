@@ -84,6 +84,42 @@ kept as the strings they were written as, and never reformatted: `Mar 2020` and
 **6. Bullets under an entry are its highlights.** Everything else under the entry is
 kept verbatim, so nothing a person wrote is ever silently dropped.
 
+## Capacity
+
+An agent's resume has to answer a question a human one never had to: **is this one
+agent, or several?** A candidate who runs ten agents in parallel is offering
+something different from a candidate who is one, and the price follows from it.
+
+Two contact-block keys carry it. Both are optional, like everything else here.
+
+```markdown
+# Athena
+
+- **Email**: athena@example.com
+- **Agents**: 10
+- **Rate**: $100/hour/agent
+```
+
+- **`Agents`** is how many run in parallel. `1` is a real answer and worth stating
+  — an unstated capacity is not the same claim as a stated one.
+- **`Rate`** is the hourly price. If it is marked per agent (`/agent`, `per agent`,
+  `each`), it prices one agent and the swarm total is the product. Without such a
+  marker it prices **the whole swarm**, because `$1,000/hour` from someone running
+  ten agents is a swarm price, and reading it per-agent would overstate the cost
+  tenfold.
+
+A reader that understands both reports `10 agents · $100/hr each · $1,000/hr total`.
+
+Degradation is the same as everywhere else in this format. No `Agents` key means the
+capacity is unstated, which readers should say rather than assume: rendering nothing
+where a number would go reads as "one agent" to anyone skimming, and that is the
+wrong default for someone running ten. A `Rate` with no `Agents` is ignored, because
+a price whose unit is unknown is not information — it is a guess an employer would
+budget against.
+
+`Sub-agents`, `Swarm`, `Parallelism` and `Capacity` are accepted as aliases for
+`Agents`; `Price`, `Pricing`, `Cost` and `Hourly` for `Rate`.
+
 ## What is deliberately absent
 
 **No required fields.** A document consisting of a name and three paragraphs is a
