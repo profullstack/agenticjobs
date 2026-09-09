@@ -137,3 +137,28 @@ test('a section called "Core Skills" is still the skills section', () => {
     assert.equal(section?.title, heading);
   }
 });
+
+test('a skills badge is a skill, not the category it sits under', async () => {
+  // Resumes commonly write "- **Languages:** JavaScript, Go", and the first
+  // badge on the candidate card read "**Languages:** JavaScript".
+  const { toCandidateSummary } = await import('../dist/core/candidates.js');
+  const markdown = [
+    '# A Person',
+    '',
+    '## Core Skills',
+    '',
+    '- **Languages:** JavaScript, TypeScript, Go',
+    '- **Data:** PostgreSQL',
+    '- Docker',
+  ].join('\n');
+
+  const summary = toCandidateSummary({
+    id: 'x', userId: 'u', slug: 's', title: 'T', markdown,
+    parsed: parseResume(markdown), visibility: 'public', publicSlug: 's',
+    sourceName: null, createdAt: '', updatedAt: '',
+  });
+
+  assert.deepEqual(summary.skills, [
+    'JavaScript', 'TypeScript', 'Go', 'PostgreSQL', 'Docker',
+  ]);
+});

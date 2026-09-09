@@ -65,7 +65,7 @@ import { ManageJobPage, NewEmployerPage, PostJobPage } from '../../views/post.ts
 import { NetworkPage, NetworkSearchPage } from '../../views/network.tsx';
 import { DocsPage, SpecPage } from '../../views/docs.tsx';
 import { CandidateDetail, CandidateList } from '../../views/candidates.tsx';
-import { toCandidateSummary } from '../../core/candidates.ts';
+import { allTags, tagsFrom, toCandidateSummary, withTags } from '../../core/candidates.ts';
 import { readSpec } from './specs.ts';
 import type { AppEnv } from '../deps.ts';
 
@@ -245,16 +245,24 @@ export function pageRoutes(): Hono<AppEnv> {
 
   pages.get('/candidates', async (c) => {
     const { pool, config } = c.get('deps');
+    const tags = tagsFrom(new URL(c.req.url).searchParams);
     const resumes = await listPublicResumes(pool);
+    const all = resumes.map(toCandidateSummary);
+    const candidates = withTags(all, tags);
     return c.html(
       <Layout
         {...shell(c)}
-        title="Candidates"
+        title={tags.length === 0 ? 'Candidates' : `Candidates: ${tags.join(', ')}`}
         description={`People who published a resume on ${config.boardName}.`}
+        // A filtered view is a slice of a page that is already indexed, so it
+        // is not a second page for a crawler to collect.
+        noindex={tags.length > 0}
       >
         <CandidateList
-          candidates={resumes.map(toCandidateSummary)}
+          candidates={candidates}
           publicUrl={config.publicUrl}
+          tags={tags}
+          index={allTags(all)}
         />
       </Layout>,
     );

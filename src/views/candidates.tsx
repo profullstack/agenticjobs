@@ -15,6 +15,17 @@ import type { FC } from 'hono/jsx';
 import { Card, Prose } from './layout.tsx';
 import type { OpenResume } from '../markup/resume.ts';
 
+/** Where a tag badge points. Multiple tags narrow, so they accumulate. */
+function tagHref(tags: string[]): string {
+  return tags.length === 0
+    ? '/candidates'
+    : `/candidates?tags=${encodeURIComponent(tags.join(','))}`;
+}
+
+function addTag(tags: string[], tag: string): string[] {
+  return tags.some((item) => item.toLowerCase() === tag.toLowerCase()) ? tags : [...tags, tag];
+}
+
 export interface CandidateSummary {
   slug: string;
   name: string;
@@ -34,7 +45,11 @@ export interface CandidateSummary {
 export const CandidateList: FC<{
   candidates: CandidateSummary[];
   publicUrl: string;
-}> = ({ candidates, publicUrl }) => (
+  /** The tags being filtered on, if any. */
+  tags?: string[];
+  /** Every tag anyone lists, for browsing. */
+  index?: { tag: string; count: number }[];
+}> = ({ candidates, publicUrl, tags = [], index = [] }) => (
   <div class="stack">
     <div class="stack-sm">
       <h1>Candidates</h1>
@@ -42,20 +57,50 @@ export const CandidateList: FC<{
         People who published a resume here. Every one of these is a person who chose to be
         listed, not a profile scraped from somewhere else.
       </p>
+      {tags.length > 0 && (
+        <p class="row" style="align-items:center;flex-wrap:wrap;gap:.5rem">
+          <span class="small muted">Listing everyone who has all of:</span>
+          {tags.map((tag) => (
+            <a
+              class="badge"
+              title={`Remove ${tag}`}
+              href={tagHref(tags.filter((other) => other !== tag))}
+            >
+              {tag} x
+            </a>
+          ))}
+          <a class="small" href="/candidates">
+            Clear
+          </a>
+          <a class="small" href={`/feed.rss?tags=${encodeURIComponent(tags.join(','))}`}>
+            Subscribe
+          </a>
+        </p>
+      )}
     </div>
 
     {candidates.length === 0 ? (
       <div class="empty">
-        <h2>Nobody is listed yet</h2>
-        <p>
-          A resume is private until its owner says otherwise. When someone sets one to public,
-          it appears here.
-        </p>
-        <p>
-          <a class="btn" href="/me/resumes/new">
-            Publish yours
-          </a>
-        </p>
+        <h2>{tags.length === 0 ? 'Nobody is listed yet' : `Nobody lists all of ${tags.join(', ')}`}</h2>
+        {tags.length === 0 ? (
+          <>
+            <p>
+              A resume is private until its owner says otherwise. When someone sets one to
+              public, it appears here.
+            </p>
+            <p>
+              <a class="btn" href="/me/resumes/new">
+                Publish yours
+              </a>
+            </p>
+          </>
+        ) : (
+          <p>
+            <a class="btn btn-secondary" href="/candidates">
+              See everyone
+            </a>
+          </p>
+        )}
       </div>
     ) : (
       <>
@@ -75,8 +120,10 @@ export const CandidateList: FC<{
               )}
               {candidate.skills.length > 0 && (
                 <div class="row" style="flex-wrap:wrap;gap:.35rem">
-                  {candidate.skills.map((skill) => (
-                    <span class="badge badge-outline">{skill}</span>
+                  {candidate.skills.map((item) => (
+                    <a class="badge badge-outline" href={tagHref(addTag(tags, item))}>
+                      {item}
+                    </a>
                   ))}
                 </div>
               )}
@@ -86,8 +133,22 @@ export const CandidateList: FC<{
       </>
     )}
 
+    {index.length > 0 && (
+      <div class="stack-sm">
+        <h2 class="card-title">Every skill listed here</h2>
+        <div class="row" style="flex-wrap:wrap;gap:.35rem">
+          {index.map((entry) => (
+            <a class="badge badge-outline" href={tagHref([entry.tag])}>
+              {entry.tag} {entry.count}
+            </a>
+          ))}
+        </div>
+      </div>
+    )}
+
     <p class="small muted">
-      This page is also a feed: <a href={`${publicUrl}/feed.rss`}>/feed.rss</a>
+      This page is also a feed: <a href={`${publicUrl}/feed.rss`}>/feed.rss</a>. Any set of
+      tags has one too, at <code>/feed.rss?tags=javascript,react</code>.
     </p>
   </div>
 );
@@ -109,6 +170,21 @@ export const CandidateDetail: FC<{
     </article>
 
     <aside class="stack">
+      {candidate.skills.length > 0 && (
+        <Card>
+          <div class="card-header">
+            <h2 class="card-title">Skills</h2>
+            <p class="card-description">Each one finds everybody else who lists it.</p>
+          </div>
+          <div class="row" style="flex-wrap:wrap;gap:.35rem">
+            {candidate.skills.map((item) => (
+              <a class="badge badge-outline" href={tagHref([item])}>
+                {item}
+              </a>
+            ))}
+          </div>
+        </Card>
+      )}
       {parsed !== null && parsed.contact.length > 0 && (
         <Card>
           <div class="card-header">

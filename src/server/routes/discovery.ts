@@ -15,7 +15,7 @@ import { fileURLToPath } from 'node:url';
 import { countJobs, searchJobs } from '../../core/jobs.ts';
 import { listOrgs } from '../../core/orgs.ts';
 import { listPublicResumes } from '../../core/resumes.ts';
-import { toCandidateSummary } from '../../core/candidates.ts';
+import { tagsFrom, toCandidateSummary, withTags } from '../../core/candidates.ts';
 import { parseQuery } from '../../schema/query.ts';
 import { WELL_KNOWN_PATH } from '../../schema/instance.ts';
 import { jobPostingJsonLd } from '../../schema/jsonld.ts';
@@ -165,6 +165,9 @@ export function discoveryRoutes(): Hono<AppEnv> {
    */
   routes.get('/feed.rss', async (c) => {
     const { pool, config } = c.get('deps');
+    // `?skill=` narrows the feed to the candidates who list it, so every tag
+    // on the site is subscribable rather than only browsable.
+    const tags = tagsFrom(new URL(c.req.url).searchParams);
     const [page, orgs, candidates] = await Promise.all([
       searchJobs(pool, { ...parseQuery(new URLSearchParams()), limit: 100 }),
       listOrgs(pool, 100),
@@ -172,7 +175,8 @@ export function discoveryRoutes(): Hono<AppEnv> {
     ]);
 
     type Entry = { title: string; url: string; at: string; body: string; category: string };
-    const entries: Entry[] = [
+    const wanted = withTags(candidates.map(toCandidateSummary), tags);
+    const entries: Entry[] = (tags.length > 0 ? [] : [
       ...page.items.map((job) => ({
         title: `${job.title} at ${job.org.name}`,
         url: `${config.publicUrl}/jobs/${job.slug}`,
@@ -180,16 +184,6 @@ export function discoveryRoutes(): Hono<AppEnv> {
         body: toPlainText(job.description, 500),
         category: 'Job',
       })),
-      ...candidates.map((resume) => {
-        const summary = toCandidateSummary(resume);
-        return {
-          title: `${summary.name} is looking`,
-          url: `${config.publicUrl}/candidates/${summary.slug}`,
-          at: resume.updatedAt,
-          body: summary.headline ?? `${summary.name} published a resume.`,
-          category: 'Candidate',
-        };
-      }),
       ...orgs.map((org) => ({
         title: `${org.name} is hiring on ${config.boardName}`,
         url: `${config.publicUrl}/employers/${org.slug}`,
@@ -197,7 +191,15 @@ export function discoveryRoutes(): Hono<AppEnv> {
         body: org.description ?? `${org.name} posts its openings on ${config.boardName}.`,
         category: 'Employer',
       })),
-    ].sort((a, b) => Date.parse(b.at) - Date.parse(a.at));
+    ]).concat(
+      wanted.map((summary): Entry => ({
+        title: `${summary.name} is looking`,
+        url: `${config.publicUrl}/candidates/${summary.slug}`,
+        at: summary.updatedAt,
+        body: summary.headline ?? `${summary.name} published a resume.`,
+        category: 'Candidate',
+      })),
+    ).sort((a, b) => Date.parse(b.at) - Date.parse(a.at));
 
     const items = entries
       .map((entry) =>
@@ -221,12 +223,12 @@ export function discoveryRoutes(): Hono<AppEnv> {
       '<?xml version="1.0" encoding="UTF-8"?>',
       '<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">',
       '  <channel>',
-      `    <title>${escapeHtml(config.boardName)}</title>`,
-      `    <link>${escapeHtml(config.publicUrl)}</link>`,
-      `    <description>${escapeHtml(config.boardTagline)}</description>`,
+      `    <title>${escapeHtml(tags.length === 0 ? config.boardName : `${config.boardName}: ${tags.join(', ')}`)}</title>`,
+      `    <link>${escapeHtml(tags.length === 0 ? config.publicUrl : `${config.publicUrl}/candidates?tags=${encodeURIComponent(tags.join(','))}`)}</link>`,
+      `    <description>${escapeHtml(tags.length === 0 ? config.boardTagline : `Candidates on ${config.boardName} who list all of ${tags.join(', ')}.`)}</description>`,
       '    <language>en</language>',
       `    <lastBuildDate>${new Date(newest === undefined ? Date.now() : Date.parse(newest)).toUTCString()}</lastBuildDate>`,
-      `    <atom:link href="${escapeHtml(`${config.publicUrl}/feed.rss`)}" rel="self" type="application/rss+xml" />`,
+      `    <atom:link href="${escapeHtml(`${config.publicUrl}/feed.rss${tags.length === 0 ? '' : `?tags=${encodeURIComponent(tags.join(','))}`}`)}" rel="self" type="application/rss+xml" />`,
       items,
       '  </channel>',
       '</rss>',

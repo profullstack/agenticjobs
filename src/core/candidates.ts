@@ -27,6 +27,10 @@ function skillsOf(resume: Resume, limit = 8): string[] {
   const fromBullets = section.markdown
     .split('\n')
     .map((line) => line.replace(/^\s*[-*]\s+/, '').trim())
+    // A skills bullet is very often "**Languages:** JavaScript, Go", and the
+    // label is a category rather than a skill. Without dropping it the first
+    // badge on the card reads "**Languages:** JavaScript".
+    .map((line) => line.replace(/^\*{0,2}[^*:]{1,40}:\*{0,2}\s*/, ''))
     .filter((line) => line !== '' && !line.startsWith('#'));
 
   const flattened = fromBullets.flatMap((line) =>
@@ -38,11 +42,12 @@ function skillsOf(resume: Resume, limit = 8): string[] {
   for (const skill of flattened) {
     // A sentence is prose that happened to be in the skills section, not a
     // skill, and a badge is the wrong shape for it.
-    if (skill === '' || skill.length > 40) continue;
-    const key = skill.toLowerCase();
+    const cleaned = skill.replace(/\*\*/g, '').replace(/^`|`$/g, '').trim();
+    if (cleaned === '' || cleaned.length > 40) continue;
+    const key = cleaned.toLowerCase();
     if (seen.has(key)) continue;
     seen.add(key);
-    out.push(skill);
+    out.push(cleaned);
     if (out.length >= limit) break;
   }
   return out;
@@ -87,4 +92,60 @@ export function toCandidateSummary(resume: Resume): CandidateSummary {
     skills: skillsOf(resume),
     updatedAt: resume.updatedAt,
   };
+}
+
+/**
+ * Read `tags=javascript,react,node.js` into a list.
+ *
+ * `skill=` is accepted as a one-tag alias, because that is what the first
+ * version of the badge links used and those URLs are already out there.
+ */
+export function tagsFrom(params: URLSearchParams): string[] {
+  const raw = params.get('tags') ?? params.get('skill') ?? '';
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const part of raw.split(',')) {
+    const tag = part.trim();
+    if (tag === '') continue;
+    const key = tag.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(tag);
+  }
+  return out;
+}
+
+/**
+ * The candidates who list ALL of these tags.
+ *
+ * Narrowing rather than widening: someone asking for javascript, react and
+ * node.js together is describing one person's skill set, not three separate
+ * searches. A single tag behaves the same either way.
+ *
+ * Matched on the whole tag rather than as a substring, because that is what
+ * the badge links to: "Go" must not match "MongoDB".
+ */
+export function withTags(candidates: CandidateSummary[], tags: string[]): CandidateSummary[] {
+  if (tags.length === 0) return candidates;
+  const wanted = tags.map((tag) => tag.toLowerCase());
+  return candidates.filter((candidate) => {
+    const has = new Set(candidate.skills.map((skill) => skill.toLowerCase()));
+    return wanted.every((tag) => has.has(tag));
+  });
+}
+
+/** Every tag anybody lists, most common first, for a browsable index. */
+export function allTags(candidates: CandidateSummary[]): { tag: string; count: number }[] {
+  const counts = new Map<string, { tag: string; count: number }>();
+  for (const candidate of candidates) {
+    for (const skill of candidate.skills) {
+      const key = skill.toLowerCase();
+      const seen = counts.get(key);
+      if (seen === undefined) counts.set(key, { tag: skill, count: 1 });
+      else seen.count += 1;
+    }
+  }
+  return [...counts.values()].sort(
+    (a, b) => b.count - a.count || a.tag.localeCompare(b.tag),
+  );
 }

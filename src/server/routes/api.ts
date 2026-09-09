@@ -63,7 +63,7 @@ import {
 } from '../../core/resumes.ts';
 import { importDocument, ImportProblem, MAX_UPLOAD_BYTES } from '../../core/import.ts';
 import { deliverMagicLink } from '../../core/mail.ts';
-import { toCandidateSummary } from '../../core/candidates.ts';
+import { tagsFrom, toCandidateSummary, withTags } from '../../core/candidates.ts';
 import { sameOrigin } from '../../config.ts';
 import { announce, Blocked, listInstances, listTopics } from '../../directory/registry.ts';
 import { federatedSearch, targetsFromDescriptors } from '../../directory/federate.ts';
@@ -662,17 +662,19 @@ export function apiRoutes(): Hono<AppEnv> {
    */
   api.get('/candidates', async (c) => {
     const { pool, config } = c.get('deps');
+    const tags = tagsFrom(new URL(c.req.url).searchParams);
     const resumes = await listPublicResumes(pool);
+    const matched = withTags(resumes.map(toCandidateSummary), tags);
     return c.json({
-      items: resumes.map((resume) => {
-        const summary = toCandidateSummary(resume);
-        return {
-          ...summary,
-          url: `${config.publicUrl}/candidates/${summary.slug}`,
-          resume: `${config.publicUrl}/api/v1/candidates/${summary.slug}`,
-        };
-      }),
-      total: resumes.length,
+      items: matched.map((summary) => ({
+        ...summary,
+        url: `${config.publicUrl}/candidates/${summary.slug}`,
+        resume: `${config.publicUrl}/api/v1/candidates/${summary.slug}`,
+      })),
+      total: matched.length,
+      // Said back so a caller can see the filter was understood, and told
+      // plainly that several tags narrow rather than widen.
+      ...(tags.length === 0 ? {} : { tags, match: 'all' }),
       spec: `${config.publicUrl}/docs/openresume`,
     });
   });
