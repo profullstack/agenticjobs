@@ -112,6 +112,19 @@ function publicSlugBase(name: string): string {
 }
 
 /**
+ * Saving a shared resume is what gives it its address.
+ *
+ * This lives here rather than in a route because it is a rule about the model:
+ * a resume that says it is shared has somewhere to be. It was in the web
+ * handler only, so publishing through the API or the CLI minted nothing and
+ * the resume stayed invisible with no sign of why.
+ */
+async function withPublicSlug(pool: pg.Pool, resume: Resume): Promise<Resume> {
+  const publicSlug = await ensurePublicSlug(pool, resume);
+  return publicSlug === resume.publicSlug ? resume : { ...resume, publicSlug };
+}
+
+/**
  * Give a shared resume a board-wide address, once.
  *
  * Named after the person, because the point of a candidate page is that it
@@ -231,7 +244,7 @@ export async function createResume(
   );
   const row = result.rows[0];
   if (row === undefined) throw new Error('resume insert returned no row');
-  return toResume(row);
+  return withPublicSlug(pool, toResume(row));
 }
 
 export async function updateResume(
@@ -255,7 +268,7 @@ export async function updateResume(
     [userId, slug, markdown, JSON.stringify(parsed), clean(input.title, 120), input.visibility ?? null],
   );
   const row = result.rows[0];
-  return row === undefined ? null : toResume(row);
+  return row === undefined ? null : withPublicSlug(pool, toResume(row));
 }
 
 export async function deleteResume(pool: pg.Pool, userId: string, slug: string): Promise<boolean> {
