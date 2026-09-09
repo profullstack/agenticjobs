@@ -82,7 +82,7 @@ export async function startServer(overrides: Partial<Config> = {}): Promise<Runn
   if (config.isDirectory) {
     console.log('  directory   on');
     const run = (): void => {
-      void sweep(pool)
+      void sweep(pool, { self: config.publicUrl })
         .then((result) => {
           if (result.failed > 0 || result.dropped > 0) {
             console.log(

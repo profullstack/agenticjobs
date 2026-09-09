@@ -171,8 +171,20 @@ export interface SweepResult {
  */
 export async function sweep(
   pool: pg.Pool,
-  options: { limit?: number; concurrency?: number } = {},
+  options: { limit?: number; concurrency?: number; self?: string } = {},
 ): Promise<SweepResult> {
+  // A board that announced itself before it learned not to still has a row
+  // saying so, and refusing new self-announcements does not remove it. The
+  // sweep is where the directory reconciles what it holds with what is true,
+  // so this is where that row goes - which also means a board that turns the
+  // guard on later heals itself rather than needing the row deleted by hand.
+  let removedSelf = 0;
+  const self = options.self === undefined ? null : publishable(options.self);
+  if (self !== null) {
+    const gone = await pool.query(`delete from instances where url = $1`, [self.origin]);
+    removedSelf = gone.rowCount ?? 0;
+  }
+
   const due = await pool.query<{ url: string }>(
     `select url from instances
       where blocked = false
@@ -182,7 +194,12 @@ export async function sweep(
   );
 
   const urls = due.rows.map((row) => row.url);
-  const result: SweepResult = { checked: urls.length, ok: 0, failed: 0, dropped: 0 };
+  const result: SweepResult = {
+    checked: urls.length,
+    ok: 0,
+    failed: 0,
+    dropped: removedSelf,
+  };
   const concurrency = Math.min(16, Math.max(1, options.concurrency ?? 8));
 
   let cursor = 0;
