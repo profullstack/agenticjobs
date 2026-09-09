@@ -562,11 +562,24 @@ legend {
 }
 
 /* A linked badge must not look like body copy that happens to be blue. */
-a.badge {
+a.badge,
+a.badge-outline,
+a.badge-plain {
   text-decoration: none;
 }
 
-a.badge:hover {
+/* Wraps a badge that is already styled, so the anchor adds only the link. */
+a.badge-plain {
+  display: inline-flex;
+  color: inherit;
+}
+
+a.badge:hover,
+a.badge-outline:hover {
+  border-color: color-mix(in oklab, var(--primary) 55%, var(--border));
+}
+
+a.badge-plain:hover .badge {
   border-color: color-mix(in oklab, var(--primary) 55%, var(--border));
 }
 
