@@ -26,6 +26,8 @@ export interface Resume {
   markdown: string;
   parsed: OpenResume | null;
   visibility: Visibility;
+  /** The board-wide address, minted when a resume is first shared. */
+  publicSlug: string | null;
   sourceName: string | null;
   createdAt: string;
   updatedAt: string;
@@ -39,6 +41,7 @@ interface ResumeRow {
   markdown: string;
   parsed: OpenResume | null;
   visibility: string;
+  public_slug: string | null;
   source_name: string | null;
   created_at: string;
   updated_at: string;
@@ -53,6 +56,7 @@ function toResume(row: ResumeRow): Resume {
     markdown: row.markdown,
     parsed: row.parsed,
     visibility: isVisibility(row.visibility) ? row.visibility : 'private',
+    publicSlug: row.public_slug,
     sourceName: row.source_name,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -62,8 +66,8 @@ function toResume(row: ResumeRow): Resume {
 // The source bytes are never in the default projection: they are megabytes of
 // PDF that no page needs, and selecting them by habit is how a list endpoint
 // starts moving 40MB.
-const SELECT = `select id, user_id, slug, title, markdown, parsed, visibility, source_name,
-                       created_at, updated_at from resumes`;
+const SELECT = `select id, user_id, slug, title, markdown, parsed, visibility, public_slug,
+                       source_name, created_at, updated_at from resumes`;
 
 export async function listResumes(pool: pg.Pool, userId: string): Promise<Resume[]> {
   const result = await pool.query<ResumeRow>(
@@ -93,6 +97,60 @@ export async function getResumeById(pool: pg.Pool, id: string): Promise<Resume |
 }
 
 /** For a shared link: only resumes the owner has opened up. */
+/**
+ * Give a shared resume a board-wide address, once.
+ *
+ * Named after the person, because the point of a candidate page is that it
+ * carries their name. Falls back to the resume's own title, and then to a
+ * random suffix, so a resume with no name in it is still addressable.
+ *
+ * The slug is minted on first share and then kept even if the resume is made
+ * private again and shared later: a URL that someone has already sent to an
+ * employer must not come back pointing at a different person.
+ */
+export async function ensurePublicSlug(pool: pg.Pool, resume: Resume): Promise<string | null> {
+  if (resume.visibility === 'private') return resume.publicSlug;
+  if (resume.publicSlug !== null) return resume.publicSlug;
+
+  const base = slugify(resume.parsed?.name ?? resume.title ?? 'candidate') || 'candidate';
+  for (let attempt = 0; attempt < 25; attempt += 1) {
+    const candidate = attempt === 0 ? base : `${base}-${attempt + 1}`;
+    const claimed = await pool.query(
+      `update resumes set public_slug = $2 where id = $1 and public_slug is null
+         and not exists (select 1 from resumes where public_slug = $2)
+       returning public_slug`,
+      [resume.id, candidate],
+    );
+    if (claimed.rows.length > 0) return candidate;
+  }
+  return null;
+}
+
+/** The directory: resumes their owner chose to list. */
+export async function listPublicResumes(pool: pg.Pool, limit = 100): Promise<Resume[]> {
+  const result = await pool.query<ResumeRow>(
+    `${SELECT} where visibility = 'public' and public_slug is not null
+      order by updated_at desc limit $1`,
+    [Math.min(200, Math.max(1, limit))],
+  );
+  return result.rows.map(toResume);
+}
+
+/**
+ * One candidate page.
+ *
+ * Serves `link` as well as `public`, which is the difference between the two:
+ * a link resume is reachable by anyone holding the URL and is not listed.
+ */
+export async function getPublicResume(pool: pg.Pool, publicSlug: string): Promise<Resume | null> {
+  const result = await pool.query<ResumeRow>(
+    `${SELECT} where public_slug = $1 and visibility in ('link', 'public')`,
+    [publicSlug],
+  );
+  const row = result.rows[0];
+  return row === undefined ? null : toResume(row);
+}
+
 export async function getSharedResume(pool: pg.Pool, id: string): Promise<Resume | null> {
   const result = await pool.query<ResumeRow>(
     `${SELECT} where id = $1 and visibility in ('link', 'public')`,
@@ -127,7 +185,8 @@ export async function createResume(
   userId: string,
   input: SaveResume,
 ): Promise<Resume> {
-  const markdown = clean(input.markdown, 200_000);
+  // OpenResume Markdown: the line breaks are the document.
+  const markdown = clean(input.markdown, 200_000, { multiline: true });
   const parsed = parseResume(markdown);
   // The document's own h1 is a better title than "Resume", and it is what the
   // candidate would have typed anyway.
@@ -138,7 +197,7 @@ export async function createResume(
     `insert into resumes (user_id, slug, title, markdown, parsed, visibility,
                           source_name, source_mime, source_bytes)
      values ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9)
-     returning id, user_id, slug, title, markdown, parsed, visibility, source_name,
+     returning id, user_id, slug, title, markdown, parsed, visibility, public_slug, source_name,
                created_at, updated_at`,
     [
       userId,
@@ -163,7 +222,8 @@ export async function updateResume(
   slug: string,
   input: SaveResume,
 ): Promise<Resume | null> {
-  const markdown = clean(input.markdown, 200_000);
+  // OpenResume Markdown: the line breaks are the document.
+  const markdown = clean(input.markdown, 200_000, { multiline: true });
   const parsed = parseResume(markdown);
   const result = await pool.query<ResumeRow>(
     `update resumes
@@ -172,8 +232,8 @@ export async function updateResume(
             title = coalesce(nullif($5, ''), title),
             visibility = coalesce($6, visibility)
       where user_id = $1 and slug = $2
-      returning id, user_id, slug, title, markdown, parsed, visibility, source_name,
-                created_at, updated_at`,
+      returning id, user_id, slug, title, markdown, parsed, visibility, public_slug,
+                source_name, created_at, updated_at`,
     [userId, slug, markdown, JSON.stringify(parsed), clean(input.title, 120), input.visibility ?? null],
   );
   const row = result.rows[0];
