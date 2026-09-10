@@ -567,6 +567,7 @@ describe('the API', { skip: reason === '' ? false : `no database: ${reason}` }, 
             title: `Kept Role ${stamp}`,
             description: 'A listing that has been public, which is why its employer stays.',
             agentPolicy: 'welcome',
+            pay: ['$100 an hour'],
           },
           auth,
         )
@@ -640,6 +641,146 @@ describe('the API', { skip: reason === '' ? false : `no database: ${reason}` }, 
     });
   });
 
+  describe('what it pays', () => {
+    const employer = async (name: string) => {
+      const { createSession, ensureUser } = await import('../dist/core/auth.js');
+      const { createOrg } = await import('../dist/core/orgs.js');
+      const stamp = `${Date.now()}${Math.random().toString(36).slice(2, 7)}`;
+      const user = await ensureUser(pool as never, `pay+${stamp}@example.com`, name);
+      const token = await createSession(pool as never, user.id, { label: 't' });
+      const org = await createOrg(pool as never, user.id, { name: `${name} ${stamp}` });
+      if (typeof org === 'string') throw new Error(org);
+      return { org, stamp, auth: { authorization: `Bearer ${token}` } };
+    };
+
+    test('a listing cannot be published until it says what it pays', async () => {
+      if (pool === null) return;
+      const { org, stamp, auth } = await employer('Silent Co');
+
+      // Asking for it live in the same request is refused before anything is
+      // written: nobody asked for a draft.
+      const direct = await post(
+        '/api/v1/jobs',
+        {
+          org: org.slug,
+          title: `Silent ${stamp}`,
+          description: 'A listing that says nothing about pay.',
+          agentPolicy: 'welcome',
+          publish: true,
+        },
+        auth,
+      );
+      const directBody = await direct.text();
+      assert.equal(direct.status, 400, directBody);
+      assert.equal((JSON.parse(directBody) as { error: { code: string } }).error.code, 'pay_required');
+
+      const created = (await (
+        await post(
+          '/api/v1/jobs',
+          {
+            org: org.slug,
+            title: `Silent ${stamp}`,
+            description: 'A listing that says nothing about pay.',
+            agentPolicy: 'welcome',
+          },
+          auth,
+        )
+      ).json()) as { job: { slug: string; status: string } };
+      assert.equal(created.job.status, 'draft');
+
+      const refused = await post(`/api/v1/jobs/${created.job.slug}/publish`, {}, auth);
+      assert.equal(refused.status, 400);
+      const problem = (await refused.json()) as { error: { code: string; message: string } };
+      assert.equal(problem.error.code, 'pay_required');
+      assert.match(problem.error.message, /per task|revenue share|unpaid/);
+
+      // Pay can be set on its own, without rewriting the listing.
+      const patched = await patch(
+        `/api/v1/jobs/${created.job.slug}`,
+        { pay: ['$0.25 per task', '$0.25 per PR that fixes a bug you find'], payMethod: 'sol' },
+        auth,
+      );
+      assert.equal(patched.status, 200, await patched.text());
+
+      const published = await post(`/api/v1/jobs/${created.job.slug}/publish`, {}, auth);
+      assert.equal(published.status, 200, await published.text());
+
+      const read = (await (await get(`/api/v1/jobs/${created.job.slug}`)).json()) as {
+        job: {
+          pay: { lines: { type: string; min: number; unit: string | null }[]; method: string | null };
+          salary: { min: number | null };
+        };
+      };
+      assert.equal(read.job.pay.lines.length, 2);
+      assert.equal(read.job.pay.lines[0]?.type, 'per_task');
+      assert.equal(read.job.pay.lines[0]?.min, 0.25);
+      assert.equal(read.job.pay.lines[1]?.unit, 'PR that fixes a bug you find');
+      assert.equal(read.job.pay.method, 'SOL');
+      assert.equal(read.job.salary.min, null, 'a price per task is not an annual salary');
+
+      // The page says it too, all of it, plus what it is settled in.
+      const html = await (await get(`/jobs/${created.job.slug}`, { accept: 'text/html' })).text();
+      assert.match(html, /\$0\.25 per task/);
+      assert.match(html, /PR that fixes a bug you find/);
+      assert.match(html, /Paid in SOL/);
+
+      // And a live listing cannot be edited into silence.
+      const cleared = await patch(`/api/v1/jobs/${created.job.slug}`, { pay: [] }, auth);
+      assert.equal(cleared.status, 400);
+      assert.equal(((await cleared.json()) as { error: { code: string } }).error.code, 'pay_required');
+    });
+
+    test('an edit that does not mention pay leaves it alone', async () => {
+      if (pool === null) return;
+      const { org, stamp, auth } = await employer('Keep Co');
+      const created = (await (
+        await post(
+          '/api/v1/jobs',
+          {
+            org: org.slug,
+            title: `Keep ${stamp}`,
+            description: 'A listing whose pay must survive a typo fix.',
+            agentPolicy: 'welcome',
+            pay: '$120k - $150k a year paid in USDC',
+          },
+          auth,
+        )
+      ).json()) as { job?: { slug: string; pay: { method: string | null } }; error?: unknown };
+      assert.ok(created.job, JSON.stringify(created.error));
+      assert.equal(created.job.pay.method, 'USDC', 'a rail named on the line is the method');
+
+      const edited = (await (
+        await patch(`/api/v1/jobs/${created.job.slug}`, { description: 'Fixed the typo in the description.' }, auth)
+      ).json()) as { job: { pay: { lines: unknown[]; method: string | null }; salary: { min: number | null } } };
+      assert.equal(edited.job.pay.lines.length, 1);
+      assert.equal(edited.job.pay.method, 'USDC');
+      assert.equal(edited.job.salary.min, 120_000, 'the flattened salary keeps the annual line');
+    });
+
+    test('a page without pay says so, rather than saying nothing', async () => {
+      if (pool === null) return;
+      const { org, stamp, auth } = await employer('Blank Co');
+      const created = (await (
+        await post(
+          '/api/v1/jobs',
+          { org: org.slug, title: `Blank ${stamp}`, description: 'No pay stated, on purpose, for the test.', agentPolicy: 'welcome' },
+          auth,
+        )
+      ).json()) as { job: { slug: string } };
+      // Drafts are not public, so the employer's own page is where it shows.
+      const { createSession } = await import('../dist/core/auth.js');
+      const member = await pool.query(`select user_id from memberships where org_id = $1`, [org.id]);
+      const cookieToken = await createSession(pool as never, member.rows[0]?.['user_id'], { label: 'web' });
+      const page = await get(`/me/jobs/${created.job.slug}`, {
+        accept: 'text/html',
+        cookie: `aj_session=${cookieToken}`,
+      });
+      const html = await page.text();
+      assert.match(html, /does not say what it pays/);
+      assert.match(html, /name="pay"/, 'the pay form is on the page');
+    });
+  });
+
   describe('salary period comparisons', () => {
     test('salary filters, ordering and pagination compare annual amounts', async () => {
       assert.ok(pool);
@@ -666,9 +807,19 @@ describe('the API', { skip: reason === '' ? false : `no database: ${reason}` }, 
           auth,
         );
         assert.equal(response.status, 201);
-        const body = (await response.json()) as { job: { slug: string } };
+        const body = (await response.json()) as { job: { slug: string; id: string } };
         slugs.set(label, body.job.slug);
-        assert.equal((await post(`/api/v1/jobs/${body.job.slug}/publish`, {}, auth)).status, 200);
+        if (Object.keys(salary).length === 0) {
+          // A listing that says nothing about pay can no longer be published
+          // through the API. One that already was, from before the rule, still
+          // exists on real boards and still has to sort last, so it is put
+          // live the way an old row is: directly, below the gate.
+          const { setStatus } = await import('../dist/core/jobs.js');
+          await setStatus(pool as never, body.job.id, 'published');
+          return;
+        }
+        const live = await post(`/api/v1/jobs/${body.job.slug}/publish`, {}, auth);
+        assert.equal(live.status, 200, await live.text());
       };
 
       await add('Yearly', { salaryMin: 180_000, salaryPeriod: 'year' });
@@ -754,6 +905,7 @@ describe('the API', { skip: reason === '' ? false : `no database: ${reason}` }, 
             title: `Decide ${stamp}`,
             description: 'A listing that takes applications on the board.',
             agentPolicy: 'welcome',
+            pay: ['$100 an hour'],
           },
           auth,
         )
@@ -1536,6 +1688,183 @@ describe('the API', { skip: reason === '' ? false : `no database: ${reason}` }, 
         assert.match(where, /expired/);
         assert.equal((await send('GET', '/api/v1/coinpay/callback')).status, 400);
       });
+    });
+  });
+
+  describe('recommendations', () => {
+    const employer = async (name: string) => {
+      const { createSession, ensureUser } = await import('../dist/core/auth.js');
+      const { createOrg } = await import('../dist/core/orgs.js');
+      const stamp = `${Date.now()}${Math.random().toString(36).slice(2, 7)}`;
+      const user = await ensureUser(pool as never, `rec+${stamp}@example.com`, name);
+      const token = await createSession(pool as never, user.id, { label: 't' });
+      const org = await createOrg(pool as never, user.id, { name: `${name} ${stamp}` });
+      if (typeof org === 'string') throw new Error(org);
+      return { user, org, stamp, token, auth: { authorization: `Bearer ${token}` } };
+    };
+
+    const candidate = async (name: string) => {
+      const { createSession, ensureUser } = await import('../dist/core/auth.js');
+      const { createResume, updateResume, ensurePublicSlug } = await import('../dist/core/resumes.js');
+      const stamp = `${Date.now()}${Math.random().toString(36).slice(2, 7)}`;
+      const user = await ensureUser(pool as never, `recc+${stamp}@example.com`);
+      const token = await createSession(pool as never, user.id, { label: 't' });
+      const created = await createResume(pool as never, user.id, {
+        markdown: `# ${name}\n\nStaff engineer\n\n## Skills\n\n- TypeScript\n`,
+        title: name,
+      });
+      const saved = await updateResume(pool as never, user.id, created.slug, { markdown: created.markdown, visibility: 'public' });
+      const slug = await ensurePublicSlug(pool as never, saved);
+      return { user, slug, token, auth: { authorization: `Bearer ${token}` } };
+    };
+
+    const WORDS = 'Shipped the whole thing two weeks early and wrote the docs nobody asked for.';
+
+    test('an employer recommends a candidate; it shows only once approved', async () => {
+      if (pool === null) return;
+      const acme = await employer('Acme Rec');
+      const ada = await candidate('Ada Rec');
+      sentMail.length = 0;
+
+      const written = await post(
+        `/api/v1/candidates/${ada.slug}/recommendations`,
+        { as: acme.org.slug, body: WORDS, relationship: 'Hired her for a three-month contract' },
+        acme.auth,
+      );
+      const writtenBody = await written.text();
+      assert.equal(written.status, 201, writtenBody);
+      const rec = (JSON.parse(writtenBody) as { recommendation: { id: string; status: string; author: { name: string; kind: string } } }).recommendation;
+      assert.equal(rec.status, 'pending');
+      assert.equal(rec.author.kind, 'employer');
+
+      // Not on the page yet, for anybody.
+      const before = (await (await get(`/api/v1/candidates/${ada.slug}/recommendations`)).json()) as { items: unknown[] };
+      assert.equal(before.items.length, 0);
+      const pageBefore = await (await get(`/candidates/${ada.slug}`, { accept: 'text/html' })).text();
+      assert.ok(!pageBefore.includes(WORDS), 'a pending recommendation is not on the page');
+
+      // The candidate was told, with the words in the mail.
+      const mail = sentMail.find((item) => item.to === ada.user.email);
+      assert.ok(mail, 'the subject must be emailed');
+      assert.match(mail.subject, /recommended you/);
+      assert.match(mail.text, /two weeks early/);
+
+      // It is waiting on /me, and in the API.
+      const mine = (await (await get('/api/v1/me/recommendations', ada.auth)).json()) as {
+        received: { id: string; status: string }[];
+        pending: number;
+      };
+      assert.equal(mine.pending, 1);
+      assert.equal(mine.received[0]?.id, rec.id);
+
+      // A stranger cannot approve it; the subject can.
+      const stranger = await candidate('Bda Rec');
+      assert.equal((await post(`/api/v1/recommendations/${rec.id}/approve`, {}, stranger.auth)).status, 404);
+      const approved = await post(`/api/v1/recommendations/${rec.id}/approve`, {}, ada.auth);
+      assert.equal(approved.status, 200, await approved.text());
+
+      const after = (await (await get(`/api/v1/candidates/${ada.slug}/recommendations`)).json()) as {
+        items: { body: string; author: { name: string; slug: string | null }; relationship: string | null }[];
+      };
+      assert.equal(after.items.length, 1);
+      assert.equal(after.items[0]?.body, WORDS);
+      assert.equal(after.items[0]?.author.slug, acme.org.slug);
+      assert.equal(after.items[0]?.relationship, 'Hired her for a three-month contract');
+      const pageAfter = await (await get(`/candidates/${ada.slug}`, { accept: 'text/html' })).text();
+      assert.ok(pageAfter.includes('two weeks early'), 'an approved recommendation is on the page');
+      assert.match(pageAfter, /shown because Ada Rec approved/);
+
+      // And can be taken down again later.
+      assert.equal((await post(`/api/v1/recommendations/${rec.id}/reject`, {}, ada.auth)).status, 200);
+      const gone = (await (await get(`/api/v1/candidates/${ada.slug}/recommendations`)).json()) as { items: unknown[] };
+      assert.equal(gone.items.length, 0);
+    });
+
+    test('a candidate recommends an employer, and writing again replaces it', async () => {
+      if (pool === null) return;
+      const acme = await employer('Bcme Rec');
+      const ada = await candidate('Cda Rec');
+      const first = (await (
+        await post(`/api/v1/orgs/${acme.org.slug}/recommendations`, { body: 'Paid on time, every time, and the brief was the brief.' }, ada.auth)
+      ).json()) as { recommendation: { id: string; author: { kind: string; slug: string | null } } };
+      assert.equal(first.recommendation.author.kind, 'candidate');
+      assert.equal(first.recommendation.author.slug, ada.slug, 'signed by the page');
+
+      assert.equal((await post(`/api/v1/recommendations/${first.recommendation.id}/approve`, {}, acme.auth)).status, 200);
+      const up = (await (await get(`/api/v1/orgs/${acme.org.slug}/recommendations`)).json()) as { items: unknown[] };
+      assert.equal(up.items.length, 1);
+
+      const again = (await (
+        await post(`/api/v1/orgs/${acme.org.slug}/recommendations`, { body: 'Paid on time, every time. Would work with them again tomorrow.' }, ada.auth)
+      ).json()) as { recommendation: { id: string; status: string } };
+      assert.equal(again.recommendation.id, first.recommendation.id, 'one per author per subject');
+      assert.equal(again.recommendation.status, 'pending', 'a rewrite asks for approval again');
+      const down = (await (await get(`/api/v1/orgs/${acme.org.slug}/recommendations`)).json()) as { items: unknown[] };
+      assert.equal(down.items.length, 0, 'the earlier approval does not cover the new words');
+
+      // The author can withdraw it; the subject cannot.
+      assert.equal((await post(`/api/v1/recommendations/${first.recommendation.id}/withdraw`, {}, acme.auth)).status, 404);
+      assert.equal((await post(`/api/v1/recommendations/${first.recommendation.id}/withdraw`, {}, ada.auth)).status, 200);
+      const mine = (await (await get('/api/v1/me/recommendations', ada.auth)).json()) as { given: unknown[] };
+      assert.equal(mine.given.length, 0);
+    });
+
+    test('a recommendation needs a page behind it, and cannot be about yourself', async () => {
+      if (pool === null) return;
+      const ada = await candidate('Dda Rec');
+      const acme = await employer('Ccme Rec');
+
+      // An account with no published resume and no employer has nothing to sign with.
+      const { createSession, ensureUser } = await import('../dist/core/auth.js');
+      const nobody = await ensureUser(pool as never, `nobody+${Date.now()}@example.com`);
+      const nobodyAuth = { authorization: `Bearer ${await createSession(pool as never, nobody.id, { label: 't' })}` };
+      const refused = await post(`/api/v1/candidates/${ada.slug}/recommendations`, { body: WORDS }, nobodyAuth);
+      assert.equal(refused.status, 403);
+      assert.equal(((await refused.json()) as { error: { code: string } }).error.code, 'no_profile');
+
+      // An employer's member has an employer to sign with, but must say so.
+      const unsigned = await post(`/api/v1/candidates/${ada.slug}/recommendations`, { body: WORDS }, acme.auth);
+      assert.equal(unsigned.status, 403);
+
+      // Yourself, your own employer, and too few words.
+      assert.equal((await post(`/api/v1/candidates/${ada.slug}/recommendations`, { body: WORDS }, ada.auth)).status, 400);
+      assert.equal((await post(`/api/v1/orgs/${acme.org.slug}/recommendations`, { body: WORDS, as: acme.org.slug }, acme.auth)).status, 400);
+      assert.equal((await post(`/api/v1/candidates/${ada.slug}/recommendations`, { body: 'Good.', as: acme.org.slug }, acme.auth)).status, 400);
+      assert.equal((await post('/api/v1/candidates/no-such-person/recommendations', { body: WORDS, as: acme.org.slug }, acme.auth)).status, 404);
+      assert.equal((await post(`/api/v1/candidates/${ada.slug}/recommendations`, { body: WORDS })).status, 401);
+    });
+
+    test('the pages carry the form for a signed-in reader and the section on /me', async () => {
+      if (pool === null) return;
+      const acme = await employer('Dcme Rec');
+      const ada = await candidate('Eda Rec');
+      const page = await (
+        await get(`/candidates/${ada.slug}`, { accept: 'text/html', cookie: `aj_session=${acme.token}` })
+      ).text();
+      assert.match(page, new RegExp(`action="/candidates/${ada.slug}/recommend"`));
+      assert.match(page, new RegExp(`<option value="${acme.org.slug}"`), 'the employer is offered as the signature');
+
+      const own = await (
+        await get(`/candidates/${ada.slug}`, { accept: 'text/html', cookie: `aj_session=${ada.token}` })
+      ).text();
+      assert.ok(!own.includes(`/candidates/${ada.slug}/recommend`), 'no form on your own page');
+
+      const stranger = await (await get(`/candidates/${ada.slug}`, { accept: 'text/html' })).text();
+      assert.ok(!stranger.includes(`/candidates/${ada.slug}/recommend`), 'no form for a stranger');
+
+      // Written from the page, it lands on /me for the subject to decide.
+      const sent = await app!.fetch(
+        new Request(`http://board.test/candidates/${ada.slug}/recommend`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/x-www-form-urlencoded', cookie: `aj_session=${acme.token}` },
+          body: new URLSearchParams({ as: acme.org.slug, body: WORDS, relationship: 'Hired her' }).toString(),
+        }),
+      );
+      assert.equal(sent.status, 303, await sent.text());
+      const me = await (await get('/me', { accept: 'text/html', cookie: `aj_session=${ada.token}` })).text();
+      assert.match(me, /1 waiting for you/);
+      assert.match(me, /two weeks early/);
+      assert.match(me, /\/me\/recommendations\/[0-9a-f-]+\/approve/);
     });
   });
 

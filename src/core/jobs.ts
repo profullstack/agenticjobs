@@ -28,6 +28,15 @@ import {
 } from '../schema/index.ts';
 import { clean, parseList, slugify, suffix } from '../schema/text.ts';
 import { PER_YEAR } from '../schema/salary.ts';
+import {
+  isPayType,
+  normalisePay,
+  payFromSalary,
+  payStated,
+  salaryFromPay,
+  type Pay,
+  type PayLine,
+} from '../schema/pay.ts';
 
 // Filtering and ordering must compare periods on the same basis as the
 // structured data and merged searches. Cast before multiplying: the stored
@@ -55,6 +64,8 @@ interface JobRow {
   salary_period: string;
   salary_equity: string | null;
   salary_unpaid: boolean | null;
+  pay_lines: unknown;
+  pay_method: string | null;
   tags: string[];
   stack: string[];
   requirements: string[];
@@ -82,7 +93,8 @@ interface JobRow {
 const SELECT = `
   select j.id, j.slug, j.title, j.description, j.employment_type, j.workplace, j.seniority,
          j.location, j.remote_regions, j.salary_min, j.salary_max, j.salary_currency,
-         j.salary_period, j.salary_equity, j.salary_unpaid, j.tags, j.stack, j.requirements, j.responsibilities,
+         j.salary_period, j.salary_equity, j.salary_unpaid, j.pay_lines, j.pay_method,
+         j.tags, j.stack, j.requirements, j.responsibilities,
          j.agent_policy, j.apply_via, j.apply_url, j.apply_email, j.apply_schema,
          j.apply_source_url, j.status,
          j.published_at, j.expires_at, j.created_at, j.updated_at,
@@ -118,6 +130,61 @@ function toApplyMethod(row: JobRow): ApplyMethod {
   return { via: 'board', schema: row.apply_schema ?? DEFAULT_APPLY_SCHEMA };
 }
 
+/**
+ * The pay lines, read back out of JSON with the same suspicion as any other
+ * column that came from outside: a row written by an older build, a restore
+ * or a hand edit must render, not throw. A row with no lines but a salary
+ * range is one the backfill has not reached, and reads as that one line.
+ */
+function payOf(row: JobRow): Pay {
+  const lines: PayLine[] = [];
+  if (Array.isArray(row.pay_lines)) {
+    for (const entry of row.pay_lines) {
+      if (typeof entry !== 'object' || entry === null) continue;
+      const line = entry as Record<string, unknown>;
+      if (!isPayType(line['type'])) continue;
+      const number = (value: unknown): number | null =>
+        typeof value === 'number' && Number.isFinite(value) ? value : null;
+      lines.push({
+        type: line['type'],
+        min: number(line['min']),
+        max: number(line['max']),
+        currency: typeof line['currency'] === 'string' ? line['currency'] : 'USD',
+        unit: typeof line['unit'] === 'string' ? line['unit'] : null,
+      });
+    }
+  }
+  const unpaid = row.salary_unpaid === true;
+  if (lines.length === 0 && !unpaid && (row.salary_min !== null || row.salary_max !== null)) {
+    return {
+      ...payFromSalary({
+        min: row.salary_min,
+        max: row.salary_max,
+        currency: row.salary_currency,
+        period: row.salary_period,
+      }),
+      method: row.pay_method,
+      equity: row.salary_equity,
+    };
+  }
+  return { lines: unpaid ? [] : lines, method: row.pay_method, equity: row.salary_equity, unpaid };
+}
+
+/**
+ * Why a listing cannot go live, or null when it can.
+ *
+ * Pay is required to publish. A listing that does not say what it pays gets
+ * fewer and worse applications, and on a board whose readers are agents
+ * deciding whether to bother, "not stated" is a listing nobody can act on.
+ * "Unpaid" counts: it is an answer. This is checked at publish rather than
+ * at creation so a draft can be written in pieces, by a person or a model,
+ * and only the moment it becomes public is held to it.
+ */
+export function publishProblem(job: Pick<Job, 'pay'>): string | null {
+  if (payStated(job.pay)) return null;
+  return 'Say what it pays before publishing: an amount per hour, day, week, month or year, a fixed fee, a price per task, a revenue share, or that it is unpaid.';
+}
+
 export function toJob(row: JobRow): Job {
   return {
     id: row.id,
@@ -132,6 +199,7 @@ export function toJob(row: JobRow): Job {
     seniority: isSeniority(row.seniority) ? (row.seniority as Seniority) : null,
     location: row.location,
     remoteRegions: row.remote_regions ?? [],
+    pay: payOf(row),
     salary: {
       min: row.salary_min,
       max: row.salary_max,
@@ -279,12 +347,7 @@ export interface JobInput {
   seniority: Seniority | null;
   location: string | null;
   remoteRegions: string[];
-  salaryMin: number | null;
-  salaryMax: number | null;
-  salaryCurrency: string;
-  salaryPeriod: string;
-  salaryEquity: string | null;
-  salaryUnpaid: boolean;
+  pay: Pay;
   tags: string[];
   stack: string[];
   requirements: string[];
@@ -317,15 +380,10 @@ export function normaliseInput(input: Record<string, unknown>, orgId: string): J
   const seniority = isSeniority(input['seniority']) ? input['seniority'] : null;
   const agentPolicy = isAgentPolicy(input['agentPolicy']) ? input['agentPolicy'] : 'disclose';
 
-  // Unpaid wins over any number that came with it. A form can post a stale
-  // range alongside a ticked box, and "unpaid, $40k - $60k a year" is not a
-  // listing anybody can act on.
-  const salaryUnpaid = truthy(input['salaryUnpaid']);
-  const salaryMin = salaryUnpaid ? null : money(input['salaryMin']);
-  const salaryMax = salaryUnpaid ? null : money(input['salaryMax']);
-  if (salaryMin !== null && salaryMax !== null && salaryMax < salaryMin) {
-    return 'The top of the salary range is below the bottom of it.';
-  }
+  // Pay lines, the settlement method, equity and "unpaid", from the new
+  // `pay` field or from the flat salary fields older clients still send.
+  const pay = normalisePay(input);
+  if (typeof pay === 'string') return pay;
 
   const apply = normaliseApply(input);
   if (typeof apply === 'string') return apply;
@@ -341,12 +399,7 @@ export function normaliseInput(input: Record<string, unknown>, orgId: string): J
     seniority,
     location: location === '' ? null : location,
     remoteRegions: parseList(input['remoteRegions'], 30, 8).map((code) => code.toUpperCase()),
-    salaryMin,
-    salaryMax,
-    salaryCurrency: (clean(input['salaryCurrency'], 3) || 'USD').toUpperCase(),
-    salaryPeriod: isSalaryPeriod(input['salaryPeriod']) ? input['salaryPeriod'] : 'year',
-    salaryEquity: clean(input['salaryEquity'], 60) || null,
-    salaryUnpaid,
+    pay,
     tags: parseList(input['tags'], 12),
     stack: parseList(input['stack'], 20),
     requirements: lines(input['requirements'], 20),
@@ -469,14 +522,17 @@ async function uniqueSlug(pool: pg.Pool, title: string): Promise<string> {
 
 export async function createJob(pool: pg.Pool, input: JobInput): Promise<Job> {
   const slug = await uniqueSlug(pool, input.title);
+  const salary = salaryFromPay(input.pay);
   const result = await pool.query<{ id: string }>(
     `insert into jobs (
        slug, org_id, title, description, employment_type, workplace, seniority, location,
        remote_regions, salary_min, salary_max, salary_currency, salary_period, salary_equity,
        salary_unpaid, tags, stack, requirements, responsibilities, agent_policy, apply_via,
-       apply_url, apply_email, apply_schema, apply_source_url, expires_at, status
+       apply_url, apply_email, apply_schema, apply_source_url, expires_at, status,
+       pay_lines, pay_method
      ) values (
-       $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,'draft'
+       $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,'draft',
+       $27,$28
      ) returning id`,
     [
       slug,
@@ -488,12 +544,12 @@ export async function createJob(pool: pg.Pool, input: JobInput): Promise<Job> {
       input.seniority,
       input.location,
       input.remoteRegions,
-      input.salaryMin,
-      input.salaryMax,
-      input.salaryCurrency,
-      input.salaryPeriod,
-      input.salaryEquity,
-      input.salaryUnpaid,
+      salary.min,
+      salary.max,
+      salary.currency,
+      salary.period,
+      input.pay.equity,
+      input.pay.unpaid,
       input.tags,
       input.stack,
       input.requirements,
@@ -505,6 +561,8 @@ export async function createJob(pool: pg.Pool, input: JobInput): Promise<Job> {
       JSON.stringify(input.apply.schema),
       input.sourceUrl,
       input.expiresAt,
+      JSON.stringify(input.pay.lines),
+      input.pay.method,
     ],
   );
   const id = result.rows[0]?.id;
@@ -583,6 +641,7 @@ export async function updateJobFromImport(
  * the slug is the listing's public URL and editing must not break links to it.
  */
 export async function editJob(pool: pg.Pool, id: string, input: JobInput): Promise<Job | null> {
+  const salary = salaryFromPay(input.pay);
   await pool.query(
     `update jobs
         set title = $2, description = $3, employment_type = $4, workplace = $5,
@@ -590,7 +649,8 @@ export async function editJob(pool: pg.Pool, id: string, input: JobInput): Promi
             salary_min = $9, salary_max = $10, salary_currency = $11,
             salary_period = $12, salary_equity = $13, salary_unpaid = $14,
             tags = $15, stack = $16, requirements = $17, responsibilities = $18,
-            agent_policy = $19, expires_at = $20, updated_at = now()
+            agent_policy = $19, expires_at = $20, pay_lines = $21, pay_method = $22,
+            updated_at = now()
       where id = $1`,
     [
       id,
@@ -601,18 +661,51 @@ export async function editJob(pool: pg.Pool, id: string, input: JobInput): Promi
       input.seniority,
       input.location,
       input.remoteRegions,
-      input.salaryMin,
-      input.salaryMax,
-      input.salaryCurrency,
-      input.salaryPeriod,
-      input.salaryEquity,
-      input.salaryUnpaid,
+      salary.min,
+      salary.max,
+      salary.currency,
+      salary.period,
+      input.pay.equity,
+      input.pay.unpaid,
       input.tags,
       input.stack,
       input.requirements,
       input.responsibilities,
       input.agentPolicy,
       input.expiresAt,
+      JSON.stringify(input.pay.lines),
+      input.pay.method,
+    ],
+  );
+  return getJobById(pool, id);
+}
+
+/**
+ * Change only what a listing pays, leaving the rest of it alone.
+ *
+ * The one field that is required to publish deserves a way to be set
+ * without rewriting the listing around it: a draft written last week, or a
+ * listing that went live before pay was required, needs exactly this and
+ * nothing else.
+ */
+export async function setPay(pool: pg.Pool, id: string, pay: Pay): Promise<Job | null> {
+  const salary = salaryFromPay(pay);
+  await pool.query(
+    `update jobs
+        set salary_min = $2, salary_max = $3, salary_currency = $4, salary_period = $5,
+            salary_equity = $6, salary_unpaid = $7, pay_lines = $8, pay_method = $9,
+            updated_at = now()
+      where id = $1`,
+    [
+      id,
+      salary.min,
+      salary.max,
+      salary.currency,
+      salary.period,
+      pay.equity,
+      pay.unpaid,
+      JSON.stringify(pay.lines),
+      pay.method,
     ],
   );
   return getJobById(pool, id);

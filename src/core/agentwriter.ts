@@ -28,6 +28,7 @@ import {
   SENIORITIES,
   WORKPLACES,
 } from '../schema/job.ts';
+import { parsePayLine } from '../schema/pay.ts';
 
 /** The model was asked and could not answer. Never fatal to the page. */
 export class AgentWriterProblem extends Error {}
@@ -75,14 +76,18 @@ const SYSTEM = [
   '  workplace            one of: remote, hybrid, onsite',
   '  seniority            one of: intern, junior, mid, senior, staff, principal, lead',
   '  location             free text, only if the brief gives one',
-  '  salaryMin            integer, ONLY if the brief states pay',
-  '  salaryMax            integer, ONLY if the brief states pay',
-  '  salaryPeriod         one of: hour, day, week, month, year',
+  '  pay                  array of strings, ONLY if the brief states pay, one',
+  '                       per price, written the way people say it:',
+  '                       "$120k - $150k a year", "$100 an hour",',
+  '                       "$0.25 per task", "$5000 fixed", "10% revenue share",',
+  '                       "0.01 SOL per task"',
+  '  payMethod            how it is settled, ONLY if the brief says: "SOL",',
+  '                       "USDC", "bank transfer", "PayPal", "payroll"',
   '  salaryUnpaid         true ONLY if the brief says the role is unpaid',
   '',
   'Rules you do not break:',
-  '- Never invent compensation. If the brief says nothing about pay, omit every',
-  '  salary field. A number nobody agreed to is worse than no number.',
+  '- Never invent compensation. If the brief says nothing about pay, omit pay',
+  '  and payMethod. A number nobody agreed to is worse than no number.',
   '- Never invent a company name, a benefit, a funding stage, or a headcount.',
   '- Do not write "competitive salary", "rockstar", "ninja", or "fast-paced".',
   '- Do not address the reader as a candidate in the description title.',
@@ -276,6 +281,7 @@ export function fieldsFromModelJson(raw: string): Record<string, string> {
   put('seniority', oneOf(parsed['seniority'], SENIORITIES));
   put('salaryPeriod', oneOf(parsed['salaryPeriod'], SALARY_PERIODS));
   put('agentPolicy', oneOf(parsed['agentPolicy'], AGENT_POLICIES));
+  put('payMethod', text(parsed['payMethod'], 40));
 
   put('tags', list(parsed['tags'], 12));
   put('stack', list(parsed['stack'], 20));
@@ -288,6 +294,16 @@ export function fieldsFromModelJson(raw: string): Record<string, string> {
   if (parsed['salaryUnpaid'] === true) {
     out['salaryUnpaid'] = 'on';
   } else {
+    // Pay lines survive only when each one parses: a model that writes
+    // "competitive" as a line has stated nothing, and the field stays blank
+    // for a person to fill in.
+    const lines = Array.isArray(parsed['pay'])
+      ? parsed['pay']
+          .filter((line): line is string => typeof line === 'string')
+          .map((line) => line.trim())
+          .filter((line) => line !== '' && typeof parsePayLine(line) !== 'string')
+      : [];
+    if (lines.length > 0) out['pay'] = lines.join('\n');
     put('salaryMin', amount(parsed['salaryMin']));
     put('salaryMax', amount(parsed['salaryMax']));
   }

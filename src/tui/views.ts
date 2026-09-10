@@ -7,7 +7,8 @@
  */
 
 import { fill, type Container, type Theme } from '@profullstack/hqtui';
-import { ago, formatSalary } from '../schema/text.ts';
+import { ago } from '../schema/text.ts';
+import { formatMethod, formatPay, formatPayShort, payOfJob } from '../schema/pay.ts';
 import { toPlainText } from '../markup/markdown.ts';
 import {
   keyHints,
@@ -97,7 +98,7 @@ function findTab(ui: Container, theme: Theme, state: TuiState): void {
 }
 
 function jobRow(job: Job): string {
-  const salary = formatSalary(job.salary);
+  const salary = formatPayShort(payOfJob(job));
   const bits = [job.org.name, job.workplace, salary ?? '', ago(job.publishedAt)].filter(
     (bit) => bit !== '',
   );
@@ -112,7 +113,12 @@ function jobDetail(ui: Container, theme: Theme, job: Job): void {
       { label: 'Where', value: `${job.workplace}${job.location === null ? '' : `, ${job.location}`}` },
       { label: 'Type', value: job.employmentType },
       { label: 'Level', value: job.seniority ?? 'unspecified' },
-      { label: 'Pay', value: formatSalary(job.salary) ?? 'not stated' },
+      {
+        label: 'Pay',
+        value: [formatPay(payOfJob(job)) ?? 'not listed', formatMethod(payOfJob(job).method)]
+          .filter((bit): bit is string => bit !== null)
+          .join(', '),
+      },
       {
         label: 'Agents',
         value: agentPolicyText(job.agentPolicy),

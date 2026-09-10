@@ -37,7 +37,10 @@ import {
   normaliseInput,
   searchJobs,
   setStatus,
+  publishProblem,
+  setPay,
 } from '../../core/jobs.ts';
+import { normalisePay } from '../../schema/pay.ts';
 import { createOrg, getOrgBySlug, isMember, listOrgs, listOrgsForUser } from '../../core/orgs.ts';
 import {
   createResume,
@@ -91,6 +94,17 @@ import {
   type Target,
 } from '../../core/updates.ts';
 import { UpdatesPage, type SocialProps } from '../../views/updates.tsx';
+import {
+  decide as decideRecommendation,
+  listApproved,
+  listGiven,
+  listReceived,
+  notifySubject,
+  resolve as resolveRecommendation,
+  withdraw as withdrawRecommendation,
+  writeRecommendation,
+} from '../../core/recommendations.ts';
+import type { RecommendFormProps } from '../../views/recommendations.tsx';
 import {
   CONTENT_TYPE,
   ConversionProblem,
@@ -159,6 +173,52 @@ export function requireViewer(c: Ctx): Viewer | Response {
   if (viewer !== null) return viewer;
   const next = new URL(c.req.url).pathname;
   return c.redirect(`/login?next=${encodeURIComponent(next)}`, 302);
+}
+
+/**
+ * The recommendation form for a page, or null when the viewer cannot write
+ * one here: a stranger, or the page's own subject. `existing` is whatever
+ * this viewer already wrote about the subject, so the form is a rewrite.
+ */
+async function recommendFormFor(
+  c: Ctx,
+  target: { candidate?: string; org?: string },
+  action: string,
+  values: Record<string, string>,
+  error?: string,
+): Promise<RecommendFormProps | null> {
+  const { pool } = c.get('deps');
+  const viewer = c.get('viewer');
+  if (viewer === null) return null;
+
+  // No form on your own page, or on your own employer's.
+  if (target.candidate !== undefined) {
+    const subjectId = await userForCandidate(pool, target.candidate);
+    if (subjectId === null || subjectId === viewer.id) return null;
+  } else if (target.org !== undefined) {
+    const org = await getOrgBySlug(pool, target.org);
+    if (org === null || (await isMember(pool, viewer.id, org.id))) return null;
+  }
+
+  const [orgs, selfSlug, given] = await Promise.all([
+    listOrgsForUser(pool, viewer.id),
+    candidateSlugFor(pool, viewer.id),
+    listGiven(pool, viewer.id),
+  ]);
+  const existing =
+    given.find((item) =>
+      target.candidate !== undefined
+        ? item.subject.kind === 'candidate' && item.subject.slug === target.candidate
+        : item.subject.kind === 'employer' && item.subject.slug === target.org,
+    ) ?? null;
+  return {
+    action,
+    asOptions: orgs.map((org) => ({ slug: org.slug, name: org.name })),
+    canWriteAsSelf: selfSlug !== null,
+    existing,
+    values,
+    ...(error === undefined ? {} : { error }),
+  };
 }
 
 export async function formOf(c: Ctx): Promise<Record<string, string>> {
@@ -348,7 +408,12 @@ export function pageRoutes(): Hono<AppEnv> {
    * `error` is the update composer's, and is passed rather than redirected
    * with, so a rejected post comes back on the page that made it.
    */
-  const candidatePage = async (c: Ctx, slug: string, error?: string): Promise<Response> => {
+  const candidatePage = async (
+    c: Ctx,
+    slug: string,
+    error?: string,
+    recommend?: { values: Record<string, string>; error?: string },
+  ): Promise<Response> => {
     const { pool, config } = c.get('deps');
     const resume = await getPublicResume(pool, slug);
     if (resume === null) return c.notFound();
@@ -357,10 +422,12 @@ export function pageRoutes(): Hono<AppEnv> {
     const viewer = c.get('viewer');
     const shown = resumeForViewer(resume, viewer !== null);
     const target: Target = { kind: 'candidate', userId: resume.userId };
-    const [updates, followers, following] = await Promise.all([
+    const [updates, followers, following, recommendations, recommendForm] = await Promise.all([
       listUpdatesFor(pool, target),
       followerCount(pool, target),
       viewer === null ? Promise.resolve(false) : isFollowing(pool, viewer.id, target),
+      listApproved(pool, { kind: 'candidate', userId: resume.userId }),
+      recommendFormFor(c, { candidate: slug }, `/candidates/${slug}/recommend`, recommend?.values ?? {}, recommend?.error),
     ]);
 
     const social: SocialProps = {
@@ -408,9 +475,11 @@ export function pageRoutes(): Hono<AppEnv> {
           listed={resume.visibility === 'public'}
           contactRedacted={shown.redacted}
           social={social}
+          recommendations={recommendations}
+          recommend={recommendForm}
         />
       </Layout>,
-      error === undefined ? 200 : 400,
+      error === undefined && recommend?.error === undefined ? 200 : 400,
     );
   };
 
@@ -525,7 +594,12 @@ export function pageRoutes(): Hono<AppEnv> {
     );
   });
 
-  const employerPage = async (c: Ctx, slug: string, error?: string): Promise<Response> => {
+  const employerPage = async (
+    c: Ctx,
+    slug: string,
+    error?: string,
+    recommend?: { values: Record<string, string>; error?: string },
+  ): Promise<Response> => {
     const { pool } = c.get('deps');
     const org = await getOrgBySlug(pool, slug);
     if (org === null) return c.notFound();
@@ -534,12 +608,14 @@ export function pageRoutes(): Hono<AppEnv> {
     const query = parseQuery(params);
     const viewer = c.get('viewer');
     const target: Target = { kind: 'employer', orgId: org.id };
-    const [page, updates, followers, following, member] = await Promise.all([
+    const [page, updates, followers, following, member, recommendations, recommendForm] = await Promise.all([
       searchJobs(pool, query),
       listUpdatesFor(pool, target),
       followerCount(pool, target),
       viewer === null ? Promise.resolve(false) : isFollowing(pool, viewer.id, target),
       viewer === null ? Promise.resolve(false) : isMember(pool, viewer.id, org.id),
+      listApproved(pool, { kind: 'employer', orgId: org.id }),
+      recommendFormFor(c, { org: slug }, `/employers/${slug}/recommend`, recommend?.values ?? {}, recommend?.error),
     ]);
 
     const social: SocialProps = {
@@ -571,9 +647,16 @@ export function pageRoutes(): Hono<AppEnv> {
         title={org.name}
         description={org.description ?? `Open roles at ${org.name}.`}
       >
-        <EmployerDetail org={org} page={page} query={query} social={social} />
+        <EmployerDetail
+          org={org}
+          page={page}
+          query={query}
+          social={social}
+          recommendations={recommendations}
+          recommend={recommendForm}
+        />
       </Layout>,
-      error === undefined ? 200 : 400,
+      error === undefined && recommend?.error === undefined ? 200 : 400,
     );
   };
 
@@ -611,6 +694,67 @@ export function pageRoutes(): Hono<AppEnv> {
     const userId = await userForCandidate(pool, slug);
     if (userId === null) return c.notFound();
     return toggleFollow(c, { kind: 'candidate', userId }, `/candidates/${slug}`);
+  });
+
+  // --- recommendations --------------------------------------------------
+
+  /**
+   * Write one from the page it is about. The refusal, if any, comes back on
+   * that page with the words still in the box.
+   */
+  const recommendFrom = async (
+    c: Ctx,
+    target: { candidate?: string; org?: string },
+    back: (error?: { values: Record<string, string>; error?: string }) => Promise<Response>,
+  ): Promise<Response> => {
+    const { pool, config, mailer } = c.get('deps');
+    const viewer = requireViewer(c);
+    if (viewer instanceof Response) return viewer;
+    const form = await formOf(c);
+    const resolved = await resolveRecommendation(pool, viewer.id, { ...target, ...(form['as'] === undefined ? {} : { as: form['as'] }) });
+    if (typeof resolved === 'string') return back({ values: form, error: resolved });
+    const written = await writeRecommendation(pool, viewer.id, {
+      as: resolved.as,
+      subject: resolved.subject,
+      body: form['body'],
+      relationship: form['relationship'],
+    });
+    if (typeof written === 'string') return back({ values: form, error: written });
+    void notifySubject({
+      pool,
+      mailer,
+      boardName: config.boardName,
+      publicUrl: config.publicUrl,
+      recommendation: written,
+      subject: resolved.subject,
+    }).catch(() => undefined);
+    const page = target.candidate !== undefined ? `/candidates/${target.candidate}` : `/employers/${target.org ?? ''}`;
+    return c.redirect(`${page}?recommended=1#recommend`, 303);
+  };
+
+  pages.post('/candidates/:slug/recommend', (c) => {
+    const slug = c.req.param('slug');
+    return recommendFrom(c, { candidate: slug }, (error) => candidatePage(c, slug, undefined, error));
+  });
+
+  pages.post('/employers/:slug/recommend', (c) => {
+    const slug = c.req.param('slug');
+    return recommendFrom(c, { org: slug }, (error) => employerPage(c, slug, undefined, error));
+  });
+
+  /** Approve, reject or withdraw, from /me. */
+  pages.post('/me/recommendations/:id/:action{approve|reject|withdraw}', async (c) => {
+    const { pool } = c.get('deps');
+    const viewer = requireViewer(c);
+    if (viewer instanceof Response) return viewer;
+    const id = c.req.param('id');
+    const action = c.req.param('action');
+    const done =
+      action === 'withdraw'
+        ? await withdrawRecommendation(pool, viewer.id, id)
+        : (await decideRecommendation(pool, viewer.id, id, action === 'approve' ? 'approved' : 'rejected')) !== null;
+    if (!done) return c.notFound();
+    return c.redirect('/me#recommendations', 303);
   });
 
   pages.post('/employers/:slug/updates', async (c) => {
@@ -832,12 +976,14 @@ export function pageRoutes(): Hono<AppEnv> {
     );
 
     const { coinpay } = c.get('deps');
-    const [candidateSlug, updates, following, account, invoices] = await Promise.all([
+    const [candidateSlug, updates, following, account, invoices, received, given] = await Promise.all([
       candidateSlugFor(pool, viewer.id),
       listUpdatesFor(pool, { kind: 'candidate', userId: viewer.id }),
       listFollowing(pool, viewer.id),
       getAccount(pool, viewer.id),
       listInvoicesFor(pool, coinpay, viewer.id),
+      listReceived(pool, viewer.id),
+      listGiven(pool, viewer.id),
     ]);
     const notice = new URL(c.req.url).searchParams.get('coinpay');
 
@@ -858,6 +1004,7 @@ export function pageRoutes(): Hono<AppEnv> {
           following={following}
           candidateSlug={candidateSlug}
           updateMax={BODY_MAX}
+          recommendations={{ received, given }}
         >
           <BillingCard
             enabled={coinpay !== null}
@@ -1150,12 +1297,18 @@ export function pageRoutes(): Hono<AppEnv> {
     return c.redirect(`/me/jobs/${job.slug}`, 303);
   });
 
-  pages.get('/me/jobs/:slug', async (c) => {
+  /**
+   * The employer's own page for one listing.
+   *
+   * `error` is a refused publish or a pay line that could not be read, shown
+   * on the page that made the request rather than redirected away from.
+   */
+  const manageJobPage = async (c: Ctx, slug: string, error?: string): Promise<Response> => {
     const { pool, config } = c.get('deps');
     const viewer = requireViewer(c);
     if (viewer instanceof Response) return viewer;
 
-    const job = await getJobBySlug(pool, c.req.param('slug'), { includeUnpublished: true });
+    const job = await getJobBySlug(pool, slug, { includeUnpublished: true });
     if (job === null) return c.notFound();
     if (!(await isMember(pool, viewer.id, job.org.id))) return c.notFound();
 
@@ -1182,10 +1335,14 @@ export function pageRoutes(): Hono<AppEnv> {
           html={renderMarkdown(job.description, { headingOffset: 2 })}
           applications={detailed}
           publicUrl={config.publicUrl}
+          {...(error === undefined ? {} : { error })}
         />
       </Layout>,
+      error === undefined ? 200 : 400,
     );
-  });
+  };
+
+  pages.get('/me/jobs/:slug', (c) => manageJobPage(c, c.req.param('slug')));
 
   pages.post('/me/jobs/:slug/:action{publish|close}', async (c) => {
     const { pool } = c.get('deps');
@@ -1194,8 +1351,36 @@ export function pageRoutes(): Hono<AppEnv> {
     const job = await getJobBySlug(pool, c.req.param('slug'), { includeUnpublished: true });
     if (job === null) return c.notFound();
     if (!(await isMember(pool, viewer.id, job.org.id))) return c.notFound();
-    await setStatus(pool, job.id, c.req.param('action') === 'close' ? 'closed' : 'published');
+    const publishing = c.req.param('action') !== 'close';
+    if (publishing) {
+      // Pay is required to go live. Refused here, on the page with the pay
+      // form on it, rather than by a redirect to somewhere the reason is not.
+      const problem = publishProblem(job);
+      if (problem !== null) return manageJobPage(c, job.slug, problem);
+    }
+    await setStatus(pool, job.id, publishing ? 'published' : 'closed');
     return c.redirect(`/me/jobs/${job.slug}`, 303);
+  });
+
+  /**
+   * Change what a listing pays, and nothing else.
+   *
+   * The one field required to publish gets its own form, because a listing
+   * posted before pay was required has no other way to be brought up to it
+   * from a browser: the web has no full editor, and closing and reposting
+   * would break the URL.
+   */
+  pages.post('/me/jobs/:slug/pay', async (c) => {
+    const { pool } = c.get('deps');
+    const viewer = requireViewer(c);
+    if (viewer instanceof Response) return viewer;
+    const job = await getJobBySlug(pool, c.req.param('slug'), { includeUnpublished: true });
+    if (job === null) return c.notFound();
+    if (!(await isMember(pool, viewer.id, job.org.id))) return c.notFound();
+    const pay = normalisePay(await formOf(c));
+    if (typeof pay === 'string') return manageJobPage(c, job.slug, pay);
+    await setPay(pool, job.id, pay);
+    return c.redirect(`/me/jobs/${job.slug}#pay`, 303);
   });
 
   /**

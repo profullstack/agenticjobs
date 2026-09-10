@@ -8,11 +8,21 @@ import {
   AGENT_POLICIES,
   APPLICATION_DECISIONS,
   EMPLOYMENT_TYPES,
-  SALARY_PERIODS,
   SENIORITIES,
   WORKPLACES,
   type ApplicationDecision,
 } from '../schema/job.ts';
+import {
+  PAYMENT_COINS,
+  PAYMENT_RAILS,
+  PAY_LINE_EXAMPLES,
+  formatPay,
+  formatMethod,
+  normalisePay,
+  payOfJob,
+  payStated,
+  payToText,
+} from '../schema/pay.ts';
 import { ago } from '../schema/text.ts';
 import { Alert, Badge, Card, Empty, Field, Prose } from './layout.tsx';
 
@@ -135,38 +145,7 @@ export const PostJobPage: FC<{
             <input class="input" type="text" id="location" name="location" value={values['location'] ?? ''} />
           </Field>
 
-          <fieldset>
-            <legend>Pay</legend>
-            <p class="hint" style="margin-top:0">
-              A listing without a number gets fewer and worse applications. Say the range.
-            </p>
-            <p class="hint" style="margin-top:0">
-              <label>
-                <input
-                  type="checkbox"
-                  name="salaryUnpaid"
-                  value="on"
-                  checked={values['salaryUnpaid'] === 'on'}
-                />{' '}
-                This role is unpaid
-              </label>{' '}
-              An unpaid internship or volunteer post says so here. It reads as Unpaid rather
-              than as a listing whose author skipped the question, and any range below is
-              ignored.
-            </p>
-            <div class="row">
-              <input class="input" type="number" name="salaryMin" placeholder="from" style="width:8rem" value={values['salaryMin'] ?? ''} />
-              <input class="input" type="number" name="salaryMax" placeholder="to" style="width:8rem" value={values['salaryMax'] ?? ''} />
-              <input class="input" type="text" name="salaryCurrency" placeholder="USD" maxlength={3} style="width:6rem" value={values['salaryCurrency'] ?? 'USD'} />
-              <select class="select" name="salaryPeriod" style="width:auto">
-                {SALARY_PERIODS.map((period) => (
-                  <option value={period} selected={(values['salaryPeriod'] ?? 'year') === period}>
-                    per {period}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </fieldset>
+          <PayFields values={values} />
 
           <Field label="Stack" name="stack" hint="Comma separated. Also what people search on.">
             <input class="input" type="text" id="stack" name="stack" value={values['stack'] ?? ''} placeholder="typescript, postgres, hono" />
@@ -264,13 +243,24 @@ export const ManageJobPage: FC<{
   html: string;
   applications: (Application & { resume: string | null; resumeTitle: string | null })[];
   publicUrl: string;
-}> = ({ job, html, applications, publicUrl }) => (
+  /** Why the last publish or pay change was refused, shown where it happened. */
+  error?: string;
+}> = ({ job, html, applications, publicUrl, error }) => {
+  const pay = payOfJob(job);
+  return (
   <div class="stack">
     <div class="spread">
       <div>
         <h1>{job.title}</h1>
         <p class="lede">
           {job.org.name} - <Badge variant={job.status === 'published' ? 'primary' : 'outline'}>{job.status}</Badge>
+          {formatPay(pay) !== null && (
+            <>
+              {' '}
+              - {formatPay(pay)}
+              {formatMethod(pay.method) !== null && `, ${formatMethod(pay.method)?.toLowerCase()}`}
+            </>
+          )}
         </p>
       </div>
       <div class="row">
@@ -295,12 +285,48 @@ export const ManageJobPage: FC<{
       </div>
     </div>
 
+    {error !== undefined && <Alert variant="error">{error}</Alert>}
+
     {job.status === 'draft' && (
       <Alert variant="info">
         This is a draft. It is not in the list, not in the feed, not in the API and not visible to
         any other instance until you publish it.
       </Alert>
     )}
+
+    {!payStated(pay) && (
+      <Alert variant="warning">
+        <strong>This listing does not say what it pays.</strong>{' '}
+        {job.status === 'published'
+          ? 'It is live, but pay is now required, so say it below.'
+          : 'It cannot be published until it does.'}
+      </Alert>
+    )}
+
+    <Card id="pay">
+      <div class="card-header">
+        <h2 class="card-title">Pay</h2>
+        <p class="card-description">
+          Required to publish. Change it here without rewriting the rest of the listing.
+        </p>
+      </div>
+      <form class="stack-sm" method="post" action={`/me/jobs/${job.slug}/pay`}>
+        <PayFields
+          values={{
+            pay: payToText(pay),
+            payMethod: pay.method ?? '',
+            payEquity: pay.equity ?? '',
+            salaryUnpaid: pay.unpaid ? 'on' : '',
+          }}
+          bare
+        />
+        <div class="row">
+          <button class="btn btn-secondary btn-sm" type="submit">
+            Save pay
+          </button>
+        </div>
+      </form>
+    </Card>
 
     <section class="stack">
       <h2>
@@ -374,7 +400,105 @@ export const ManageJobPage: FC<{
       </p>
     </details>
   </div>
-);
+  );
+};
+
+/**
+ * The pay fields, shared by the post form and the manage page.
+ *
+ * One line per price, typed the way it is said: "$120k - $150k a year",
+ * "$0.25 per task", "0.01 SOL per PR that fixes a bug", "10% revenue share".
+ * A textarea rather than four inputs and a select, because the old four
+ * could describe exactly one salary range and nothing this board is for.
+ *
+ * `values` may carry the old flat fields (an agent draft, a re-rendered
+ * form): they are folded into the text so nothing typed is lost.
+ */
+export const PayFields: FC<{
+  values: Record<string, string>;
+  /** Without the fieldset and its legend, for a card that already has a title. */
+  bare?: boolean;
+}> = ({ values, bare = false }) => {
+  const folded = normalisePay(values);
+  const text =
+    values['pay'] ??
+    (typeof folded === 'string' ? '' : payToText(folded));
+  const body = (
+    <>
+      {!bare && (
+        <p class="hint" style="margin-top:0">
+          Required before the listing can be published. A listing that does not say what it pays
+          gets fewer and worse applications, and an agent reading it cannot tell whether to
+          bother.
+        </p>
+      )}
+      <Field
+        label="What it pays"
+        name="pay"
+        hint={`One price per line, the way you would say it: ${PAY_LINE_EXAMPLES}. Several lines are fine: "$0.25 per task" and "$0.25 per PR that fixes a bug" are two.`}
+      >
+        <textarea class="textarea" id="pay" name="pay" rows={3} placeholder={'$120k - $150k a year\n$0.25 per task'}>
+          {text}
+        </textarea>
+      </Field>
+      <div class="row" style="flex-wrap:wrap;gap:.75rem;align-items:flex-start">
+        <Field
+          label="Paid in"
+          name="payMethod"
+          hint="A coin, or a rail: bank transfer, PayPal, payroll."
+        >
+          <input
+            class="input"
+            type="text"
+            id="payMethod"
+            name="payMethod"
+            list="pay-methods"
+            maxlength={40}
+            placeholder="SOL, USDC, bank transfer"
+            value={values['payMethod'] ?? ''}
+          />
+          <datalist id="pay-methods">
+            {[...PAYMENT_COINS, ...PAYMENT_RAILS].map((method) => (
+              <option value={method} />
+            ))}
+          </datalist>
+        </Field>
+        <Field label="Equity" name="payEquity" hint="Optional, as text.">
+          <input
+            class="input"
+            type="text"
+            id="payEquity"
+            name="payEquity"
+            maxlength={60}
+            placeholder="0.1% - 0.4%"
+            value={values['payEquity'] ?? values['salaryEquity'] ?? ''}
+          />
+        </Field>
+      </div>
+      <p class="hint" style="margin-top:0">
+        <label>
+          <input
+            type="checkbox"
+            name="salaryUnpaid"
+            value="on"
+            checked={values['salaryUnpaid'] === 'on'}
+          />{' '}
+          This role is unpaid
+        </label>{' '}
+        An unpaid internship or volunteer post says so here. It reads as Unpaid rather than as a
+        listing whose author skipped the question, and any line above is ignored.
+      </p>
+    </>
+  );
+  return bare ? (
+    <div class="stack-sm">{body}</div>
+  ) : (
+    <fieldset>
+      <legend>Pay</legend>
+      {body}
+    </fieldset>
+  );
+};
 
 export const NewEmployerPage: FC<{ error?: string }> = ({ error }) => (
   <div style="max-width:32rem;margin:0 auto">

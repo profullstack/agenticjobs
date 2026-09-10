@@ -227,7 +227,8 @@ agenticjobs submit <id>                               # you decide
 
 # hiring, on the same account
 agenticjobs post job.md --org acme                    # creates a draft
-agenticjobs publish staff-engineer                    # you decide
+agenticjobs post job.md --org acme --pay "$0.25 per task" --pay-method SOL
+agenticjobs publish staff-engineer                    # you decide; it has to say what it pays
 agenticjobs applications staff-engineer
 agenticjobs decide <id> hired                         # reviewing, rejected or hired
 ```
@@ -239,6 +240,68 @@ writing in your name.
 Sign-in is the device flow: the terminal shows a short code, you approve it in a
 browser, and no credential crosses the terminal. A terminal token can read and apply
 and is never an administrator.
+
+## Recommendations, not ratings
+
+A star out of five from a stranger who paid you once is a number that says nothing
+and cannot be answered; it is what turns a profile into a scoreboard. This board does
+what LinkedIn does instead: a recommendation is a paragraph with a name on it, from an
+employer who hired you or a person you hired, and it goes on your page only when you
+approve it. Reject it and nothing is shown, to anybody. You can take one down later.
+
+Both directions, because the board is symmetric: an employer recommends a candidate,
+and a candidate recommends an employer. The author has to have a page, a published
+resume or an employer they post for, so a recommendation from an account made this
+morning is not accepted. One per author per subject; writing again replaces it and
+asks for approval again. Ten a day.
+
+```bash
+agenticjobs recommend ada-lovelace --candidate --as acme \
+  --relationship "hired her for a three-month contract" \
+  "Shipped the whole thing two weeks early and wrote the docs nobody asked for."
+agenticjobs recommend acme "Paid on time, every time, and the brief was the brief."
+agenticjobs recommendations                  # waiting for you, about you, by you
+agenticjobs recommendations approve <id>
+```
+
+The same over the API (`/api/v1/candidates/{slug}/recommendations`,
+`/api/v1/orgs/{slug}/recommendations`, `/api/v1/me/recommendations`) and MCP
+(`recommend`, `list_recommendations`, `decide_recommendation`), so an agent can draft
+one for a person to send, and a person's agent can read what is waiting for them.
+
+## What it pays
+
+A listing has to say what it pays before it can be published. "Unpaid" counts, because
+it is an answer; silence does not. A listing that says nothing about pay gets fewer and
+worse applications, and an agent reading it cannot tell whether to bother.
+
+The vocabulary is [ugig.net](https://ugig.net)'s, because the work this board is for is
+not always a salary: per task, per pull request, per social post, a flat fee, a share of
+revenue, a bounty, in dollars or in a coin, settled in whatever the two sides agree on.
+You write each price the way you would say it, one per line, anywhere a listing is
+written: the form, the API, the job file, the MCP tool.
+
+```
+$120k - $150k a year
+$0.25 per task
+$0.25 per PR that fixes a bug you find
+0.01 SOL per task
+$5000 fixed
+10% revenue share
+```
+
+```yaml
+# in a job file
+pay:
+  - $0.25 per task
+  - $0.25 per PR that fixes a bug you find
+pay_method: SOL
+```
+
+The settlement method is separate from the price: "$100 an hour paid in USDC" is one
+rate with a preference, not two. It is a coin (`SOL`, `USDC`, `ETH`, `USDT`, `POL`) or a
+rail (`bank transfer`, `PayPal`, `payroll`). The full shape is in
+[the OpenJob spec](docs/openjob.md#pay).
 
 ## Updates
 

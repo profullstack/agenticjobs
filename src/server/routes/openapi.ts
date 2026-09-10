@@ -42,6 +42,11 @@ export function openApiDocument(config: Config): Record<string, unknown> {
       { name: 'employers', description: 'The organisations a listing belongs to.' },
       { name: 'updates', description: 'Short posts from employers and candidates, and following them.' },
       {
+        name: 'recommendations',
+        description:
+          'What somebody who worked with you says about you, on your page once you approve it. Not a rating: a paragraph with a name on it, in either direction.',
+      },
+      {
         name: 'inbox',
         description: 'Private conversations. The only way to reach somebody here; there is no public commenting.',
       },
@@ -81,8 +86,35 @@ export function openApiDocument(config: Config): Record<string, unknown> {
         post: {
           tags: ['jobs'],
           summary: 'Post a job. Creates a draft unless publish is true.',
+          description:
+            'Pay is required to publish. Send `pay` as an array of lines written the way a person says them ("$120k - $150k a year", "$0.25 per task", "$5000 fixed", "10% revenue share", "0.01 SOL per task"), or as objects with type, min, max, currency and unit; `payMethod` says how it is settled (SOL, USDC, bank transfer, PayPal); `unpaid: true` says the role pays nothing. With `publish: true` and no pay the request is refused with `pay_required` and nothing is created.',
           security: [{ bearer: [] }],
-          responses: { 201: ok('The job as stored.'), 401: err(), 403: err() },
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['org', 'title', 'description'],
+                  properties: {
+                    org: { type: 'string' },
+                    title: { type: 'string' },
+                    description: { type: 'string', description: 'Markdown.' },
+                    pay: {
+                      type: 'array',
+                      items: { oneOf: [{ type: 'string' }, { $ref: '#/components/schemas/PayLine' }] },
+                    },
+                    payMethod: { type: 'string' },
+                    payEquity: { type: 'string' },
+                    unpaid: { type: 'boolean' },
+                    agentPolicy: { type: 'string', enum: ['welcome', 'disclose', 'human-only'] },
+                    publish: { type: 'boolean' },
+                  },
+                },
+              },
+            },
+          },
+          responses: { 201: ok('The job as stored.'), 400: err(), 401: err(), 403: err() },
         },
       },
       '/api/v1/jobs/{slug}': {
@@ -534,6 +566,8 @@ export function openApiDocument(config: Config): Record<string, unknown> {
         post: {
           tags: ['jobs'],
           summary: 'publish, close or reopen a listing.',
+          description:
+            'Publishing requires the listing to say what it pays: at least one pay line with an amount, or unpaid. Otherwise 400 with code pay_required, and the listing stays as it was.',
           security: [{ bearer: [] }],
           parameters: [
             pathParam('slug'),
@@ -544,7 +578,78 @@ export function openApiDocument(config: Config): Record<string, unknown> {
               schema: { type: 'string', enum: ['publish', 'close', 'reopen'] },
             },
           ],
-          responses: { 200: ok('The listing.'), 401: err(), 403: err(), 404: err() },
+          responses: { 200: ok('The listing.'), 400: err(), 401: err(), 403: err(), 404: err() },
+        },
+      },
+      '/api/v1/candidates/{slug}/recommendations': {
+        get: {
+          tags: ['recommendations'],
+          summary: "The approved recommendations on a candidate's page.",
+          parameters: [pathParam('slug')],
+          responses: { 200: ok('Recommendations.'), 404: err() },
+        },
+        post: {
+          tags: ['recommendations'],
+          summary: 'Recommend a candidate.',
+          description:
+            'As yourself, which needs a published resume so it is signed by a page, or as an employer you post for ("as"). Pending until the candidate approves it; writing again replaces it. Ten a day.',
+          security: [{ bearer: [] }],
+          parameters: [pathParam('slug')],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['body'],
+                  properties: {
+                    body: { type: 'string', minLength: 20, maxLength: 2000 },
+                    relationship: { type: 'string', maxLength: 120, description: '"Hired them for a three-month contract".' },
+                    as: { type: 'string', description: 'An employer slug you post for.' },
+                  },
+                },
+              },
+            },
+          },
+          responses: { 201: ok('The recommendation, pending.'), 400: err(), 401: err(), 403: err(), 404: err(), 429: err() },
+        },
+      },
+      '/api/v1/orgs/{slug}/recommendations': {
+        get: {
+          tags: ['recommendations'],
+          summary: "The approved recommendations on an employer's page.",
+          parameters: [pathParam('slug')],
+          responses: { 200: ok('Recommendations.'), 404: err() },
+        },
+        post: {
+          tags: ['recommendations'],
+          summary: 'Recommend an employer.',
+          description: 'The same rules as recommending a candidate. Members cannot recommend their own employer.',
+          security: [{ bearer: [] }],
+          parameters: [pathParam('slug')],
+          responses: { 201: ok('The recommendation, pending.'), 400: err(), 401: err(), 403: err(), 404: err(), 429: err() },
+        },
+      },
+      '/api/v1/me/recommendations': {
+        get: {
+          tags: ['recommendations'],
+          summary: 'About you and your employers, every status, and what you wrote.',
+          security: [{ bearer: [] }],
+          responses: { 200: ok('received, given, and how many are pending.'), 401: err() },
+        },
+      },
+      '/api/v1/recommendations/{id}/{action}': {
+        post: {
+          tags: ['recommendations'],
+          summary: 'approve or reject one written about you, or withdraw one you wrote.',
+          description:
+            'The subject decides, and can change their mind later: an approved one can be rejected, which takes it off the page. Withdraw deletes one you wrote.',
+          security: [{ bearer: [] }],
+          parameters: [
+            pathParam('id'),
+            { name: 'action', in: 'path', required: true, schema: { type: 'string', enum: ['approve', 'reject', 'withdraw'] } },
+          ],
+          responses: { 200: ok('The recommendation, or withdrawn: true.'), 401: err(), 404: err() },
         },
       },
       '/api/v1/auth/magic-link': {
@@ -656,8 +761,45 @@ export function openApiDocument(config: Config): Record<string, unknown> {
                 'Where the employer stands on applications written with an agent. Required on every listing, because the alternative is finding out by silent rejection.',
             },
             apply: { type: 'object' },
+            pay: { $ref: '#/components/schemas/Pay' },
+            salary: {
+              type: 'object',
+              description:
+                'The first time-based pay line, flattened: min, max, currency, period, equity, unpaid. Kept for readers written before `pay` existed and for the salary filter and sort. A listing that pays per task has a null range here.',
+            },
             tags: { type: 'array', items: { type: 'string' } },
             stack: { type: 'array', items: { type: 'string' } },
+          },
+        },
+        Pay: {
+          type: 'object',
+          description:
+            'What a listing pays, in full. Required to publish: at least one line with an amount, or unpaid.',
+          properties: {
+            lines: { type: 'array', items: { $ref: '#/components/schemas/PayLine' } },
+            method: {
+              type: 'string',
+              nullable: true,
+              description: 'How it is settled: a coin (SOL, USDC, ETH, USDT, POL) or a rail (bank transfer, PayPal, payroll).',
+            },
+            equity: { type: 'string', nullable: true },
+            unpaid: { type: 'boolean' },
+          },
+        },
+        PayLine: {
+          type: 'object',
+          description:
+            'One price. The same vocabulary as a ugig.net gig budget: a type, a range, what it is denominated in, and for per_task and per_unit what one unit is.',
+          required: ['type', 'currency'],
+          properties: {
+            type: {
+              type: 'string',
+              enum: ['hourly', 'daily', 'weekly', 'monthly', 'yearly', 'fixed', 'per_task', 'per_unit', 'revenue_share', 'bounty'],
+            },
+            min: { type: 'number', nullable: true },
+            max: { type: 'number', nullable: true },
+            currency: { type: 'string', description: 'USD, EUR, or a ticker such as SOL. "%" for a revenue share.' },
+            unit: { type: 'string', nullable: true, description: 'For per_task and per_unit: "task", "PR that fixes a bug you find".' },
           },
         },
       },

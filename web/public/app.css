@@ -1002,3 +1002,29 @@ a.badge-plain:hover .badge {
   color: var(--muted-foreground);
   font-weight: 500;
 }
+
+/* --- recommendations --------------------------------------------------- */
+
+.recommendations {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+}
+
+.recommendation {
+  padding-left: 0.9rem;
+  border-left: 3px solid color-mix(in oklab, var(--primary) 45%, var(--border));
+}
+
+.recommendation-body {
+  /* A recommendation is text. Its line breaks are the only formatting it has. */
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.recommendation-meta {
+  margin: 0.35rem 0 0;
+}

@@ -64,9 +64,8 @@ test('unpaid beats any range that came with it', () => {
     'org-1',
   );
   assert.equal(typeof input, 'object', String(input));
-  assert.equal(input.salaryUnpaid, true);
-  assert.equal(input.salaryMin, null, 'the range is cleared, not kept alongside');
-  assert.equal(input.salaryMax, null);
+  assert.equal(input.pay.unpaid, true);
+  assert.deepEqual(input.pay.lines, [], 'the range is cleared, not kept alongside');
 });
 
 test('a checkbox and an API boolean mean the same thing', () => {
@@ -74,7 +73,7 @@ test('a checkbox and an API boolean mean the same thing', () => {
   // land in the same column.
   for (const value of ['on', 'true', '1', 'yes', true]) {
     const input = normaliseInput({ ...BASE, salaryUnpaid: value }, 'org-1');
-    assert.equal(input.salaryUnpaid, true, `${String(value)} should mean unpaid`);
+    assert.equal(input.pay.unpaid, true, `${String(value)} should mean unpaid`);
   }
 });
 
@@ -82,11 +81,27 @@ test('an absent checkbox clears it, rather than leaving it unchanged', () => {
   // A cleared checkbox posts nothing at all. Reading that as "unchanged"
   // would make an unpaid listing impossible to correct.
   const input = normaliseInput({ ...BASE, salaryMin: '1000' }, 'org-1');
-  assert.equal(input.salaryUnpaid, false);
-  assert.equal(input.salaryMin, 1000, 'and a paid range still comes through');
+  assert.equal(input.pay.unpaid, false);
+  assert.equal(input.pay.lines[0]?.min, 1000, 'and a paid range still comes through');
 
   for (const value of ['off', 'false', '0', '', undefined]) {
     const cleared = normaliseInput({ ...BASE, salaryUnpaid: value }, 'org-1');
-    assert.equal(cleared.salaryUnpaid, false, `${String(value)} should not mean unpaid`);
+    assert.equal(cleared.pay.unpaid, false, `${String(value)} should not mean unpaid`);
   }
+});
+
+test('publishing is refused until the listing says what it pays', async () => {
+  const { publishProblem } = await import('../dist/core/jobs.js');
+  const silent = normaliseInput({ ...BASE }, 'org-1');
+  assert.equal(typeof silent, 'object', String(silent));
+  assert.match(String(publishProblem(silent)), /what it pays/);
+
+  const perTask = normaliseInput({ ...BASE, pay: ['$0.25 per task'], payMethod: 'SOL' }, 'org-1');
+  assert.equal(typeof perTask, 'object', String(perTask));
+  assert.equal(publishProblem(perTask), null, 'a price per task is pay');
+  assert.equal(perTask.pay.method, 'SOL');
+
+  const unpaid = normaliseInput({ ...BASE, salaryUnpaid: true }, 'org-1');
+  assert.equal(typeof unpaid, 'object', String(unpaid));
+  assert.equal(publishProblem(unpaid), null, 'unpaid is an answer to the question');
 });

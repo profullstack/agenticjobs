@@ -12,6 +12,7 @@
  */
 
 import { text, toolError, type ToolDefinition, type ToolResult } from './protocol.ts';
+import { formatPayShort, payOfJob, type Pay } from '../schema/pay.ts';
 import { APPLICATION_DECISIONS, isApplicationDecision } from '../schema/job.ts';
 
 export interface Caller {
@@ -143,7 +144,7 @@ export const TOOLS: ToolDefinition[] = [
     name: 'post_job',
     title: 'Post a job',
     description:
-      'Create a listing. It stays a draft until publish_job is called, so nothing goes live without someone asking for it. Requires membership of the employer.',
+      'Create a listing. It stays a draft until publish_job is called, so nothing goes live without someone asking for it. Requires membership of the employer. Publishing requires pay: send it as `pay`, one line per price, or `unpaid: true`.',
     inputSchema: object(
       {
         org: string('The employer slug to post under.'),
@@ -153,8 +154,17 @@ export const TOOLS: ToolDefinition[] = [
         workplace: { type: 'string', enum: ['remote', 'hybrid', 'onsite'] },
         seniority: { type: 'string', enum: ['intern', 'junior', 'mid', 'senior', 'staff', 'principal', 'lead'] },
         location: string('Free text.'),
-        salaryMin: integer('Bottom of the range.'),
-        salaryMax: integer('Top of the range.'),
+        pay: {
+          type: 'array',
+          items: { type: 'string' },
+          description:
+            'What it pays, one line per price, the way a person says it: "$120k - $150k a year", "$100 an hour", "$0.25 per task", "$0.25 per PR that fixes a bug you find", "$5000 fixed", "10% revenue share", "0.01 SOL per task". Required before the listing can be published.',
+        },
+        payMethod: string('How it is settled: a coin such as SOL, USDC, ETH, USDT or POL, or a rail such as "bank transfer", "PayPal" or "payroll".'),
+        payEquity: string('Equity, as text. Optional.'),
+        unpaid: { type: 'boolean', description: 'True only when the role pays nothing and the employer says so.' },
+        salaryMin: integer('Bottom of an annual range. Older form of pay; prefer `pay`.'),
+        salaryMax: integer('Top of an annual range. Older form of pay; prefer `pay`.'),
         salaryCurrency: string('ISO code, e.g. USD.'),
         salaryPeriod: { type: 'string', enum: ['hour', 'day', 'week', 'month', 'year'] },
         tags: string('Comma separated.'),
@@ -239,6 +249,42 @@ export const TOOLS: ToolDefinition[] = [
         following: { type: 'boolean', description: 'Defaults to true.' },
       },
       [],
+    ),
+  },
+  {
+    name: 'recommend',
+    title: 'Write a recommendation',
+    description:
+      'Recommend a candidate (candidate: their slug) or an employer (org: its slug). Not a rating: a paragraph with a name on it, shown on their page once they approve it. As this account, which needs a published resume, or as an employer this account posts for ("as"). Writing again replaces the earlier one. Ten a day.',
+    inputSchema: object(
+      {
+        candidate: string("A candidate's slug."),
+        org: string("An employer's slug."),
+        as: string('Write as this employer. Optional.'),
+        relationship: string('"Hired them for a three-month contract". Optional.'),
+        body: string('What you would say. Plain text, 20 to 2000 characters.'),
+      },
+      ['body'],
+    ),
+  },
+  {
+    name: 'list_recommendations',
+    title: 'Recommendations about this account',
+    description:
+      'What has been written about this account and its employers, every status, and what this account wrote. Pending ones are waiting for a decision.',
+    inputSchema: object({}),
+  },
+  {
+    name: 'decide_recommendation',
+    title: 'Approve, reject or withdraw a recommendation',
+    description:
+      'approve puts one written about you on your page; reject keeps it off, and can be used later to take an approved one down; withdraw deletes one you wrote.',
+    inputSchema: object(
+      {
+        id: string('The recommendation id, from list_recommendations.'),
+        action: { type: 'string', enum: ['approve', 'reject', 'withdraw'] },
+      },
+      ['id', 'action'],
     ),
   },
   {
@@ -461,9 +507,16 @@ export async function callTool(
       const response = await caller.call('POST', '/api/v1/jobs', args);
       if (response.status === 401) return toolError(signInFirst(caller));
       if (response.status !== 201) return toolError(message(response.body, 'The job was not created.'));
-      const created = (response.body as { job?: { slug?: string } }).job;
+      const created = (response.body as {
+        job?: { slug?: string; pay?: { unpaid?: boolean; lines?: { min?: number | null; max?: number | null }[] } };
+      }).job;
+      const stated =
+        created?.pay?.unpaid === true ||
+        (created?.pay?.lines ?? []).some((line) => line.min != null || line.max != null);
       return text(
-        `Created as a draft: ${created?.slug ?? 'unknown'}. It is not visible to anyone until publish_job is called.`,
+        `Created as a draft: ${created?.slug ?? 'unknown'}. It is not visible to anyone until publish_job is called.${
+          stated ? '' : ' It does not say what it pays yet, and cannot be published until it does: send pay, one line per price, or unpaid: true.'
+        }`,
         response.body,
       );
     }
@@ -550,6 +603,61 @@ export async function callTool(
       if (response.status === 401) return toolError(signInFirst(caller));
       if (response.status !== 200) return toolError(message(response.body, 'Nobody by that name.'));
       return text(wanted ? 'Following.' : 'Not following.', response.body);
+    }
+
+    case 'recommend': {
+      const candidate = typeof args['candidate'] === 'string' ? args['candidate'] : '';
+      const org = typeof args['org'] === 'string' ? args['org'] : '';
+      if (candidate === '' && org === '') return toolError('Name a candidate with candidate, or an employer with org.');
+      const path =
+        candidate !== ''
+          ? `/api/v1/candidates/${encodeURIComponent(candidate)}/recommendations`
+          : `/api/v1/orgs/${encodeURIComponent(org)}/recommendations`;
+      const response = await caller.call('POST', path, {
+        body: args['body'],
+        ...(typeof args['relationship'] === 'string' ? { relationship: args['relationship'] } : {}),
+        ...(typeof args['as'] === 'string' && args['as'] !== '' ? { as: args['as'] } : {}),
+      });
+      if (response.status === 401) return toolError(signInFirst(caller));
+      if (response.status !== 201) return toolError(message(response.body, 'The recommendation was not written.'));
+      const written = (response.body as { recommendation?: { subject?: { name?: string }; author?: { name?: string } } }).recommendation;
+      return text(
+        `Written, from ${written?.author?.name ?? 'you'}. It is pending until ${written?.subject?.name ?? 'they'} approves it, and is not on their page until then.`,
+        response.body,
+      );
+    }
+
+    case 'list_recommendations': {
+      const response = await caller.call('GET', '/api/v1/me/recommendations');
+      if (response.status === 401) return toolError(signInFirst(caller));
+      const mine = response.body as {
+        received: { id: string; status: string; author: { name: string }; subject: { name: string }; body: string }[];
+        given: { id: string; status: string; subject: { name: string }; body: string }[];
+        pending: number;
+      };
+      const lines = [
+        `${mine.pending} waiting for a decision.`,
+        '',
+        ...mine.received.map((item) => `- [${item.status}] ${item.author.name} about ${item.subject.name}: ${item.body.slice(0, 100)} [${item.id}]`),
+        ...(mine.given.length > 0 ? ['', 'You wrote:'] : []),
+        ...mine.given.map((item) => `- [${item.status}] about ${item.subject.name}: ${item.body.slice(0, 100)} [${item.id}]`),
+      ];
+      return text(lines.join('\n'), response.body);
+    }
+
+    case 'decide_recommendation': {
+      const action = String(args['action'] ?? '');
+      if (!['approve', 'reject', 'withdraw'].includes(action)) return toolError('action is approve, reject or withdraw.');
+      const response = await caller.call(
+        'POST',
+        `/api/v1/recommendations/${encodeURIComponent(String(args['id'] ?? ''))}/${action}`,
+      );
+      if (response.status === 401) return toolError(signInFirst(caller));
+      if (response.status !== 200) return toolError(message(response.body, 'Nothing changed.'));
+      return text(
+        action === 'approve' ? 'Approved. It is on the page now.' : action === 'reject' ? 'Rejected. It is not shown.' : 'Withdrawn.',
+        response.body,
+      );
     }
 
     case 'search_network': {
@@ -712,16 +820,28 @@ interface JobLike {
   workplace?: string;
   location?: string | null;
   agentPolicy?: string;
-  salary?: { min?: number | null; max?: number | null; currency?: string };
+  salary?: { min?: number | null; max?: number | null; currency?: string; period?: string };
+  pay?: Pay | null;
 }
 
 function summarise(items: unknown[], total: number, server: string): string {
   const lines = items.map((item) => {
     const job = item as JobLike;
-    const pay =
-      job.salary?.max !== null && job.salary?.max !== undefined
-        ? ` - ${job.salary.currency ?? 'USD'} ${job.salary.min ?? ''}-${job.salary.max}`
-        : '';
+    const stated = formatPayShort(
+      payOfJob({
+        pay: job.pay ?? null,
+        salary:
+          job.salary === undefined
+            ? null
+            : {
+                min: job.salary.min ?? null,
+                max: job.salary.max ?? null,
+                currency: job.salary.currency ?? 'USD',
+                period: job.salary.period ?? 'year',
+              },
+      }),
+    );
+    const pay = stated === null ? '' : ` - ${stated}`;
     return `- ${job.title ?? 'Untitled'} at ${job.org?.name ?? 'unknown'} (${job.workplace ?? '?'}${job.location ? `, ${job.location}` : ''})${pay} [${job.agentPolicy ?? '?'}] ${server}/jobs/${job.slug ?? ''}`;
   });
   return `${total} match on ${server}, showing ${items.length}:\n\n${lines.join('\n')}`;

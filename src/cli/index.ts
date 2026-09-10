@@ -33,7 +33,8 @@ import {
   searchEverywhere,
 } from '../client/index.ts';
 import { VERSION } from '../config.ts';
-import { ago, formatSalary } from '../schema/text.ts';
+import { ago } from '../schema/text.ts';
+import { formatMethod, formatPay, formatPayShort, payOfJob } from '../schema/pay.ts';
 import { APPLICATION_DECISIONS, isApplicationDecision } from '../schema/job.ts';
 // The vocabulary, not the storage: core/resumes.ts is pure apart from a type
 // import of pg, so the CLI can name the same three values the server does
@@ -88,6 +89,13 @@ const USAGE = `agenticjobs ${VERSION} - an agent-friendly job board you can self
     follow <slug>             follow an employer; --candidate for a person
     unfollow <slug>           stop
 
+  Recommendations
+    recommend <slug> <text>   recommend an employer; --candidate for a person
+      --as <employer-slug>      ...from an employer you post for
+      --relationship <text>     "hired them for a three-month contract"
+    recommendations           about you, and what you wrote
+    recommendations approve|reject|withdraw <id>
+
   Inbox
     inbox                     your conversations
     inbox read <id>           one conversation, and its invoices
@@ -109,12 +117,16 @@ const USAGE = `agenticjobs ${VERSION} - an agent-friendly job board you can self
     employer update <slug>    [--name n] [--website u] [--description d]
     employer delete <slug> --yes
     post <file.md>            post a job; stays a draft until you publish
+      --pay "<line>"            what it pays, repeatable: "$0.25 per task",
+                              "$120k - $150k a year", "$5000 fixed"
+      --pay-method <how>        SOL, USDC, bank transfer, PayPal, payroll
+      --unpaid                  the role pays nothing, said out loud
     new <url>                 import a job from a URL, as a draft
     update <url>              re-read that URL into the listing it created
       --slug <slug>             ...adopting a listing that was written by hand
                               (with no URL, updates this install instead)
     edit <slug> <file.md>     rewrite a listing, keeping its URL
-    publish <slug>            take a draft live
+    publish <slug>            take a draft live (it has to say what it pays)
     close <slug>              close a listing
     applications <slug>       what came in
     decide <id> <status>      reviewing, rejected or hired
@@ -327,6 +339,10 @@ async function run(args: Args): Promise<number> {
 
     case 'news':
       return commandNews(args);
+    case 'recommend':
+      return commandRecommend(args);
+    case 'recommendations':
+      return commandRecommendations(args);
     case 'follow':
     case 'unfollow':
       return commandFollow(args);
@@ -415,7 +431,7 @@ function queryFrom(args: Args): Partial<JobQuery> {
 }
 
 function jobLine(job: Job, where?: string): string {
-  const salary = formatSalary(job.salary);
+  const salary = formatPayShort(payOfJob(job));
   const bits = [job.workplace, job.seniority, job.location, salary, `agents: ${job.agentPolicy}`]
     .filter((bit): bit is string => typeof bit === 'string' && bit !== '');
   return [
@@ -670,10 +686,13 @@ async function commandShow(args: Args): Promise<number> {
     bold(job.title),
     `${job.org.name}${job.location === null ? '' : ` - ${job.location}`}`,
     dim(
-      [job.workplace, job.employmentType, job.seniority, formatSalary(job.salary), `agents: ${job.agentPolicy}`]
+      [job.workplace, job.employmentType, job.seniority, `agents: ${job.agentPolicy}`]
         .filter((bit) => typeof bit === 'string' && bit !== '')
         .join(' | '),
     ),
+    `Pay: ${[formatPay(payOfJob(job)) ?? 'not listed', formatMethod(payOfJob(job).method)]
+      .filter((bit): bit is string => bit !== null)
+      .join(', ')}`,
     '',
     job.description,
     '',
@@ -1167,6 +1186,8 @@ async function commandPost(args: Args): Promise<number> {
     'salaryMax',
     'salaryCurrency',
     'salaryPeriod',
+    'payMethod',
+    'payEquity',
     'tags',
     'stack',
     'agentPolicy',
@@ -1175,10 +1196,17 @@ async function commandPost(args: Args): Promise<number> {
     if (value !== undefined) input[key] = value;
   }
 
+  // `--pay "$0.25 per task" --pay "$0.25 per PR"`: one flag per line, the way
+  // the front matter's `pay:` list arrives. Repeated flags accumulate.
+  const payLines = flagList(args, 'pay');
+  if (payLines.length > 0) input['pay'] = payLines;
+  const payMethod = flagString(args, 'pay-method', 'paid-in');
+  if (payMethod !== undefined) input['payMethod'] = payMethod;
+
   // A flag rather than a value, because "unpaid" is a fact about the role and
   // not a number. `salary_unpaid: true` in front matter already arrives on its
   // own, camel-cased with every other key.
-  if (flagBool(args, 'salary-unpaid')) input['salaryUnpaid'] = true;
+  if (flagBool(args, 'salary-unpaid', 'unpaid')) input['salaryUnpaid'] = true;
 
   if (input['org'] === undefined) {
     process.stderr.write('Which employer? Pass --org <slug>, or put "org:" in the front matter.\n');
@@ -1321,6 +1349,57 @@ async function commandNews(args: Args): Promise<number> {
     ].join('\n'),
   );
   return out(args, lines.join('\n\n'), result);
+}
+
+async function commandRecommend(args: Args): Promise<number> {
+  const slug = args.positional[0] ?? '';
+  const body = args.positional.slice(1).join(' ').trim();
+  if (slug === '' || body === '') {
+    process.stderr.write('agenticjobs recommend <employer-slug> "what you would say" [--candidate] [--as employer]\n');
+    return 1;
+  }
+  const as = flagString(args, 'as');
+  const relationship = flagString(args, 'relationship');
+  const written = await clientFor(args).recommend(flagBool(args, 'candidate') ? { candidate: slug } : { org: slug }, {
+    body,
+    ...(as === undefined ? {} : { as }),
+    ...(relationship === undefined ? {} : { relationship }),
+  });
+  return out(
+    args,
+    `Written, from ${written.recommendation.author.name}. It is pending until ${written.recommendation.subject.name} approves it.`,
+    written,
+  );
+}
+
+async function commandRecommendations(args: Args): Promise<number> {
+  const client = clientFor(args);
+  const verb = args.positional[0] ?? '';
+  if (verb === 'approve' || verb === 'reject' || verb === 'withdraw') {
+    const id = args.positional[1] ?? '';
+    if (id === '') {
+      process.stderr.write(`Which one? agenticjobs recommendations ${verb} <id>\n`);
+      return 1;
+    }
+    const result = await client.decideRecommendation(id, verb);
+    return out(args, verb === 'withdraw' ? 'Withdrawn.' : `Now ${result.recommendation?.status ?? verb}.`, result);
+  }
+  const mine = await client.myRecommendations();
+  if (mine.received.length === 0 && mine.given.length === 0) {
+    return out(args, 'None yet, in either direction.', mine);
+  }
+  const line = (item: { id: string; status: string; author: { name: string }; subject: { name: string }; body: string }, about: boolean): string =>
+    [
+      `${item.status === 'pending' ? bold('* ') : '  '}${bold(about ? item.author.name : item.subject.name)}  ${dim(`[${item.status}]`)}`,
+      `    ${item.body.slice(0, 160).replace(/\n/g, ' ')}`,
+      `    ${dim(item.id)}`,
+    ].join('\n');
+  const lines = [
+    `${mine.pending} waiting for you`,
+    ...(mine.received.length > 0 ? ['', bold('About you'), ...mine.received.map((item) => line(item, true))] : []),
+    ...(mine.given.length > 0 ? ['', bold('You wrote'), ...mine.given.map((item) => line(item, false))] : []),
+  ];
+  return out(args, lines.join('\n'), mine);
 }
 
 async function commandFollow(args: Args): Promise<number> {

@@ -9,6 +9,8 @@
  * rather than TypeScript enums nobody else can see.
  */
 
+import type { Pay } from './pay.ts';
+
 export const EMPLOYMENT_TYPES = [
   'full-time',
   'part-time',
@@ -87,6 +89,17 @@ export interface Job {
   location: string | null;
   /** ISO 3166-1 alpha-2 codes a remote hire may sit in. Empty means anywhere. */
   remoteRegions: string[];
+  /**
+   * What it pays, in full: every line, the settlement method, equity, or the
+   * statement that it is unpaid. This is the field to read and to write.
+   */
+  pay: Pay;
+  /**
+   * The first time-based pay line, flattened. Kept for readers written
+   * against 0.11 and earlier, for the salary filter and sort, and for the
+   * JobPosting structured data, all of which compare on an annual basis. A
+   * listing that pays per task has a null range here and its pay in `pay`.
+   */
   salary: Salary;
   tags: string[];
   stack: string[];
