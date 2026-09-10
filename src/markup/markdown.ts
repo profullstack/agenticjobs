@@ -107,7 +107,10 @@ export function renderMarkdown(source: string, options: MarkdownOptions = {}): s
     const paragraph: string[] = [];
     while (index < lines.length) {
       const current = lines[index] ?? '';
-      if (current.trim() === '' || startsBlock(current)) break;
+      // Block probes also match syntax the individual parsers may not accept,
+      // such as a fence with extra info. Consume it as text when no parser took
+      // this line; stopping an empty paragraph would retry it forever.
+      if (current.trim() === '' || (paragraph.length > 0 && startsBlock(current))) break;
       paragraph.push(current);
       index += 1;
     }
