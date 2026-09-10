@@ -202,3 +202,16 @@ test('the text form round-trips, so a form can be re-shown from stored pay', () 
   if (typeof again === 'string') throw new Error(again);
   assert.deepEqual(again.lines, pay.lines);
 });
+
+test('structured revenue shares enforce the same 100% ceiling as text', () => {
+  const single = normalisePay({ pay: [{ type: 'revenue_share', amount: 150 }] });
+  assert.equal(single, 'A revenue share is at most 100%.');
+
+  const range = normalisePay({ pay: [{ type: 'revenue_share', min: 50, max: 150 }] });
+  assert.equal(range, 'A revenue share is at most 100%.');
+
+  const valid = normalisePay({ pay: [{ type: 'revenue_share', min: 10, max: 25 }] });
+  assert.equal(typeof valid, 'object');
+  if (typeof valid === 'string') return;
+  assert.equal(formatPay(valid), '10% - 25% revenue share');
+});

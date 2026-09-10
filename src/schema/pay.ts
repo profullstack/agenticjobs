@@ -597,6 +597,9 @@ function lineFromObject(value: Record<string, unknown>): PayLine | string {
   const min = amount ?? number(value['min']);
   const max = amount ?? number(value['max']);
   if (min !== null && max !== null && max < min) return 'The top of a pay range is below the bottom of it.';
+  if (type === 'revenue_share' && ((min ?? 0) > 100 || (max ?? 0) > 100)) {
+    return 'A revenue share is at most 100%.';
+  }
   const currency =
     type === 'revenue_share' ? '%' : cleanText(value['currency'], 5).toUpperCase() || 'USD';
   const unit = cleanText(value['unit'], UNIT_MAX) || null;
