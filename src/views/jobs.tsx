@@ -4,7 +4,8 @@
 
 import type { FC } from 'hono/jsx';
 import type { Job, JobPage, JobQuery, Organisation } from '../schema/index.ts';
-import { ago, formatSalary } from '../schema/text.ts';
+import { ago } from '../schema/text.ts';
+import { formatMethod, formatPayLine, formatPayShort, payOfJob, payStated } from '../schema/pay.ts';
 import { EMPTY_QUERY, queryToParams } from '../schema/query.ts';
 import { EMPLOYMENT_TYPES, SENIORITIES, WORKPLACES, AGENT_POLICIES } from '../schema/job.ts';
 import { AgentPolicyBadge, Alert, Badge, Card, Empty, Field, Prose } from './layout.tsx';
@@ -125,7 +126,7 @@ export const JobCard: FC<{
   /** The search this card is part of, so a facet narrows it. */
   query?: JobQuery;
 }> = ({ job, origin, instanceName, tags = [], query }) => {
-  const salary = formatSalary(job.salary);
+  const salary = formatPayShort(payOfJob(job));
   const href = origin === undefined ? `/jobs/${job.slug}` : `${origin}/jobs/${job.slug}`;
   // Tags and stack are one row of badges to a reader, so they are deduplicated
   // together rather than shown twice when a listing puts a word in both.
@@ -390,7 +391,8 @@ export const JobDetail: FC<{
   /** A private line to the employer, absent when the viewer is one of them. */
   message?: { to: { employer: string }; job: string; signedIn: boolean; next: string };
 }> = ({ job, html, publicUrl, applied, problems, values, signedIn, resumes, message }) => {
-  const salary = formatSalary(job.salary);
+  const pay = payOfJob(job);
+  const salary = formatPayShort(pay);
   return (
     <div class="grid-2">
       <article class="stack">
@@ -419,7 +421,11 @@ export const JobDetail: FC<{
           <a class="badge-plain" href={facetHref(undefined, { agentPolicy: job.agentPolicy })}>
             <AgentPolicyBadge policy={job.agentPolicy} />
           </a>
-          {salary !== null && <Badge variant="primary">{salary}</Badge>}
+          {salary !== null ? (
+            <Badge variant="primary">{salary}</Badge>
+          ) : (
+            <Badge variant="outline">Pay not listed</Badge>
+          )}
         </div>
         <Prose html={html} />
         {job.requirements.length > 0 && (
@@ -476,6 +482,7 @@ export const JobDetail: FC<{
       </article>
 
       <aside class="stack">
+        <PayCard job={job} />
         <Card>
           <div class="card-header">
             <h2 class="card-title">For agents</h2>
@@ -515,6 +522,40 @@ export const JobDetail: FC<{
         </Card>
       </aside>
     </div>
+  );
+};
+
+/**
+ * What it pays, every line of it.
+ *
+ * The badge in the header has room for one line; a listing that pays per
+ * task, per pull request and per post has three, and the reader deciding
+ * whether to apply needs all of them, plus what it is settled in. "Not
+ * listed" is printed rather than the card being left out, because on this
+ * board that is a fact about the employer and not a gap in the page.
+ */
+export const PayCard: FC<{ job: Job }> = ({ job }) => {
+  const pay = payOfJob(job);
+  const method = formatMethod(pay.method);
+  return (
+    <Card>
+      <div class="card-header">
+        <h2 class="card-title">Pay</h2>
+      </div>
+      {pay.unpaid ? (
+        <p class="small">Unpaid. The employer says so, which is different from not saying.</p>
+      ) : !payStated(pay) ? (
+        <p class="small muted">Not listed.</p>
+      ) : (
+        <ul class="stack-sm pay-lines">
+          {pay.lines.map((line) => (
+            <li>{formatPayLine(line)}</li>
+          ))}
+        </ul>
+      )}
+      {method !== null && <p class="small muted">{method}.</p>}
+      {pay.equity !== null && <p class="small muted">Equity: {pay.equity}.</p>}
+    </Card>
   );
 };
 

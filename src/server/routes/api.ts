@@ -43,6 +43,7 @@ import {
   getJobBySlug,
   getJobBySourceUrl,
   normaliseInput,
+  publishProblem,
   searchJobs,
   setStatus,
   editJob,
@@ -99,6 +100,7 @@ import { announce, Blocked, listInstances, listTopics } from '../../directory/re
 import { federatedSearch, targetsFromDescriptors } from '../../directory/federate.ts';
 import { FetchProblem, fetchText } from '../../directory/fetch.ts';
 import { parseQuery } from '../../schema/query.ts';
+import type { Job } from '../../schema/job.ts';
 import { APPLICATION_DECISIONS, isApplicationDecision } from '../../schema/job.ts';
 import { jobPostingJsonLd } from '../../schema/jsonld.ts';
 import { parseResume } from '../../markup/resume.ts';
@@ -168,6 +170,40 @@ async function readBody(c: Ctx): Promise<Record<string, unknown>> {
   } catch {
     return {};
   }
+}
+
+/**
+ * The pay fields of a PATCH, merged onto what the listing already says.
+ *
+ * Any pay field in the body replaces the whole of the pay: `pay` (lines, in
+ * either form), the flat salary fields, `payMethod`, `unpaid`. A body with
+ * none of them keeps the listing's pay as it is, so editing a description
+ * does not quietly clear a rate.
+ */
+function payPatch(body: Record<string, unknown>, job: Job): Record<string, unknown> {
+  const sent = (key: string): boolean => body[key] !== undefined && body[key] !== null;
+  const hasLines =
+    sent('pay') || sent('payLines') || sent('salaryMin') || sent('salaryMax') ||
+    sent('salaryPeriod') || sent('salaryCurrency');
+  const hasUnpaid = sent('salaryUnpaid') || sent('unpaid') || sent('payUnpaid');
+  return {
+    ...(hasLines
+      ? {
+          pay: body['pay'] ?? body['payLines'],
+          salaryMin: body['salaryMin'],
+          salaryMax: body['salaryMax'],
+          salaryPeriod: body['salaryPeriod'],
+          salaryCurrency: body['salaryCurrency'],
+        }
+      : { pay: { lines: job.pay.lines } }),
+    salaryUnpaid: hasUnpaid
+      ? (body['salaryUnpaid'] ?? body['unpaid'] ?? body['payUnpaid'])
+      : hasLines
+        ? false
+        : job.pay.unpaid,
+    payMethod: body['payMethod'] ?? body['paymentMethod'] ?? body['paymentCoin'] ?? job.pay.method,
+    payEquity: body['payEquity'] ?? body['salaryEquity'] ?? body['equity'] ?? job.pay.equity,
+  };
 }
 
 export function apiRoutes(): Hono<AppEnv> {
@@ -326,11 +362,19 @@ export function apiRoutes(): Hono<AppEnv> {
     const input = normaliseInput(body, org.id);
     if (typeof input === 'string') return fail(c, 400, 'invalid', input);
 
-    const job = await createJob(pool, input);
     // A job posted through the API arrives as a draft like any other, unless
     // the caller asked for it to go live. An agent that posts a job the author
     // has not read is the failure mode worth designing against.
-    if (body['publish'] === true || body['publish'] === 'true') {
+    const publish = body['publish'] === true || body['publish'] === 'true';
+    if (publish) {
+      // Checked before the insert: a caller who asked for a live listing and
+      // gets a 400 should not find a draft they did not ask for either.
+      const problem = publishProblem(input);
+      if (problem !== null) return fail(c, 400, 'pay_required', problem);
+    }
+
+    const job = await createJob(pool, input);
+    if (publish) {
       const published = await setStatus(pool, job.id, 'published');
       return c.json({ job: published ?? job }, 201);
     }
@@ -467,14 +511,18 @@ export function apiRoutes(): Hono<AppEnv> {
         requirements: body['requirements'] ?? job.requirements,
         responsibilities: body['responsibilities'] ?? job.responsibilities,
         agentPolicy: body['agentPolicy'] ?? job.agentPolicy,
-        salaryMin: body['salaryMin'] ?? job.salary.min ?? undefined,
-        salaryMax: body['salaryMax'] ?? job.salary.max ?? undefined,
-        salaryCurrency: body['salaryCurrency'] ?? job.salary.currency,
-        salaryPeriod: body['salaryPeriod'] ?? job.salary.period,
+        ...payPatch(body, job),
       },
       job.org.id,
     );
     if (typeof merged === 'string') return fail(c, 400, 'invalid', merged);
+
+    // A live listing stays held to the publish rule: an edit that removes
+    // the pay would leave it public without one.
+    if (job.status === 'published') {
+      const problem = publishProblem(merged);
+      if (problem !== null) return fail(c, 400, 'pay_required', problem);
+    }
 
     const updated = await editJob(pool, job.id, merged);
     return c.json({ job: updated ?? job });
@@ -493,6 +541,12 @@ export function apiRoutes(): Hono<AppEnv> {
 
     const action = c.req.param('action');
     const status = action === 'close' ? 'closed' : 'published';
+    if (status === 'published') {
+      // Pay is required to go live. The message says what to send, because
+      // the caller is as likely to be an agent as a person.
+      const problem = publishProblem(job);
+      if (problem !== null) return fail(c, 400, 'pay_required', problem);
+    }
     const updated = await setStatus(pool, job.id, status);
     return c.json({ job: updated });
   });

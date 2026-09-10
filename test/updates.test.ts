@@ -13,7 +13,7 @@
 
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { normaliseLink, BODY_MAX, BODY_MIN } from '../dist/core/updates.js';
+import { candidateName, normaliseLink, BODY_MAX, BODY_MIN } from '../dist/core/updates.js';
 import { UpdateItem, UpdateList, FollowButton } from '../dist/views/updates.js';
 
 /** Hono's JSX nodes stringify, which is how the other view tests read them. */
@@ -126,4 +126,19 @@ test('a signed-out reader is sent to sign in, and comes back here', () => {
   );
   assert.match(html, /href="\/login\?next=%2Fcandidates%2Fada"/);
   assert.ok(!html.includes('<form'), 'nothing to submit when signed out');
+});
+
+test('a followed candidate is named from their resume, never "Someone"', () => {
+  // Nothing on the board asks a person for their name, so users.name is null
+  // for almost everyone and the /me page read "Following Someone, Someone,
+  // Someone". The directory card already knew the name: it is the resume's
+  // heading. Both places now read it from there.
+  assert.equal(candidateName('Ada Lovelace', null, 'Resume'), 'Ada Lovelace');
+  assert.equal(candidateName('  ', 'Ada', 'Resume'), 'Ada', 'the account name is the second choice');
+  assert.equal(candidateName(null, null, 'Backend engineer'), 'Backend engineer');
+  assert.equal(candidateName(null, null, null), 'A candidate');
+  // A resume that lost its line breaks parses as one heading holding the
+  // whole document. That is not a name, and the next fallback is used.
+  assert.equal(candidateName('x'.repeat(200), 'Ada', 'Resume'), 'Ada');
+  assert.ok(!candidateName(null, null, null).includes('Someone'));
 });

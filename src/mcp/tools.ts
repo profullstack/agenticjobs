@@ -12,6 +12,7 @@
  */
 
 import { text, toolError, type ToolDefinition, type ToolResult } from './protocol.ts';
+import { formatPayShort, payOfJob, type Pay } from '../schema/pay.ts';
 import { APPLICATION_DECISIONS, isApplicationDecision } from '../schema/job.ts';
 
 export interface Caller {
@@ -143,7 +144,7 @@ export const TOOLS: ToolDefinition[] = [
     name: 'post_job',
     title: 'Post a job',
     description:
-      'Create a listing. It stays a draft until publish_job is called, so nothing goes live without someone asking for it. Requires membership of the employer.',
+      'Create a listing. It stays a draft until publish_job is called, so nothing goes live without someone asking for it. Requires membership of the employer. Publishing requires pay: send it as `pay`, one line per price, or `unpaid: true`.',
     inputSchema: object(
       {
         org: string('The employer slug to post under.'),
@@ -153,8 +154,17 @@ export const TOOLS: ToolDefinition[] = [
         workplace: { type: 'string', enum: ['remote', 'hybrid', 'onsite'] },
         seniority: { type: 'string', enum: ['intern', 'junior', 'mid', 'senior', 'staff', 'principal', 'lead'] },
         location: string('Free text.'),
-        salaryMin: integer('Bottom of the range.'),
-        salaryMax: integer('Top of the range.'),
+        pay: {
+          type: 'array',
+          items: { type: 'string' },
+          description:
+            'What it pays, one line per price, the way a person says it: "$120k - $150k a year", "$100 an hour", "$0.25 per task", "$0.25 per PR that fixes a bug you find", "$5000 fixed", "10% revenue share", "0.01 SOL per task". Required before the listing can be published.',
+        },
+        payMethod: string('How it is settled: a coin such as SOL, USDC, ETH, USDT or POL, or a rail such as "bank transfer", "PayPal" or "payroll".'),
+        payEquity: string('Equity, as text. Optional.'),
+        unpaid: { type: 'boolean', description: 'True only when the role pays nothing and the employer says so.' },
+        salaryMin: integer('Bottom of an annual range. Older form of pay; prefer `pay`.'),
+        salaryMax: integer('Top of an annual range. Older form of pay; prefer `pay`.'),
         salaryCurrency: string('ISO code, e.g. USD.'),
         salaryPeriod: { type: 'string', enum: ['hour', 'day', 'week', 'month', 'year'] },
         tags: string('Comma separated.'),
@@ -461,9 +471,16 @@ export async function callTool(
       const response = await caller.call('POST', '/api/v1/jobs', args);
       if (response.status === 401) return toolError(signInFirst(caller));
       if (response.status !== 201) return toolError(message(response.body, 'The job was not created.'));
-      const created = (response.body as { job?: { slug?: string } }).job;
+      const created = (response.body as {
+        job?: { slug?: string; pay?: { unpaid?: boolean; lines?: { min?: number | null; max?: number | null }[] } };
+      }).job;
+      const stated =
+        created?.pay?.unpaid === true ||
+        (created?.pay?.lines ?? []).some((line) => line.min != null || line.max != null);
       return text(
-        `Created as a draft: ${created?.slug ?? 'unknown'}. It is not visible to anyone until publish_job is called.`,
+        `Created as a draft: ${created?.slug ?? 'unknown'}. It is not visible to anyone until publish_job is called.${
+          stated ? '' : ' It does not say what it pays yet, and cannot be published until it does: send pay, one line per price, or unpaid: true.'
+        }`,
         response.body,
       );
     }
@@ -712,16 +729,28 @@ interface JobLike {
   workplace?: string;
   location?: string | null;
   agentPolicy?: string;
-  salary?: { min?: number | null; max?: number | null; currency?: string };
+  salary?: { min?: number | null; max?: number | null; currency?: string; period?: string };
+  pay?: Pay | null;
 }
 
 function summarise(items: unknown[], total: number, server: string): string {
   const lines = items.map((item) => {
     const job = item as JobLike;
-    const pay =
-      job.salary?.max !== null && job.salary?.max !== undefined
-        ? ` - ${job.salary.currency ?? 'USD'} ${job.salary.min ?? ''}-${job.salary.max}`
-        : '';
+    const stated = formatPayShort(
+      payOfJob({
+        pay: job.pay ?? null,
+        salary:
+          job.salary === undefined
+            ? null
+            : {
+                min: job.salary.min ?? null,
+                max: job.salary.max ?? null,
+                currency: job.salary.currency ?? 'USD',
+                period: job.salary.period ?? 'year',
+              },
+      }),
+    );
+    const pay = stated === null ? '' : ` - ${stated}`;
     return `- ${job.title ?? 'Untitled'} at ${job.org?.name ?? 'unknown'} (${job.workplace ?? '?'}${job.location ? `, ${job.location}` : ''})${pay} [${job.agentPolicy ?? '?'}] ${server}/jobs/${job.slug ?? ''}`;
   });
   return `${total} match on ${server}, showing ${items.length}:\n\n${lines.join('\n')}`;

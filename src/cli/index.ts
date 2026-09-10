@@ -33,7 +33,8 @@ import {
   searchEverywhere,
 } from '../client/index.ts';
 import { VERSION } from '../config.ts';
-import { ago, formatSalary } from '../schema/text.ts';
+import { ago } from '../schema/text.ts';
+import { formatMethod, formatPay, formatPayShort, payOfJob } from '../schema/pay.ts';
 import { APPLICATION_DECISIONS, isApplicationDecision } from '../schema/job.ts';
 // The vocabulary, not the storage: core/resumes.ts is pure apart from a type
 // import of pg, so the CLI can name the same three values the server does
@@ -109,12 +110,16 @@ const USAGE = `agenticjobs ${VERSION} - an agent-friendly job board you can self
     employer update <slug>    [--name n] [--website u] [--description d]
     employer delete <slug> --yes
     post <file.md>            post a job; stays a draft until you publish
+      --pay "<line>"            what it pays, repeatable: "$0.25 per task",
+                              "$120k - $150k a year", "$5000 fixed"
+      --pay-method <how>        SOL, USDC, bank transfer, PayPal, payroll
+      --unpaid                  the role pays nothing, said out loud
     new <url>                 import a job from a URL, as a draft
     update <url>              re-read that URL into the listing it created
       --slug <slug>             ...adopting a listing that was written by hand
                               (with no URL, updates this install instead)
     edit <slug> <file.md>     rewrite a listing, keeping its URL
-    publish <slug>            take a draft live
+    publish <slug>            take a draft live (it has to say what it pays)
     close <slug>              close a listing
     applications <slug>       what came in
     decide <id> <status>      reviewing, rejected or hired
@@ -415,7 +420,7 @@ function queryFrom(args: Args): Partial<JobQuery> {
 }
 
 function jobLine(job: Job, where?: string): string {
-  const salary = formatSalary(job.salary);
+  const salary = formatPayShort(payOfJob(job));
   const bits = [job.workplace, job.seniority, job.location, salary, `agents: ${job.agentPolicy}`]
     .filter((bit): bit is string => typeof bit === 'string' && bit !== '');
   return [
@@ -670,10 +675,13 @@ async function commandShow(args: Args): Promise<number> {
     bold(job.title),
     `${job.org.name}${job.location === null ? '' : ` - ${job.location}`}`,
     dim(
-      [job.workplace, job.employmentType, job.seniority, formatSalary(job.salary), `agents: ${job.agentPolicy}`]
+      [job.workplace, job.employmentType, job.seniority, `agents: ${job.agentPolicy}`]
         .filter((bit) => typeof bit === 'string' && bit !== '')
         .join(' | '),
     ),
+    `Pay: ${[formatPay(payOfJob(job)) ?? 'not listed', formatMethod(payOfJob(job).method)]
+      .filter((bit): bit is string => bit !== null)
+      .join(', ')}`,
     '',
     job.description,
     '',
@@ -1167,6 +1175,8 @@ async function commandPost(args: Args): Promise<number> {
     'salaryMax',
     'salaryCurrency',
     'salaryPeriod',
+    'payMethod',
+    'payEquity',
     'tags',
     'stack',
     'agentPolicy',
@@ -1175,10 +1185,17 @@ async function commandPost(args: Args): Promise<number> {
     if (value !== undefined) input[key] = value;
   }
 
+  // `--pay "$0.25 per task" --pay "$0.25 per PR"`: one flag per line, the way
+  // the front matter's `pay:` list arrives. Repeated flags accumulate.
+  const payLines = flagList(args, 'pay');
+  if (payLines.length > 0) input['pay'] = payLines;
+  const payMethod = flagString(args, 'pay-method', 'paid-in');
+  if (payMethod !== undefined) input['payMethod'] = payMethod;
+
   // A flag rather than a value, because "unpaid" is a fact about the role and
   // not a number. `salary_unpaid: true` in front matter already arrives on its
   // own, camel-cased with every other key.
-  if (flagBool(args, 'salary-unpaid')) input['salaryUnpaid'] = true;
+  if (flagBool(args, 'salary-unpaid', 'unpaid')) input['salaryUnpaid'] = true;
 
   if (input['org'] === undefined) {
     process.stderr.write('Which employer? Pass --org <slug>, or put "org:" in the front matter.\n');

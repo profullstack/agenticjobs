@@ -65,6 +65,8 @@ interface UpdateRow {
   user_id: string | null;
   user_name: string | null;
   public_slug: string | null;
+  resume_name: string | null;
+  resume_title: string | null;
 }
 
 /**
@@ -78,8 +80,41 @@ function authorOf(row: UpdateRow): UpdateAuthor {
   if (row.org_id !== null) {
     return { kind: 'employer', slug: row.org_slug, name: row.org_name ?? 'An employer' };
   }
-  const name = (row.user_name ?? '').trim();
-  return { kind: 'candidate', slug: row.public_slug, name: name === '' ? 'A candidate' : name };
+  return {
+    kind: 'candidate',
+    slug: row.public_slug,
+    name: candidateName(row.resume_name, row.user_name, row.resume_title),
+  };
+}
+
+/**
+ * The longest a name can be before it is not one. The same limit the
+ * candidate directory applies, for the same reason: a resume whose Markdown
+ * lost its line breaks parses as one h1 holding the entire document.
+ */
+const NAME_MAX = 80;
+
+/**
+ * A candidate's display name, from the same place their directory card gets it.
+ *
+ * Nothing on this board ever asks a person for their name: sign-in is a
+ * magic link to an address, and `users.name` is null for almost everyone. So
+ * the name is read off the resume they published - its heading, then its
+ * title - and only then off the account. It never falls back to the email,
+ * because these names are printed on public pages. "A candidate" is what is
+ * left when a person has nothing published, which is the one case where the
+ * board genuinely has no name for them.
+ */
+export function candidateName(
+  resumeName: string | null | undefined,
+  accountName: string | null | undefined,
+  resumeTitle: string | null | undefined,
+): string {
+  for (const candidate of [resumeName, accountName, resumeTitle]) {
+    const trimmed = (candidate ?? '').trim();
+    if (trimmed !== '' && trimmed.length <= NAME_MAX) return trimmed;
+  }
+  return 'A candidate';
 }
 
 function toUpdate(row: UpdateRow): Update {
@@ -110,13 +145,15 @@ function selectFrom(source: string): string {
   select u.id, u.body, u.link, u.created_at,
          u.org_id, o.slug as org_slug, o.name as org_name,
          u.user_id, p.name as user_name,
-         (select r.public_slug from resumes r
-           where r.user_id = u.user_id and r.public_slug is not null
-             and r.visibility = 'public'
-           order by r.updated_at desc limit 1) as public_slug
+         r.public_slug, r.parsed->>'name' as resume_name, r.title as resume_title
     from ${source} u
     left join organisations o on o.id = u.org_id
-    left join users p on p.id = u.user_id`;
+    left join users p on p.id = u.user_id
+    left join lateral (
+      select public_slug, parsed, title from resumes
+       where user_id = u.user_id and public_slug is not null and visibility = 'public'
+       order by updated_at desc limit 1
+    ) r on true`;
 }
 
 const SELECT = selectFrom('updates');
@@ -356,19 +393,24 @@ export async function listFollowing(pool: pg.Pool, followerId: string): Promise<
     kind: UpdateAuthorKind;
     slug: string | null;
     name: string | null;
+    resume_name: string | null;
+    resume_title: string | null;
     since: string;
   }>(
-    `select 'employer'::text as kind, o.slug, o.name, f.created_at as since
+    `select 'employer'::text as kind, o.slug, o.name,
+            null::text as resume_name, null::text as resume_title, f.created_at as since
        from follows f join organisations o on o.id = f.org_id
       where f.follower_id = $1
       union all
-     select 'candidate'::text as kind,
-            (select r.public_slug from resumes r
-              where r.user_id = f.user_id and r.public_slug is not null
-                and r.visibility = 'public'
-              order by r.updated_at desc limit 1) as slug,
-            p.name, f.created_at as since
-       from follows f join users p on p.id = f.user_id
+     select 'candidate'::text as kind, r.public_slug as slug, p.name,
+            r.parsed->>'name' as resume_name, r.title as resume_title, f.created_at as since
+       from follows f
+       join users p on p.id = f.user_id
+       left join lateral (
+         select public_slug, parsed, title from resumes
+          where user_id = f.user_id and public_slug is not null and visibility = 'public'
+          order by updated_at desc limit 1
+       ) r on true
       where f.follower_id = $1
       order by since desc`,
     [followerId],
@@ -376,7 +418,10 @@ export async function listFollowing(pool: pg.Pool, followerId: string): Promise<
   return result.rows.map((row) => ({
     kind: row.kind,
     slug: row.slug,
-    name: (row.name ?? '').trim() === '' ? 'Someone' : (row.name as string).trim(),
+    name:
+      row.kind === 'employer'
+        ? (row.name ?? '').trim() || 'An employer'
+        : candidateName(row.resume_name, row.name, row.resume_title),
     since: row.since,
   }));
 }

@@ -567,6 +567,7 @@ describe('the API', { skip: reason === '' ? false : `no database: ${reason}` }, 
             title: `Kept Role ${stamp}`,
             description: 'A listing that has been public, which is why its employer stays.',
             agentPolicy: 'welcome',
+            pay: ['$100 an hour'],
           },
           auth,
         )
@@ -640,6 +641,146 @@ describe('the API', { skip: reason === '' ? false : `no database: ${reason}` }, 
     });
   });
 
+  describe('what it pays', () => {
+    const employer = async (name: string) => {
+      const { createSession, ensureUser } = await import('../dist/core/auth.js');
+      const { createOrg } = await import('../dist/core/orgs.js');
+      const stamp = `${Date.now()}${Math.random().toString(36).slice(2, 7)}`;
+      const user = await ensureUser(pool as never, `pay+${stamp}@example.com`, name);
+      const token = await createSession(pool as never, user.id, { label: 't' });
+      const org = await createOrg(pool as never, user.id, { name: `${name} ${stamp}` });
+      if (typeof org === 'string') throw new Error(org);
+      return { org, stamp, auth: { authorization: `Bearer ${token}` } };
+    };
+
+    test('a listing cannot be published until it says what it pays', async () => {
+      if (pool === null) return;
+      const { org, stamp, auth } = await employer('Silent Co');
+
+      // Asking for it live in the same request is refused before anything is
+      // written: nobody asked for a draft.
+      const direct = await post(
+        '/api/v1/jobs',
+        {
+          org: org.slug,
+          title: `Silent ${stamp}`,
+          description: 'A listing that says nothing about pay.',
+          agentPolicy: 'welcome',
+          publish: true,
+        },
+        auth,
+      );
+      const directBody = await direct.text();
+      assert.equal(direct.status, 400, directBody);
+      assert.equal((JSON.parse(directBody) as { error: { code: string } }).error.code, 'pay_required');
+
+      const created = (await (
+        await post(
+          '/api/v1/jobs',
+          {
+            org: org.slug,
+            title: `Silent ${stamp}`,
+            description: 'A listing that says nothing about pay.',
+            agentPolicy: 'welcome',
+          },
+          auth,
+        )
+      ).json()) as { job: { slug: string; status: string } };
+      assert.equal(created.job.status, 'draft');
+
+      const refused = await post(`/api/v1/jobs/${created.job.slug}/publish`, {}, auth);
+      assert.equal(refused.status, 400);
+      const problem = (await refused.json()) as { error: { code: string; message: string } };
+      assert.equal(problem.error.code, 'pay_required');
+      assert.match(problem.error.message, /per task|revenue share|unpaid/);
+
+      // Pay can be set on its own, without rewriting the listing.
+      const patched = await patch(
+        `/api/v1/jobs/${created.job.slug}`,
+        { pay: ['$0.25 per task', '$0.25 per PR that fixes a bug you find'], payMethod: 'sol' },
+        auth,
+      );
+      assert.equal(patched.status, 200, await patched.text());
+
+      const published = await post(`/api/v1/jobs/${created.job.slug}/publish`, {}, auth);
+      assert.equal(published.status, 200, await published.text());
+
+      const read = (await (await get(`/api/v1/jobs/${created.job.slug}`)).json()) as {
+        job: {
+          pay: { lines: { type: string; min: number; unit: string | null }[]; method: string | null };
+          salary: { min: number | null };
+        };
+      };
+      assert.equal(read.job.pay.lines.length, 2);
+      assert.equal(read.job.pay.lines[0]?.type, 'per_task');
+      assert.equal(read.job.pay.lines[0]?.min, 0.25);
+      assert.equal(read.job.pay.lines[1]?.unit, 'PR that fixes a bug you find');
+      assert.equal(read.job.pay.method, 'SOL');
+      assert.equal(read.job.salary.min, null, 'a price per task is not an annual salary');
+
+      // The page says it too, all of it, plus what it is settled in.
+      const html = await (await get(`/jobs/${created.job.slug}`, { accept: 'text/html' })).text();
+      assert.match(html, /\$0\.25 per task/);
+      assert.match(html, /PR that fixes a bug you find/);
+      assert.match(html, /Paid in SOL/);
+
+      // And a live listing cannot be edited into silence.
+      const cleared = await patch(`/api/v1/jobs/${created.job.slug}`, { pay: [] }, auth);
+      assert.equal(cleared.status, 400);
+      assert.equal(((await cleared.json()) as { error: { code: string } }).error.code, 'pay_required');
+    });
+
+    test('an edit that does not mention pay leaves it alone', async () => {
+      if (pool === null) return;
+      const { org, stamp, auth } = await employer('Keep Co');
+      const created = (await (
+        await post(
+          '/api/v1/jobs',
+          {
+            org: org.slug,
+            title: `Keep ${stamp}`,
+            description: 'A listing whose pay must survive a typo fix.',
+            agentPolicy: 'welcome',
+            pay: '$120k - $150k a year paid in USDC',
+          },
+          auth,
+        )
+      ).json()) as { job?: { slug: string; pay: { method: string | null } }; error?: unknown };
+      assert.ok(created.job, JSON.stringify(created.error));
+      assert.equal(created.job.pay.method, 'USDC', 'a rail named on the line is the method');
+
+      const edited = (await (
+        await patch(`/api/v1/jobs/${created.job.slug}`, { description: 'Fixed the typo in the description.' }, auth)
+      ).json()) as { job: { pay: { lines: unknown[]; method: string | null }; salary: { min: number | null } } };
+      assert.equal(edited.job.pay.lines.length, 1);
+      assert.equal(edited.job.pay.method, 'USDC');
+      assert.equal(edited.job.salary.min, 120_000, 'the flattened salary keeps the annual line');
+    });
+
+    test('a page without pay says so, rather than saying nothing', async () => {
+      if (pool === null) return;
+      const { org, stamp, auth } = await employer('Blank Co');
+      const created = (await (
+        await post(
+          '/api/v1/jobs',
+          { org: org.slug, title: `Blank ${stamp}`, description: 'No pay stated, on purpose, for the test.', agentPolicy: 'welcome' },
+          auth,
+        )
+      ).json()) as { job: { slug: string } };
+      // Drafts are not public, so the employer's own page is where it shows.
+      const { createSession } = await import('../dist/core/auth.js');
+      const member = await pool.query(`select user_id from memberships where org_id = $1`, [org.id]);
+      const cookieToken = await createSession(pool as never, member.rows[0]?.['user_id'], { label: 'web' });
+      const page = await get(`/me/jobs/${created.job.slug}`, {
+        accept: 'text/html',
+        cookie: `aj_session=${cookieToken}`,
+      });
+      const html = await page.text();
+      assert.match(html, /does not say what it pays/);
+      assert.match(html, /name="pay"/, 'the pay form is on the page');
+    });
+  });
+
   describe('salary period comparisons', () => {
     test('salary filters, ordering and pagination compare annual amounts', async () => {
       assert.ok(pool);
@@ -666,9 +807,19 @@ describe('the API', { skip: reason === '' ? false : `no database: ${reason}` }, 
           auth,
         );
         assert.equal(response.status, 201);
-        const body = (await response.json()) as { job: { slug: string } };
+        const body = (await response.json()) as { job: { slug: string; id: string } };
         slugs.set(label, body.job.slug);
-        assert.equal((await post(`/api/v1/jobs/${body.job.slug}/publish`, {}, auth)).status, 200);
+        if (Object.keys(salary).length === 0) {
+          // A listing that says nothing about pay can no longer be published
+          // through the API. One that already was, from before the rule, still
+          // exists on real boards and still has to sort last, so it is put
+          // live the way an old row is: directly, below the gate.
+          const { setStatus } = await import('../dist/core/jobs.js');
+          await setStatus(pool as never, body.job.id, 'published');
+          return;
+        }
+        const live = await post(`/api/v1/jobs/${body.job.slug}/publish`, {}, auth);
+        assert.equal(live.status, 200, await live.text());
       };
 
       await add('Yearly', { salaryMin: 180_000, salaryPeriod: 'year' });
@@ -754,6 +905,7 @@ describe('the API', { skip: reason === '' ? false : `no database: ${reason}` }, 
             title: `Decide ${stamp}`,
             description: 'A listing that takes applications on the board.',
             agentPolicy: 'welcome',
+            pay: ['$100 an hour'],
           },
           auth,
         )

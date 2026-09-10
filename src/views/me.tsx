@@ -100,7 +100,7 @@ export const MePage: FC<PropsWithChildren<{
       )}
       {following.length > 0 && (
         <p class="small muted">
-          Following{' '}
+          You follow{' '}
           {following.map((entry, index) => (
             <>
               {index > 0 && ', '}
@@ -119,7 +119,7 @@ export const MePage: FC<PropsWithChildren<{
               )}
             </>
           ))}
-          . <a href="/updates">Their updates</a>.
+          . <a href="/updates">Read their updates</a>.
         </p>
       )}
     </section>

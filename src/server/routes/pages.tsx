@@ -37,7 +37,10 @@ import {
   normaliseInput,
   searchJobs,
   setStatus,
+  publishProblem,
+  setPay,
 } from '../../core/jobs.ts';
+import { normalisePay } from '../../schema/pay.ts';
 import { createOrg, getOrgBySlug, isMember, listOrgs, listOrgsForUser } from '../../core/orgs.ts';
 import {
   createResume,
@@ -1150,12 +1153,18 @@ export function pageRoutes(): Hono<AppEnv> {
     return c.redirect(`/me/jobs/${job.slug}`, 303);
   });
 
-  pages.get('/me/jobs/:slug', async (c) => {
+  /**
+   * The employer's own page for one listing.
+   *
+   * `error` is a refused publish or a pay line that could not be read, shown
+   * on the page that made the request rather than redirected away from.
+   */
+  const manageJobPage = async (c: Ctx, slug: string, error?: string): Promise<Response> => {
     const { pool, config } = c.get('deps');
     const viewer = requireViewer(c);
     if (viewer instanceof Response) return viewer;
 
-    const job = await getJobBySlug(pool, c.req.param('slug'), { includeUnpublished: true });
+    const job = await getJobBySlug(pool, slug, { includeUnpublished: true });
     if (job === null) return c.notFound();
     if (!(await isMember(pool, viewer.id, job.org.id))) return c.notFound();
 
@@ -1182,10 +1191,14 @@ export function pageRoutes(): Hono<AppEnv> {
           html={renderMarkdown(job.description, { headingOffset: 2 })}
           applications={detailed}
           publicUrl={config.publicUrl}
+          {...(error === undefined ? {} : { error })}
         />
       </Layout>,
+      error === undefined ? 200 : 400,
     );
-  });
+  };
+
+  pages.get('/me/jobs/:slug', (c) => manageJobPage(c, c.req.param('slug')));
 
   pages.post('/me/jobs/:slug/:action{publish|close}', async (c) => {
     const { pool } = c.get('deps');
@@ -1194,8 +1207,36 @@ export function pageRoutes(): Hono<AppEnv> {
     const job = await getJobBySlug(pool, c.req.param('slug'), { includeUnpublished: true });
     if (job === null) return c.notFound();
     if (!(await isMember(pool, viewer.id, job.org.id))) return c.notFound();
-    await setStatus(pool, job.id, c.req.param('action') === 'close' ? 'closed' : 'published');
+    const publishing = c.req.param('action') !== 'close';
+    if (publishing) {
+      // Pay is required to go live. Refused here, on the page with the pay
+      // form on it, rather than by a redirect to somewhere the reason is not.
+      const problem = publishProblem(job);
+      if (problem !== null) return manageJobPage(c, job.slug, problem);
+    }
+    await setStatus(pool, job.id, publishing ? 'published' : 'closed');
     return c.redirect(`/me/jobs/${job.slug}`, 303);
+  });
+
+  /**
+   * Change what a listing pays, and nothing else.
+   *
+   * The one field required to publish gets its own form, because a listing
+   * posted before pay was required has no other way to be brought up to it
+   * from a browser: the web has no full editor, and closing and reposting
+   * would break the URL.
+   */
+  pages.post('/me/jobs/:slug/pay', async (c) => {
+    const { pool } = c.get('deps');
+    const viewer = requireViewer(c);
+    if (viewer instanceof Response) return viewer;
+    const job = await getJobBySlug(pool, c.req.param('slug'), { includeUnpublished: true });
+    if (job === null) return c.notFound();
+    if (!(await isMember(pool, viewer.id, job.org.id))) return c.notFound();
+    const pay = normalisePay(await formOf(c));
+    if (typeof pay === 'string') return manageJobPage(c, job.slug, pay);
+    await setPay(pool, job.id, pay);
+    return c.redirect(`/me/jobs/${job.slug}#pay`, 303);
   });
 
   /**
