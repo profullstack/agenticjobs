@@ -91,7 +91,9 @@ export async function federatedSearch(
   query: JobQuery,
   options: FederateOptions = {},
 ): Promise<FederatedSearch> {
-  const perInstance = Math.min(100, Math.max(1, options.perInstance ?? query.limit));
+  // Each board must supply the window before the merged offset is applied.
+  // Fetching only `limit` can leave later pages empty or skip newer jobs.
+  const perInstance = Math.min(100, Math.max(1, options.perInstance ?? query.offset + query.limit));
   const concurrency = Math.min(24, Math.max(1, options.concurrency ?? 8));
 
   const params = queryToParams({ ...query, limit: perInstance, offset: 0 });
