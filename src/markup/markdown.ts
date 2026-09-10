@@ -63,7 +63,8 @@ export function renderMarkdown(source: string, options: MarkdownOptions = {}): s
       continue;
     }
 
-    const heading = /^(#{1,6})\s+(.*?)\s*#*\s*$/.exec(line);
+    // Closing hashes require a preceding space or tab; the hash in C# is text.
+    const heading = /^(#{1,6})\s+(.*?)\s*(?:(?<=[ \t])#+)?\s*$/.exec(line);
     if (heading !== null) {
       const raw = (heading[1] ?? '#').length + (options.headingOffset ?? 0);
       const level = Math.min(6, Math.max(1, raw));
