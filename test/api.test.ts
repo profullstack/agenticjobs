@@ -23,6 +23,13 @@ let pool: { query: (sql: string, params?: unknown[]) => Promise<{ rows: Record<s
   null;
 let closePool: (() => Promise<void>) | null = null;
 let reason = '';
+
+function setupErrorReason(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message.trim() || error.name.trim() || 'database unavailable';
+  }
+  return String(error).trim() || 'database unavailable';
+}
 /**
  * What the board tried to send. A fake rather than the real mailer so the
  * suite needs no provider, and so an ambient RESEND_API_KEY in someone's
@@ -111,11 +118,15 @@ try {
   }) as never;
   await seed(created);
 } catch (error) {
-  reason = error instanceof Error ? error.message : String(error);
+  reason = setupErrorReason(error);
 }
 
 after(async () => {
   if (closePool !== null) await closePool();
+});
+
+test('a database setup error with no message still produces a skip reason', () => {
+  assert.equal(setupErrorReason(new AggregateError([])), 'AggregateError');
 });
 
 describe('the API', { skip: reason === '' ? false : `no database: ${reason}` }, () => {
