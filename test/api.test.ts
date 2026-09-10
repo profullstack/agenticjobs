@@ -1103,6 +1103,442 @@ describe('the API', { skip: reason === '' ? false : `no database: ${reason}` }, 
     });
   });
 
+  describe('inbox and invoices', () => {
+    /** Read a body once: asserting on text() and then calling json() is how a test reads a body twice. */
+    const asJson = async <T,>(response: Response, status: number): Promise<T> => {
+      const text = await response.text();
+      assert.equal(response.status, status, text);
+      return JSON.parse(text) as T;
+    };
+    const person = async (name: string) => {
+      const { createSession, ensureUser } = await import('../dist/core/auth.js');
+      const user = await ensureUser(pool as never, `inbox+${Date.now()}+${name}@example.com`, name);
+      const token = await createSession(pool as never, user.id, { label: 't' });
+      return { user, token, auth: { authorization: `Bearer ${token}` }, cookie: { cookie: `aj_session=${token}` } };
+    };
+    const employer = async (name: string) => {
+      const { createOrg } = await import('../dist/core/orgs.js');
+      const who = await person(name);
+      const org = await createOrg(pool as never, who.user.id, { name: `${name} Works` });
+      if (typeof org === 'string') throw new Error(org);
+      return { ...who, org };
+    };
+    const candidate = async (name: string) => {
+      const { createResume, updateResume, ensurePublicSlug } = await import('../dist/core/resumes.js');
+      const who = await person(name);
+      const created = await createResume(pool as never, who.user.id, {
+        markdown: `# ${name}\n\nEngineer\n\n- Email: ${name.toLowerCase()}@example.com\n\n## Skills\n\n- Go\n`,
+        title: name,
+      });
+      const saved = await updateResume(pool as never, who.user.id, created.slug, {
+        markdown: created.markdown,
+        visibility: 'public',
+      });
+      const slug = (await ensurePublicSlug(pool as never, saved)) as string;
+      return { ...who, slug };
+    };
+
+    test('an employer writes to a candidate; the candidate reads, replies, and nobody else can', async () => {
+      if (pool === null) return;
+      const acme = await employer('Inbox Acme');
+      const grace = await candidate('Grace Hopper');
+      const stranger = await person('Nobody');
+      sentMail.length = 0;
+
+      const first = await post(
+        '/api/v1/inbox',
+        { candidate: grace.slug, as: acme.org.slug, subject: 'The Go role', body: 'Are you open to contract work?' },
+        acme.auth,
+      );
+      const started = await asJson<{ threadId: string; created: boolean; url: string }>(first, 201);
+      assert.equal(started.created, true);
+      assert.match(started.url, /\/inbox\//);
+
+      // The candidate was told there is a message, and nothing more than that.
+      const told = sentMail.find((mail) => mail.to === grace.user.email);
+      assert.ok(told, 'the candidate is emailed');
+      assert.match(told.subject, /Inbox Acme Works sent you a message/);
+      assert.ok(!told.text.includes('contract work'), 'the body stays on the board');
+
+      // Writing again is the same conversation.
+      const again = await post(
+        '/api/v1/inbox',
+        { candidate: grace.slug, as: acme.org.slug, body: 'Following up.' },
+        acme.auth,
+      );
+      assert.equal((await asJson<{ threadId: string }>(again, 200)).threadId, started.threadId);
+
+      // The candidate sees one thread, from the employer, with two unread.
+      const list = (await (await get('/api/v1/inbox', grace.auth)).json()) as {
+        items: { id: string; unread: number; with: { kind: string; name: string } }[];
+        unread: number;
+      };
+      assert.equal(list.items.length, 1);
+      assert.equal(list.items[0]?.id, started.threadId);
+      assert.equal(list.items[0]?.unread, 2);
+      assert.equal(list.items[0]?.with.kind, 'employer');
+      assert.equal(list.items[0]?.with.name, 'Inbox Acme Works');
+      assert.equal(list.unread, 1);
+
+      // A stranger cannot see it exists.
+      assert.equal((await get(`/api/v1/inbox/${started.threadId}`, stranger.auth)).status, 404);
+      assert.equal((await post(`/api/v1/inbox/${started.threadId}/messages`, { body: 'hi' }, stranger.auth)).status, 404);
+      assert.equal((await get('/api/v1/inbox')).status, 401, 'anonymous has no inbox');
+
+      // Reading marks it read; replying reaches the employer.
+      const thread = (await (await get(`/api/v1/inbox/${started.threadId}`, grace.auth)).json()) as {
+        thread: { messages: { body: string; mine: boolean; sender: { party: { kind: string } | null } }[]; with: { name: string } };
+      };
+      assert.equal(thread.thread.messages.length, 2);
+      assert.equal(thread.thread.messages[0]?.mine, false);
+      assert.equal(thread.thread.messages[0]?.sender.party?.kind, 'employer');
+      const after = (await (await get('/api/v1/inbox', grace.auth)).json()) as { unread: number };
+      assert.equal(after.unread, 0);
+
+      sentMail.length = 0;
+      const reply = await post(`/api/v1/inbox/${started.threadId}/messages`, { body: 'Yes, from March.' }, grace.auth);
+      assert.equal(reply.status, 201);
+      const theirs = (await (await get('/api/v1/inbox', acme.auth)).json()) as {
+        items: { unread: number; with: { kind: string; name: string }; preview: string }[];
+      };
+      assert.equal(theirs.items[0]?.unread, 1);
+      assert.equal(theirs.items[0]?.with.kind, 'candidate');
+      assert.equal(theirs.items[0]?.with.name, 'Grace Hopper');
+      assert.equal(theirs.items[0]?.preview, 'Yes, from March.');
+      assert.ok(sentMail.some((mail) => mail.to === acme.user.email), 'the employer is emailed back');
+
+      // The pages: a signed-out reader is sent to sign in; a member reads it.
+      const page = await (await get(`/candidates/${grace.slug}`, { accept: 'text/html' })).text();
+      assert.ok(page.includes('>Message<'), 'the candidate page carries a Message button');
+      assert.ok(page.includes('/login?next='), 'which asks a stranger to sign in');
+      const inbox = await (await get('/inbox', { accept: 'text/html', ...acme.cookie })).text();
+      assert.ok(inbox.includes('The Go role'), 'the inbox page lists the thread');
+      assert.ok(inbox.includes('Grace Hopper'));
+      const open = await (await get(`/inbox/${started.threadId}`, { accept: 'text/html', ...acme.cookie })).text();
+      assert.ok(open.includes('Yes, from March.'));
+      assert.ok(!open.includes('Send an invoice'), 'no invoice form on a board without billing');
+      assert.equal((await get(`/inbox/${started.threadId}`, { accept: 'text/html', ...stranger.cookie })).status, 404);
+    });
+
+    test('writing to yourself, to nobody, or too often is refused in words', async () => {
+      if (pool === null) return;
+      const grace = await candidate('Grace Self');
+      const self = await post('/api/v1/inbox', { candidate: grace.slug, body: 'Hello me.' }, grace.auth);
+      assert.equal(self.status, 400);
+      assert.match(((await self.json()) as { error: { message: string } }).error.message, /That is you/);
+      assert.equal((await post('/api/v1/inbox', { candidate: 'no-such-person', body: 'Hello?' }, grace.auth)).status, 404);
+      assert.equal((await post('/api/v1/inbox', { body: 'To whom?' }, grace.auth)).status, 404);
+      const empty = await post('/api/v1/inbox', { candidate: grace.slug, body: '   ' }, (await person('Quiet')).auth);
+      assert.equal(empty.status, 400);
+    });
+
+    test('a member cannot write as an employer they do not belong to', async () => {
+      if (pool === null) return;
+      const acme = await employer('Inbox Bcme');
+      const grace = await candidate('Grace Target');
+      const impostor = await person('Impostor');
+      const response = await post(
+        '/api/v1/inbox',
+        { candidate: grace.slug, as: acme.org.slug, body: 'We are Acme, honest.' },
+        impostor.auth,
+      );
+      assert.equal(response.status, 400);
+      assert.match(((await response.json()) as { error: { message: string } }).error.message, /employer you belong to/);
+    });
+
+    describe('billing', () => {
+      /**
+       * A second app with billing on, against the same database, and a CoinPay
+       * that is a fetch stub: the real client code runs, the network does not.
+       */
+      let billed: Hono<never> | null = null;
+      let scopeToGrant = 'openid profile email wallet:read';
+      /** Who CoinPay says the token belongs to. One CoinPay account, one person here, so each test is its own merchant. */
+      let subToGrant = 'merchant-default';
+      const payments = new Map<string, Record<string, unknown>>();
+      const WEBHOOK_SECRET = 'whsec_test_board';
+      const fetchStub: typeof fetch = async (input, init) => {
+        const url = new URL(String(input));
+        const json = (body: unknown, status = 200) =>
+          new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
+        if (url.pathname === '/api/oauth/token') {
+          const form = new URLSearchParams(String(init?.body ?? ''));
+          if (form.get('client_id') !== 'cp_board' || form.get('client_secret') !== 'cps_board') {
+            return json({ error: 'invalid_client' }, 401);
+          }
+          if (form.get('grant_type') === 'authorization_code' && form.get('code') !== 'good-code') {
+            return json({ error: 'invalid_grant' }, 400);
+          }
+          return json({ access_token: `at_${Date.now()}`, refresh_token: 'rt', token_type: 'Bearer', expires_in: 3600, scope: scopeToGrant });
+        }
+        if (url.pathname === '/api/oauth/userinfo') {
+          const auth = new Headers(init?.headers).get('authorization') ?? '';
+          if (!auth.startsWith('Bearer at_')) return json({ error: 'invalid_token' }, 401);
+          return json({
+            sub: subToGrant,
+            email: 'grace@coinpay.test',
+            name: 'Grace',
+            ...(scopeToGrant.includes('wallet:read')
+              ? { wallets: [{ address: '0xGRACE', chain: 'USDC_POL', label: 'Polygon' }, { address: 'bc1qgrace', chain: 'BTC' }] }
+              : {}),
+          });
+        }
+        if (url.pathname === '/api/payments/create') {
+          const auth = new Headers(init?.headers).get('authorization');
+          if (auth !== 'Bearer cp_live_board') return json({ success: false, error: 'Missing authorization header' }, 401);
+          const sent = JSON.parse(String(init?.body)) as Record<string, unknown>;
+          const id = `pay_${Date.now()}_${payments.size + 1}`;
+          const payment = {
+            id,
+            payment_address: '0xDEPOSIT',
+            amount_crypto: String(sent['amount_usd']),
+            currency: String(sent['blockchain']).toLowerCase(),
+            status: 'pending',
+            expires_at: new Date(Date.now() + 15 * 60_000).toISOString(),
+            merchant_wallet_address: sent['merchant_wallet_address'],
+            business_id: sent['business_id'],
+          };
+          payments.set(id, payment);
+          return json({ success: true, payment }, 201);
+        }
+        const found = /^\/api\/payments\/(.+)$/.exec(url.pathname);
+        if (found !== null) {
+          const payment = payments.get(decodeURIComponent(found[1]!));
+          return payment === undefined ? json({ success: false, error: 'Payment not found' }, 404) : json({ success: true, payment });
+        }
+        return json({ error: `unexpected ${url.pathname}` }, 500);
+      };
+
+      before(async () => {
+        if (pool === null) return;
+        const { createApp } = await import('../dist/server/app.js');
+        const { loadConfig } = await import('../dist/config.js');
+        const { createCoinPay } = await import('../dist/core/coinpay.js');
+        const config = loadConfig({
+          ...process.env,
+          DATABASE_URL,
+          PUBLIC_URL: 'http://board.test',
+          COINPAY_URL: 'https://coinpay.test',
+          COINPAY_CLIENT_ID: 'cp_board',
+          COINPAY_CLIENT_SECRET: 'cps_board',
+          COINPAY_API_KEY: 'cp_live_board',
+          COINPAY_BUSINESS_ID: 'biz_board',
+          COINPAY_WEBHOOK_SECRET: WEBHOOK_SECRET,
+        });
+        assert.ok(config.coinpay, 'billing must be configured for this app');
+        billed = createApp(
+          pool as never,
+          config,
+          { send: async (message) => { sentMail.push(message); return true; } },
+          createCoinPay(config.coinpay, fetchStub),
+        ) as never;
+      });
+
+      const send = async (method: string, path: string, body?: unknown, headers: Record<string, string> = {}) => {
+        if (billed === null) throw new Error('no billed app');
+        return billed.fetch(
+          new Request(`http://board.test${path}`, {
+            method,
+            headers: { ...(body === undefined ? {} : { 'content-type': 'application/json' }), ...headers },
+            ...(body === undefined ? {} : { body: typeof body === 'string' ? body : JSON.stringify(body) }),
+            redirect: 'manual',
+          }),
+        );
+      };
+
+      /** Run the OAuth dance for a person, the way a browser would. */
+      const connect = async (who: { cookie: Record<string, string> }): Promise<Response> => {
+        const away = await send('GET', '/me/coinpay/connect', undefined, who.cookie);
+        assert.equal(away.status, 302);
+        const authorize = new URL(away.headers.get('location') ?? '');
+        assert.equal(authorize.origin + authorize.pathname, 'https://coinpay.test/api/oauth/authorize');
+        assert.equal(authorize.searchParams.get('client_id'), 'cp_board');
+        assert.equal(authorize.searchParams.get('redirect_uri'), 'http://board.test/api/v1/coinpay/callback');
+        assert.ok(authorize.searchParams.get('scope')?.includes('wallet:read'));
+        const state = authorize.searchParams.get('state') ?? '';
+        // The callback is completed by the state, not by the cookie.
+        return send('GET', `/api/v1/coinpay/callback?code=good-code&state=${encodeURIComponent(state)}`);
+      };
+
+      test('the board without billing says so, and the one with it asks the person to connect', async () => {
+        if (pool === null) return;
+        const grace = await candidate('Grace Unbilled');
+        const off = (await (await get('/api/v1/coinpay', grace.auth)).json()) as { configured: boolean };
+        assert.equal(off.configured, false);
+        const on = (await (await send('GET', '/api/v1/coinpay', undefined, grace.auth)).json()) as {
+          configured: boolean; account: unknown; connectUrl: string;
+        };
+        assert.equal(on.configured, true);
+        assert.equal(on.account, null);
+        assert.equal(on.connectUrl, 'http://board.test/me/coinpay/connect');
+      });
+
+      test('connect, invoice, pay, and the webhook settles it', async () => {
+        if (pool === null) return;
+        const grace = await candidate('Grace Billed');
+        const acme = await employer('Inbox Ccme');
+        scopeToGrant = 'openid profile email wallet:read';
+        subToGrant = `merchant-billed-${Date.now()}`;
+
+        const back = await connect(grace);
+        assert.equal(back.status, 303);
+        assert.equal(back.headers.get('location'), '/me?coinpay=connected#billing');
+
+        const state = (await (await send('GET', '/api/v1/coinpay', undefined, grace.auth)).json()) as {
+          account: { usable: boolean; wallets: { chain: string; address: string }[]; email: string };
+        };
+        assert.equal(state.account.usable, true);
+        assert.equal(state.account.email, 'grace@coinpay.test');
+        assert.deepEqual(state.account.wallets.map((w) => w.chain), ['USDC_POL', 'BTC']);
+
+        // The conversation, started by the employer.
+        const started = (await (await send('POST', '/api/v1/inbox', { candidate: grace.slug, as: acme.org.slug, body: 'Sprint 3 is done?' }, acme.auth)).json()) as { threadId: string };
+
+        // A wallet the payee does not hold is refused in words.
+        const wrong = await send('POST', `/api/v1/inbox/${started.threadId}/invoices`, { amount: '1200', currency: 'SOL', description: 'Sprint 3' }, grace.auth);
+        assert.equal(wrong.status, 400);
+        assert.match(((await wrong.json()) as { error: { message: string } }).error.message, /no SOL wallet.*USDC_POL, BTC/);
+
+        // The payer cannot send an invoice either: they have no wallet connected.
+        const notPayee = await send('POST', `/api/v1/inbox/${started.threadId}/invoices`, { amount: '5', description: 'x' }, acme.auth);
+        assert.equal(notPayee.status, 400);
+        assert.match(((await notPayee.json()) as { error: { message: string } }).error.message, /Connect a CoinPay account/);
+
+        sentMail.length = 0;
+        const sent = await send('POST', `/api/v1/inbox/${started.threadId}/invoices`, { amount: '$1,200.50', currency: 'usdc_pol', description: 'Sprint 3, as agreed' }, grace.auth);
+        const invoice = (await asJson<{ invoice: { id: string; amountUsd: string; currency: string; walletAddress: string; status: string; payment: unknown } }>(sent, 201)).invoice;
+        assert.equal(invoice.amountUsd, '1200.50');
+        assert.equal(invoice.currency, 'USDC_POL');
+        assert.equal(invoice.walletAddress, '0xGRACE', 'the payee wallet is copied at send time');
+        assert.equal(invoice.status, 'sent');
+        assert.equal(invoice.payment, null, 'no quote until somebody goes to pay');
+        const told = sentMail.find((mail) => mail.to === acme.user.email);
+        assert.ok(told && /sent you an invoice/.test(told.subject), 'the payer is told there is an invoice');
+        assert.ok(!told.text.includes('1200'), 'and not how much');
+
+        // It is a message in the thread.
+        const thread = (await (await send('GET', `/api/v1/inbox/${started.threadId}`, undefined, acme.auth)).json()) as {
+          thread: { messages: { kind: string; invoiceId: string | null; body: string }[] };
+          invoices: { id: string }[];
+        };
+        assert.equal(thread.thread.messages.at(-1)?.kind, 'invoice');
+        assert.equal(thread.thread.messages.at(-1)?.invoiceId, invoice.id);
+        assert.equal(thread.thread.messages.at(-1)?.body, 'Sprint 3, as agreed');
+        assert.equal(thread.invoices[0]?.id, invoice.id);
+
+        // The payee cannot pay themselves; the payer gets a quote.
+        const self = await send('POST', `/api/v1/invoices/${invoice.id}/pay`, undefined, grace.auth);
+        assert.equal(self.status, 400);
+        const quote = await send('POST', `/api/v1/invoices/${invoice.id}/pay`, undefined, acme.auth);
+        const quoted = (await asJson<{ invoice: { payment: { id: string; url: string; address: string; amountCrypto: string } } }>(quote, 200)).invoice.payment;
+        assert.equal(quoted.url, `https://coinpay.test/pay/${quoted.id}`);
+        assert.equal(quoted.address, '0xDEPOSIT');
+        const minted = payments.get(quoted.id)!;
+        assert.equal(minted['merchant_wallet_address'], '0xGRACE', 'CoinPay was told to pay the payee');
+        assert.equal(minted['business_id'], 'biz_board', 'under the board business');
+
+        // Paying again inside the quote window is the same quote.
+        const again = ((await (await send('POST', `/api/v1/invoices/${invoice.id}/pay`, undefined, acme.auth)).json()) as { invoice: { payment: { id: string } } }).invoice.payment;
+        assert.equal(again.id, quoted.id);
+
+        // The page sends a browser straight to CoinPay.
+        const go = await send('POST', `/inbox/${started.threadId}/invoices/${invoice.id}/pay`, undefined, acme.cookie);
+        assert.equal(go.status, 303);
+        assert.equal(go.headers.get('location'), quoted.url);
+
+        // A webhook with the wrong signature is dropped; the right one settles it.
+        const { createHmac } = await import('node:crypto');
+        const body = JSON.stringify({ event: 'payment.confirmed', payment_id: quoted.id, tx_hash: '0xTX', status: 'confirmed' });
+        const t = Math.floor(Date.now() / 1000);
+        const signWith = (secret: string) => `t=${t},v1=${createHmac('sha256', secret).update(`${t}.${body}`).digest('hex')}`;
+        assert.equal((await send('POST', '/api/v1/coinpay/webhook', body, { 'x-coinpay-signature': signWith('whsec_wrong') })).status, 401);
+        assert.equal((await send('POST', '/api/v1/coinpay/webhook', body)).status, 401);
+        const hook = await send('POST', '/api/v1/coinpay/webhook', body, { 'x-coinpay-signature': signWith(WEBHOOK_SECRET) });
+        assert.equal((await asJson<{ outcome: string }>(hook, 200)).outcome, 'paid');
+
+        const paid = ((await (await send('GET', `/api/v1/invoices/${invoice.id}`, undefined, grace.auth)).json()) as { invoice: { status: string; txHash: string } }).invoice;
+        assert.equal(paid.status, 'paid');
+        assert.equal(paid.txHash, '0xTX');
+
+        // Paid is paid: no cancelling, no second payment.
+        assert.equal((await send('POST', `/api/v1/invoices/${invoice.id}/cancel`, undefined, grace.auth)).status, 409);
+        const settled = await send('POST', `/api/v1/invoices/${invoice.id}/pay`, undefined, acme.auth);
+        assert.equal(settled.status, 400);
+        assert.match(((await settled.json()) as { error: { message: string } }).error.message, /already paid/);
+
+        // Both sides list it.
+        const mine = (await (await send('GET', '/api/v1/invoices', undefined, grace.auth)).json()) as { items: { id: string }[] };
+        assert.ok(mine.items.some((item) => item.id === invoice.id));
+        const theirs = (await (await send('GET', '/api/v1/invoices', undefined, acme.auth)).json()) as { items: { id: string }[] };
+        assert.ok(theirs.items.some((item) => item.id === invoice.id));
+        const page = await (await send('GET', '/me', undefined, { accept: 'text/html', ...grace.cookie })).text();
+        assert.ok(page.includes('Connected'), 'the You page shows the connection');
+        assert.ok(page.includes('0xGRACE'));
+        assert.ok(page.includes('You invoiced'));
+      });
+
+      test('a lapsed quote is replaced, and a poll learns a payment the webhook missed', async () => {
+        if (pool === null) return;
+        const grace = await candidate('Grace Polled');
+        const acme = await employer('Inbox Dcme');
+        scopeToGrant = 'openid profile email wallet:read';
+        subToGrant = `merchant-polled-${Date.now()}`;
+        assert.equal((await connect(grace)).status, 303);
+        const started = (await (await send('POST', '/api/v1/inbox', { candidate: grace.slug, as: acme.org.slug, body: 'Invoice me.' }, acme.auth)).json()) as { threadId: string };
+        const invoice = ((await (await send('POST', `/api/v1/inbox/${started.threadId}/invoices`, { amount: '10', currency: 'BTC' }, grace.auth)).json()) as { invoice: { id: string } }).invoice;
+
+        const first = ((await (await send('POST', `/api/v1/invoices/${invoice.id}/pay`, undefined, acme.auth)).json()) as { invoice: { payment: { id: string } } }).invoice.payment;
+        // CoinPay says that quote died.
+        payments.get(first.id)!['status'] = 'expired';
+        const second = ((await (await send('POST', `/api/v1/invoices/${invoice.id}/pay`, undefined, acme.auth)).json()) as { invoice: { payment: { id: string } } }).invoice.payment;
+        assert.notEqual(second.id, first.id, 'a dead quote is replaced');
+
+        // CoinPay says the new one was paid, and no webhook arrived.
+        payments.get(second.id)!['status'] = 'forwarded';
+        payments.get(second.id)!['tx_hash'] = '0xPOLLED';
+        const read = ((await (await send('GET', `/api/v1/invoices/${invoice.id}`, undefined, acme.auth)).json()) as { invoice: { status: string; txHash: string } }).invoice;
+        assert.equal(read.status, 'paid');
+        assert.equal(read.txHash, '0xPOLLED');
+      });
+
+      test('a grant without wallet:read is not a connection', async () => {
+        if (pool === null) return;
+        const grace = await candidate('Grace Narrowed');
+        scopeToGrant = 'openid profile email';
+        subToGrant = `merchant-narrowed-${Date.now()}`;
+        const back = await connect(grace);
+        assert.equal(back.status, 303);
+        assert.match(decodeURIComponent(back.headers.get('location') ?? ''), /did not grant wallet:read/);
+        const state = (await (await send('GET', '/api/v1/coinpay', undefined, grace.auth)).json()) as { account: unknown };
+        assert.equal(state.account, null, 'nothing is stored that cannot be paid to');
+        scopeToGrant = 'openid profile email wallet:read';
+      });
+
+      test('one CoinPay account attaches to one person', async () => {
+        if (pool === null) return;
+        // The stub answers as the same merchant for both, so the second person
+        // connecting is the collision.
+        subToGrant = `merchant-shared-${Date.now()}`;
+        const first = await candidate('Grace First');
+        const second = await candidate('Grace Second');
+        assert.equal((await connect(first)).status, 303);
+        const back = await connect(second);
+        assert.match(decodeURIComponent(back.headers.get('location') ?? ''), /already connected to a different account/);
+        // Releasing it frees it for the other.
+        assert.equal((await send('DELETE', '/api/v1/coinpay', undefined, first.auth)).status, 200);
+        assert.equal(decodeURIComponent((await connect(second)).headers.get('location') ?? ''), '/me?coinpay=connected#billing');
+      });
+
+      test('a stale or reused state is refused', async () => {
+        if (pool === null) return;
+        assert.equal((await send('GET', '/api/v1/coinpay/callback?code=good-code&state=never-issued')).status, 303);
+        const where = decodeURIComponent((await send('GET', '/api/v1/coinpay/callback?code=good-code&state=never-issued')).headers.get('location') ?? '');
+        assert.match(where, /expired/);
+        assert.equal((await send('GET', '/api/v1/coinpay/callback')).status, 400);
+      });
+    });
+  });
+
   describe('candidates', () => {
     const publish = async (visibility: string, name: string) => {
       const { createSession, ensureUser } = await import('../dist/core/auth.js');

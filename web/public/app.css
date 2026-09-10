@@ -185,6 +185,33 @@ main {
   }
 }
 
+/*
+ * The sidebar is a fixed 20rem track, and what goes in it is exactly the kind
+ * of text that cannot break on its own: an email address, a URL, the API line
+ * an agent is meant to copy, a skill tag. With no wrapping rule each one is a
+ * single word wider than the card, and it walks out over the card's border
+ * (the candidate page's contact block did). `anywhere` lets these break at
+ * any character; it inherits, so one rule on the aside covers every card.
+ *
+ * A code block in the sidebar wraps instead of scrolling. A 20rem scroller
+ * shows "GET https://example.com/api/v1/cand" and hides the part that
+ * matters; the wrapped line is still one line to copy. The page-wide
+ * `.code-block` rule keeps its `overflow-x: auto` for the docs, where lines
+ * are meant to stay lines.
+ */
+.grid-2 > aside {
+  overflow-wrap: anywhere;
+}
+
+.grid-2 > aside .code-block {
+  white-space: pre-wrap;
+}
+
+.grid-2 > aside .badge {
+  white-space: normal;
+  text-align: left;
+}
+
 .stack {
   display: flex;
   flex-direction: column;
@@ -866,4 +893,112 @@ a.badge-plain:hover .badge {
 
 .update-link {
   overflow-wrap: anywhere;
+}
+
+/* --- inbox ------------------------------------------------------------- */
+
+.nav-count {
+  display: inline-block;
+  min-width: 1.3em;
+  padding: 0 0.35em;
+  border-radius: 999px;
+  background: var(--primary);
+  color: var(--primary-foreground);
+  font-size: 0.75em;
+  line-height: 1.6;
+  text-align: center;
+}
+
+.thread-list,
+.message-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.thread-subject {
+  margin: 0.35rem 0 0.2rem;
+  font-weight: 600;
+}
+
+.thread-preview {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.message {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.9rem 1rem;
+  background: var(--card);
+  max-width: 92%;
+  scroll-margin-top: 5rem;
+}
+
+/* Yours sit to the right, theirs to the left, so a long thread scans. */
+.message.mine {
+  align-self: flex-end;
+  background: color-mix(in oklab, var(--primary) 8%, var(--card));
+}
+
+.message-meta {
+  margin: 0 0 0.35rem;
+}
+
+.message-body {
+  margin: 0;
+  /* Typed in a textarea, so the line breaks are the author's. */
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.invoice {
+  border: 1px dashed var(--border);
+  border-radius: calc(var(--radius) - 2px);
+  padding: 0.75rem 0.9rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  /* Addresses and transaction hashes are one word each. */
+  overflow-wrap: anywhere;
+}
+
+.invoice-amount {
+  font-size: 1.25rem;
+  font-weight: 700;
+}
+
+.invoice-description {
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.invoice-form > summary {
+  cursor: pointer;
+}
+
+.wallet-list code {
+  overflow-wrap: anywhere;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.table th,
+.table td {
+  text-align: left;
+  padding: 0.5rem 0.6rem;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+
+.table th {
+  color: var(--muted-foreground);
+  font-weight: 500;
 }

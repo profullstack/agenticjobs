@@ -314,6 +314,97 @@ export class BoardClient {
     return this.request(following ? 'POST' : 'DELETE', path);
   }
 
+  // --- inbox and billing --------------------------------------------------
+
+  async inbox(): Promise<{
+    items: {
+      id: string;
+      subject: string;
+      with: { kind: string; name: string; slug: string | null };
+      lastMessageAt: string;
+      unread: number;
+      preview: string;
+      job: { slug: string; title: string } | null;
+    }[];
+    unread: number;
+  }> {
+    return this.request('GET', '/api/v1/inbox');
+  }
+
+  async thread(id: string): Promise<{
+    thread: {
+      id: string;
+      subject: string;
+      with: { kind: string; name: string; slug: string | null };
+      messages: {
+        id: string;
+        kind: string;
+        body: string;
+        invoiceId: string | null;
+        createdAt: string;
+        sender: { name: string };
+        mine: boolean;
+      }[];
+    };
+    invoices: { id: string; amountUsd: string; currency: string; status: string }[];
+  }> {
+    return this.request('GET', `/api/v1/inbox/${encodeURIComponent(id)}`);
+  }
+
+  async startThread(input: {
+    candidate?: string;
+    employer?: string;
+    job?: string;
+    as?: string;
+    subject?: string;
+    body: string;
+  }): Promise<{ threadId: string; messageId: string; created: boolean; url: string }> {
+    return this.request('POST', '/api/v1/inbox', input);
+  }
+
+  async reply(threadId: string, body: string): Promise<{ message: { id: string } }> {
+    return this.request('POST', `/api/v1/inbox/${encodeURIComponent(threadId)}/messages`, { body });
+  }
+
+  async sendInvoice(
+    threadId: string,
+    input: { amount: string; currency?: string; description?: string },
+  ): Promise<{ invoice: { id: string; amountUsd: string; currency: string; status: string } }> {
+    return this.request('POST', `/api/v1/inbox/${encodeURIComponent(threadId)}/invoices`, input);
+  }
+
+  async invoices(): Promise<{
+    items: {
+      id: string;
+      threadId: string;
+      amountUsd: string;
+      currency: string;
+      status: string;
+      payee: { id: string; name: string };
+      createdAt: string;
+    }[];
+  }> {
+    return this.request('GET', '/api/v1/invoices');
+  }
+
+  async payInvoice(id: string): Promise<{
+    invoice: {
+      status: string;
+      currency: string;
+      payment: { url: string; address: string | null; amountCrypto: string | null } | null;
+    };
+  }> {
+    return this.request('POST', `/api/v1/invoices/${encodeURIComponent(id)}/pay`);
+  }
+
+  async billing(): Promise<{
+    configured: boolean;
+    account: { usable: boolean; wallets: { chain: string; address: string }[] } | null;
+    connectUrl?: string;
+  }> {
+    return this.request('GET', '/api/v1/coinpay');
+  }
+
   // --- federation -------------------------------------------------------
 
   async instances(): Promise<{ items: InstanceListing[] }> {

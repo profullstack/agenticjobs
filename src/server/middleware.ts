@@ -6,6 +6,7 @@
 import { getCookie } from 'hono/cookie';
 import type { MiddlewareHandler } from 'hono';
 import { SESSION_COOKIE, viewerFromToken } from '../core/auth.ts';
+import { unreadThreads } from '../core/inbox.ts';
 import type { AppEnv, Deps } from './deps.ts';
 
 /**
@@ -24,6 +25,7 @@ export function withViewer(deps: Deps): MiddlewareHandler<AppEnv> {
   return async (c, next) => {
     c.set('deps', deps);
     c.set('viewer', null);
+    c.set('unread', 0);
 
     const header = c.req.header('authorization') ?? '';
     const bearer = /^Bearer\s+(.+)$/i.exec(header)?.[1]?.trim();
@@ -35,7 +37,13 @@ export function withViewer(deps: Deps): MiddlewareHandler<AppEnv> {
 
     const cookie = getCookie(c, SESSION_COOKIE);
     if (cookie !== undefined && cookie !== '') {
-      c.set('viewer', await viewerFromToken(deps.pool, cookie));
+      const viewer = await viewerFromToken(deps.pool, cookie);
+      c.set('viewer', viewer);
+      // The nav's unread count, for a person on a page. One indexed query, and
+      // only on the surface that has a nav: an API call has nowhere to show it.
+      if (viewer !== null && !c.req.path.startsWith('/api/') && !c.req.path.startsWith('/assets/')) {
+        c.set('unread', await unreadThreads(deps.pool, viewer.id));
+      }
     }
     await next();
   };

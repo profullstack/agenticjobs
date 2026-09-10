@@ -109,6 +109,9 @@ import {
   writerProvider,
 } from '../../core/agentwriter.ts';
 import { readSpec } from './specs.ts';
+import { beginConnect, disconnect, getAccount, refreshWallets } from '../../core/coinpay.ts';
+import { listInvoicesFor } from '../../core/invoices.ts';
+import { BillingCard } from '../../views/inbox.tsx';
 import type { AppEnv } from '../deps.ts';
 
 type Ctx = Context<AppEnv>;
@@ -119,12 +122,13 @@ type Ctx = Context<AppEnv>;
  * Typed as the subset of PageProps it actually supplies, so a page that
  * forgets `title` is a compile error rather than a blank browser tab.
  */
-type Shell = Pick<PageProps, 'viewer' | 'boardName' | 'publicUrl' | 'path' | 'isDirectory'>;
+type Shell = Pick<PageProps, 'viewer' | 'boardName' | 'publicUrl' | 'path' | 'isDirectory' | 'unread'>;
 
-function shell(c: Ctx): Shell {
+export function shell(c: Ctx): Shell {
   const { config } = c.get('deps');
   return {
     viewer: c.get('viewer'),
+    unread: c.get('unread'),
     boardName: config.boardName,
     publicUrl: config.publicUrl,
     path: new URL(c.req.url).pathname,
@@ -132,17 +136,32 @@ function shell(c: Ctx): Shell {
   };
 }
 
+/**
+ * Where CoinPay sends the person back. Built from the public URL, never the
+ * request, and registered on the OAuth client byte for byte.
+ */
+export function coinpayRedirectUri(publicUrl: string): string {
+  return `${publicUrl}/api/v1/coinpay/callback`;
+}
+
+/** The one-word states the callback redirects with, said in a sentence. */
+export function coinpayNotice(code: string): string {
+  if (code === 'connected') return 'CoinPay connected. Invoices you send settle to the wallets below.';
+  if (code === 'disconnected') return 'CoinPay disconnected. Invoices already sent keep the wallet they were sent with.';
+  return code;
+}
+
 /** Hono's c.html may hand back a promise when the tree contains one. */
 type Html = Response | Promise<Response>;
 
-function requireViewer(c: Ctx): Viewer | Response {
+export function requireViewer(c: Ctx): Viewer | Response {
   const viewer = c.get('viewer');
   if (viewer !== null) return viewer;
   const next = new URL(c.req.url).pathname;
   return c.redirect(`/login?next=${encodeURIComponent(next)}`, 302);
 }
 
-async function formOf(c: Ctx): Promise<Record<string, string>> {
+export async function formOf(c: Ctx): Promise<Record<string, string>> {
   try {
     const body = await c.req.parseBody();
     const out: Record<string, string> = {};
@@ -187,7 +206,10 @@ export function pageRoutes(): Hono<AppEnv> {
     const job = await getJobBySlug(pool, c.req.param('slug'));
     if (job === null) return c.notFound();
 
-    const resumes = viewer === null ? [] : await listResumes(pool, viewer.id);
+    const [resumes, member] = await Promise.all([
+      viewer === null ? Promise.resolve([]) : listResumes(pool, viewer.id),
+      viewer === null ? Promise.resolve(false) : isMember(pool, viewer.id, job.org.id),
+    ]);
     return c.html(
       <Layout
         {...shell(c)}
@@ -201,6 +223,16 @@ export function pageRoutes(): Hono<AppEnv> {
           publicUrl={config.publicUrl}
           signedIn={viewer !== null}
           resumes={resumes.map((resume) => ({ slug: resume.slug, title: resume.title }))}
+          {...(member
+            ? {}
+            : {
+                message: {
+                  to: { employer: job.org.slug },
+                  job: job.slug,
+                  signedIn: viewer !== null,
+                  next: `/jobs/${job.slug}`,
+                },
+              })}
         />
       </Layout>,
     );
@@ -347,6 +379,15 @@ export function pageRoutes(): Hono<AppEnv> {
         viewer !== null && viewer.id === resume.userId
           ? { action: '/me/updates', max: BODY_MAX }
           : null,
+      ...(viewer !== null && viewer.id === resume.userId
+        ? {}
+        : {
+            message: {
+              to: { candidate: slug },
+              signedIn: viewer !== null,
+              next: `/candidates/${slug}`,
+            },
+          }),
       ...(error === undefined ? {} : { error }),
     };
 
@@ -512,6 +553,15 @@ export function pageRoutes(): Hono<AppEnv> {
         next: `/employers/${org.slug}`,
       },
       composer: member ? { action: `/employers/${org.slug}/updates`, max: BODY_MAX } : null,
+      ...(member
+        ? {}
+        : {
+            message: {
+              to: { employer: org.slug },
+              signedIn: viewer !== null,
+              next: `/employers/${org.slug}`,
+            },
+          }),
       ...(error === undefined ? {} : { error }),
     };
 
@@ -781,11 +831,15 @@ export function pageRoutes(): Hono<AppEnv> {
       [viewer.id],
     );
 
-    const [candidateSlug, updates, following] = await Promise.all([
+    const { coinpay } = c.get('deps');
+    const [candidateSlug, updates, following, account, invoices] = await Promise.all([
       candidateSlugFor(pool, viewer.id),
       listUpdatesFor(pool, { kind: 'candidate', userId: viewer.id }),
       listFollowing(pool, viewer.id),
+      getAccount(pool, viewer.id),
+      listInvoicesFor(pool, coinpay, viewer.id),
     ]);
+    const notice = new URL(c.req.url).searchParams.get('coinpay');
 
     return c.html(
       <Layout {...shell(c)} title="You" noindex>
@@ -804,9 +858,47 @@ export function pageRoutes(): Hono<AppEnv> {
           following={following}
           candidateSlug={candidateSlug}
           updateMax={BODY_MAX}
-        />
+        >
+          <BillingCard
+            enabled={coinpay !== null}
+            account={account}
+            invoices={invoices}
+            viewerId={viewer.id}
+            coinpayUrl={coinpay === null ? null : coinpay.config.url}
+            {...(notice === null ? {} : { notice: coinpayNotice(notice) })}
+          />
+        </MePage>
       </Layout>,
     );
+  });
+
+  /** Connect a CoinPay account: off to CoinPay, back to /api/v1/coinpay/callback. */
+  pages.get('/me/coinpay/connect', async (c) => {
+    const { pool, coinpay, config } = c.get('deps');
+    const viewer = requireViewer(c);
+    if (viewer instanceof Response) return viewer;
+    if (coinpay === null) return c.text('This board has no payment rail configured.\n', 404);
+    const next = safeRedirect(new URL(c.req.url).searchParams.get('next')) ?? '/me#billing';
+    const url = await beginConnect(pool, coinpay, viewer.id, coinpayRedirectUri(config.publicUrl), next);
+    return c.redirect(url, 302);
+  });
+
+  pages.post('/me/coinpay/refresh', async (c) => {
+    const { pool, coinpay } = c.get('deps');
+    const viewer = requireViewer(c);
+    if (viewer instanceof Response) return viewer;
+    if (coinpay === null) return c.redirect('/me#billing', 303);
+    const result = await refreshWallets(pool, coinpay, viewer.id);
+    const notice = typeof result === 'string' ? result : `Wallets refreshed: ${result.wallets.length}.`;
+    return c.redirect(`/me?coinpay=${encodeURIComponent(notice)}#billing`, 303);
+  });
+
+  pages.post('/me/coinpay/disconnect', async (c) => {
+    const { pool } = c.get('deps');
+    const viewer = requireViewer(c);
+    if (viewer instanceof Response) return viewer;
+    await disconnect(pool, viewer.id);
+    return c.redirect('/me?coinpay=disconnected#billing', 303);
   });
 
   pages.get('/me/resumes/new', (c) => {

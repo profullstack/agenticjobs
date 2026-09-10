@@ -41,6 +41,14 @@ export function openApiDocument(config: Config): Record<string, unknown> {
       { name: 'candidates', description: 'People who published a resume here.' },
       { name: 'employers', description: 'The organisations a listing belongs to.' },
       { name: 'updates', description: 'Short posts from employers and candidates, and following them.' },
+      {
+        name: 'inbox',
+        description: 'Private conversations. The only way to reach somebody here; there is no public commenting.',
+      },
+      {
+        name: 'billing',
+        description: "Invoices sent through the inbox, settled on CoinPay to the payee's own wallet.",
+      },
       { name: 'auth', description: 'Device flow for terminals, magic links for browsers.' },
       { name: 'federation', description: 'The directory of instances, and search across them.' },
     ],
@@ -338,6 +346,126 @@ export function openApiDocument(config: Config): Record<string, unknown> {
           summary: 'Who you follow.',
           security: [{ bearer: [] }],
           responses: { 200: ok('Employers and candidates you follow.'), 401: err() },
+        },
+      },
+      '/api/v1/inbox': {
+        get: {
+          tags: ['inbox'],
+          summary: 'Your conversations, newest activity first, with unread counts.',
+          security: [{ bearer: [] }],
+          responses: { 200: ok('Threads.'), 401: err() },
+        },
+        post: {
+          tags: ['inbox'],
+          summary: 'Write to a candidate or an employer. Continues the conversation you already have with them.',
+          description:
+            'Send {"candidate": slug} or {"employer": slug}, a "body", and optionally a "subject", a "job" slug the message is about, and "as": an employer slug to write on behalf of (you must belong to it). The same two parties about the same job is one conversation, so a second POST lands as a new message in it and answers 200 rather than 201. Twenty new conversations a day per account. The other side is emailed that there is a message, never the message itself. There is no public commenting on this board: this is how people are reached.',
+          security: [{ bearer: [] }],
+          responses: {
+            200: ok('Added to the existing conversation: threadId, messageId, url.'),
+            201: ok('A new conversation: threadId, messageId, url.'),
+            400: err(),
+            401: err(),
+            404: err(),
+            429: err(),
+          },
+        },
+      },
+      '/api/v1/inbox/{id}': {
+        get: {
+          tags: ['inbox'],
+          summary: 'One conversation: its messages and the invoices in it. Opening it marks it read.',
+          security: [{ bearer: [] }],
+          parameters: [pathParam('id')],
+          responses: { 200: ok('The thread and its invoices.'), 401: err(), 404: err() },
+        },
+      },
+      '/api/v1/inbox/{id}/messages': {
+        post: {
+          tags: ['inbox'],
+          summary: 'Reply in a conversation you are in.',
+          security: [{ bearer: [] }],
+          parameters: [pathParam('id')],
+          responses: { 201: ok('The message.'), 400: err(), 401: err(), 404: err() },
+        },
+      },
+      '/api/v1/inbox/{id}/invoices': {
+        post: {
+          tags: ['billing'],
+          summary: 'Send an invoice into a conversation. You are the payee.',
+          description:
+            'Send "amount" in US dollars, "description", and "currency": a chain you hold a wallet for on your connected CoinPay account (BTC, ETH, SOL, USDC_POL ...). Omit currency when you have exactly one wallet. The payment settles on CoinPay straight to that wallet; this board never holds it. Needs a connected CoinPay account with wallet:read, which is done in a browser at /me/coinpay/connect.',
+          security: [{ bearer: [] }],
+          parameters: [pathParam('id')],
+          responses: { 201: ok('The invoice.'), 400: err(), 401: err(), 404: err() },
+        },
+      },
+      '/api/v1/invoices': {
+        get: {
+          tags: ['billing'],
+          summary: 'Every invoice you sent or can pay, newest first.',
+          security: [{ bearer: [] }],
+          responses: { 200: ok('Invoices.'), 401: err() },
+        },
+      },
+      '/api/v1/invoices/{id}': {
+        get: {
+          tags: ['billing'],
+          summary: 'One invoice, with its payment state checked against CoinPay.',
+          security: [{ bearer: [] }],
+          parameters: [pathParam('id')],
+          responses: { 200: ok('The invoice.'), 401: err(), 404: err() },
+        },
+      },
+      '/api/v1/invoices/{id}/pay': {
+        post: {
+          tags: ['billing'],
+          summary: 'Get a live quote to pay an invoice you were sent.',
+          description:
+            'Returns the invoice with "payment" filled in: "url" is the CoinPay page to pay on, "address" and "amountCrypto" let a wallet pay directly. A quote lasts a few minutes; call again for a fresh one. Paid is reported by the webhook and by reading the invoice.',
+          security: [{ bearer: [] }],
+          parameters: [pathParam('id')],
+          responses: { 200: ok('The invoice with a payment to make.'), 400: err(), 401: err(), 404: err() },
+        },
+      },
+      '/api/v1/invoices/{id}/cancel': {
+        post: {
+          tags: ['billing'],
+          summary: 'Take back an unpaid invoice you sent.',
+          security: [{ bearer: [] }],
+          parameters: [pathParam('id')],
+          responses: { 200: ok('Cancelled.'), 401: err(), 404: err(), 409: err() },
+        },
+      },
+      '/api/v1/coinpay': {
+        get: {
+          tags: ['billing'],
+          summary: 'Whether this board has billing, and whether your CoinPay account is connected.',
+          description:
+            '"configured" is the board; "account" is you, with "usable" saying whether the connection can read your wallets (a connection without the wallet:read scope shows here as not usable and has to be reconnected). Connecting is a browser step at "connectUrl".',
+          security: [{ bearer: [] }],
+          responses: { 200: ok('Connection state.'), 401: err() },
+        },
+        delete: {
+          tags: ['billing'],
+          summary: 'Disconnect your CoinPay account. Invoices already sent keep their wallet.',
+          security: [{ bearer: [] }],
+          responses: { 200: ok('Disconnected.'), 401: err() },
+        },
+      },
+      '/api/v1/coinpay/callback': {
+        get: {
+          tags: ['billing'],
+          summary: 'Where CoinPay sends a browser back after consent. Not for calling directly.',
+          parameters: [param('code', 'From CoinPay.'), param('state', 'From CoinPay.')],
+          responses: { 303: { description: 'Back to the board.' }, 400: err(), 404: err() },
+        },
+      },
+      '/api/v1/coinpay/webhook': {
+        post: {
+          tags: ['billing'],
+          summary: 'CoinPay reporting a settled payment. Signed with the business webhook secret.',
+          responses: { 200: ok('Received.'), 401: err(), 404: err() },
         },
       },
       '/api/v1/jobs/import': {

@@ -254,6 +254,64 @@ export const TOOLS: ToolDefinition[] = [
     }),
   },
   {
+    name: 'read_inbox',
+    title: 'Read the inbox',
+    description:
+      "This account's private conversations with candidates and employers, newest first, with unread counts. Pass a thread id to read one conversation in full, with the invoices in it; reading one marks it read. There is no public commenting on this board: the inbox is how people are reached.",
+    inputSchema: object({
+      thread: string('A conversation id. Omit for the list.'),
+    }),
+  },
+  {
+    name: 'send_message',
+    title: 'Send a message',
+    description:
+      'Write privately to a candidate (by candidate slug) or an employer (by employer slug), or reply in a conversation (by thread id). A first message to somebody about the same job continues the conversation you already have with them. Twenty new conversations a day. They are emailed that there is a message, never the message itself. Use this to ask about a role, follow up on an application, or agree terms; use send_invoice to bill.',
+    inputSchema: object(
+      {
+        thread: string('Reply in this conversation.'),
+        candidate: string("Or start one with this candidate's slug."),
+        employer: string("Or start one with this employer's slug."),
+        job: string('The job slug this is about, when starting one. Optional.'),
+        as: string('Write as this employer (slug) instead of as yourself. You must belong to it.'),
+        subject: string('One line, when starting one. Optional.'),
+        body: string('The message. Plain text, at most 4000 characters.'),
+      },
+      ['body'],
+    ),
+  },
+  {
+    name: 'send_invoice',
+    title: 'Send an invoice',
+    description:
+      'Bill the other side of a conversation. You are the payee: the payment settles on CoinPay straight to a wallet on your connected CoinPay account, and the board never holds it. Needs that account connected with wallet:read, which is a browser step at /me/coinpay/connect; check_billing says whether it is. Amount is in US dollars; currency is a chain you hold a wallet for (BTC, ETH, SOL, USDC_POL ...), and can be omitted when you have one wallet.',
+    inputSchema: object(
+      {
+        thread: string('The conversation to bill in.'),
+        amount: string('US dollars, like "1200" or "1200.50".'),
+        currency: string('The chain to be paid on. Omit with one wallet.'),
+        description: string('What this is for. It is the message the other side reads.'),
+      },
+      ['thread', 'amount'],
+    ),
+  },
+  {
+    name: 'pay_invoice',
+    title: 'Pay an invoice',
+    description:
+      'Get a live quote to pay an invoice you were sent: the CoinPay page to pay on, and the address and crypto amount for a wallet paying directly. A quote lasts a few minutes; call again for a fresh one. Paying needs a wallet, so hand the URL to the person. Without an id, lists every invoice this account sent or can pay.',
+    inputSchema: object({
+      invoice: string('The invoice id. Omit to list.'),
+    }),
+  },
+  {
+    name: 'check_billing',
+    title: 'Check billing',
+    description:
+      "Whether this board has billing at all and whether this account's CoinPay connection can be paid to: connected, which wallets, or what to do. Connecting is a browser step; this tool tells you the URL.",
+    inputSchema: object({}),
+  },
+  {
     name: 'list_instances',
     title: 'List boards',
     description: 'Every board this instance directory knows about. Directories only.',
@@ -527,6 +585,115 @@ export async function callTool(
       );
       if (response.status === 404) return toolError(`${caller.server} is not a directory.`);
       return text(JSON.stringify(response.body, null, 2), response.body);
+    }
+
+    case 'read_inbox': {
+      const thread = typeof args['thread'] === 'string' ? args['thread'].trim() : '';
+      const path = thread === '' ? '/api/v1/inbox' : `/api/v1/inbox/${encodeURIComponent(thread)}`;
+      const response = await caller.call('GET', path);
+      if (response.status === 401) return toolError(signInFirst(caller));
+      if (response.status !== 200) return toolError(message(response.body, 'No such conversation.'));
+      if (thread === '') {
+        const page = response.body as { items?: unknown[] };
+        if ((page.items ?? []).length === 0) return text('The inbox is empty.', response.body);
+      }
+      return text(JSON.stringify(response.body, null, 2), response.body);
+    }
+
+    case 'send_message': {
+      const body = String(args['body'] ?? '');
+      const thread = typeof args['thread'] === 'string' ? args['thread'].trim() : '';
+      if (thread !== '') {
+        const response = await caller.call('POST', `/api/v1/inbox/${encodeURIComponent(thread)}/messages`, {
+          body,
+        });
+        if (response.status === 401) return toolError(signInFirst(caller));
+        if (response.status !== 201) return toolError(message(response.body, 'Not sent.'));
+        return text('Sent.', response.body);
+      }
+      const payload: Record<string, string> = { body };
+      for (const key of ['candidate', 'employer', 'job', 'as', 'subject']) {
+        if (typeof args[key] === 'string' && args[key] !== '') payload[key] = args[key] as string;
+      }
+      if (payload['candidate'] === undefined && payload['employer'] === undefined) {
+        return toolError('Name who this is to: candidate, employer, or thread.');
+      }
+      const response = await caller.call('POST', '/api/v1/inbox', payload);
+      if (response.status === 401) return toolError(signInFirst(caller));
+      if (response.status !== 201 && response.status !== 200) {
+        return toolError(message(response.body, 'Not sent.'));
+      }
+      const started = response.body as { threadId?: string; created?: boolean; url?: string };
+      return text(
+        `${started.created === false ? 'Added to the conversation you already have' : 'Sent'}. Thread ${started.threadId ?? ''}: ${started.url ?? ''}`,
+        response.body,
+      );
+    }
+
+    case 'send_invoice': {
+      const thread = String(args['thread'] ?? '').trim();
+      const response = await caller.call('POST', `/api/v1/inbox/${encodeURIComponent(thread)}/invoices`, {
+        amount: String(args['amount'] ?? ''),
+        ...(typeof args['currency'] === 'string' && args['currency'] !== '' ? { currency: args['currency'] } : {}),
+        ...(typeof args['description'] === 'string' ? { description: args['description'] } : {}),
+      });
+      if (response.status === 401) return toolError(signInFirst(caller));
+      if (response.status !== 201) return toolError(message(response.body, 'The invoice was not sent.'));
+      const sent = response.body as { invoice?: { amountUsd?: string; currency?: string } };
+      return text(
+        `Invoice sent for $${sent.invoice?.amountUsd ?? ''} in ${sent.invoice?.currency ?? ''}. The other side sees Pay in the conversation.`,
+        response.body,
+      );
+    }
+
+    case 'pay_invoice': {
+      const invoice = typeof args['invoice'] === 'string' ? args['invoice'].trim() : '';
+      if (invoice === '') {
+        const response = await caller.call('GET', '/api/v1/invoices');
+        if (response.status === 401) return toolError(signInFirst(caller));
+        if (response.status !== 200) return toolError(message(response.body, 'Could not list invoices.'));
+        return text(JSON.stringify(response.body, null, 2), response.body);
+      }
+      const response = await caller.call('POST', `/api/v1/invoices/${encodeURIComponent(invoice)}/pay`);
+      if (response.status === 401) return toolError(signInFirst(caller));
+      if (response.status !== 200) return toolError(message(response.body, 'No quote.'));
+      const result = response.body as {
+        invoice?: { status?: string; payment?: { url?: string; address?: string; amountCrypto?: string } | null; currency?: string };
+      };
+      const inv = result.invoice;
+      if (inv?.status === 'paid') return text('That invoice is already paid.', response.body);
+      if (inv?.payment === null || inv?.payment === undefined) {
+        return text('No quote came back. Try again in a moment.', response.body);
+      }
+      return text(
+        `Pay at ${inv.payment.url ?? ''}${inv.payment.amountCrypto !== undefined && inv.payment.amountCrypto !== null ? ` (${inv.payment.amountCrypto} ${inv.currency ?? ''} to ${inv.payment.address ?? ''})` : ''}. The quote lasts a few minutes.`,
+        response.body,
+      );
+    }
+
+    case 'check_billing': {
+      const response = await caller.call('GET', '/api/v1/coinpay');
+      if (response.status === 401) return toolError(signInFirst(caller));
+      if (response.status !== 200) return toolError(message(response.body, 'Could not read billing.'));
+      const state = response.body as {
+        configured?: boolean;
+        account?: { usable?: boolean; wallets?: { chain: string; address: string }[] } | null;
+        connectUrl?: string;
+      };
+      if (state.configured !== true) return text('This board has no billing configured.', response.body);
+      if (state.account === null || state.account === undefined) {
+        return text(`No CoinPay account connected. Connect one in a browser: ${state.connectUrl ?? ''}`, response.body);
+      }
+      if (state.account.usable !== true) {
+        return text(`The CoinPay connection has lapsed. Reconnect in a browser: ${state.connectUrl ?? ''}`, response.body);
+      }
+      const wallets = state.account.wallets ?? [];
+      return text(
+        wallets.length === 0
+          ? 'Connected, but the CoinPay account has no wallet yet. Add one on CoinPay and refresh on /me.'
+          : `Connected. Can be paid in: ${wallets.map((w) => w.chain).join(', ')}.`,
+        response.body,
+      );
     }
 
     default:
