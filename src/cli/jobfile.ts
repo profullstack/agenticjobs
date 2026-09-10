@@ -78,8 +78,7 @@ function parseFrontMatter(block: string): Record<string, string | string[]> {
     }
     const inline = /^\[(.*)\]$/.exec(value);
     if (inline !== null) {
-      out[key] = (inline[1] ?? '')
-        .split(',')
+      out[key] = splitInlineList(inline[1] ?? '')
         .map((entry) => unquote(entry.trim()))
         .filter((entry) => entry !== '');
       key = null;
@@ -90,6 +89,40 @@ function parseFrontMatter(block: string): Record<string, string | string[]> {
   }
   flush();
   return out;
+}
+
+/** Split list items without splitting commas inside wrapping quotes. */
+function splitInlineList(value: string): string[] {
+  const entries: string[] = [];
+  let start = 0;
+  let quote: string | null = null;
+  let entryStarted = false;
+
+  for (let index = 0; index < value.length; index++) {
+    const character = value.charAt(index);
+    if (quote !== null) {
+      if (character === '\\' && quote === '"') {
+        index++;
+      } else if (character === quote) {
+        if (value.charAt(index + 1) === quote) index++;
+        else quote = null;
+      }
+      continue;
+    }
+    if (character === ',') {
+      entries.push(value.slice(start, index));
+      start = index + 1;
+      entryStarted = false;
+    } else if (!entryStarted && character.trim() !== '') {
+      if (character === '"' || character === "'") quote = character;
+      entryStarted = true;
+    }
+  }
+
+  // Retain the existing permissive handling of an unmatched opening quote.
+  if (quote !== null) return value.split(',');
+  entries.push(value.slice(start));
+  return entries;
 }
 
 /** `salary_min` and `salary-min` both mean `salaryMin`. */
