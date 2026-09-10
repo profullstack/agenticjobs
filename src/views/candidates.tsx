@@ -33,6 +33,7 @@ export interface CandidateSummary {
   name: string;
   headline: string | null;
   location: string | null;
+  /** All distinct skills for filtering; cards limit the badges they display. */
   skills: string[];
   /**
    * How many agents this candidate runs and what they cost, when the resume
@@ -147,7 +148,7 @@ export const CandidateList: FC<{
               )}
               {candidate.skills.length > 0 && (
                 <div class="row" style="flex-wrap:wrap;gap:.35rem">
-                  {candidate.skills.map((item) => (
+                  {candidate.skills.slice(0, 8).map((item) => (
                     <a class="badge badge-outline" href={tagHref(addTag(tags, item))}>
                       {item}
                     </a>
