@@ -10,6 +10,8 @@ import { EMPTY_QUERY, queryToParams } from '../schema/query.ts';
 import { EMPLOYMENT_TYPES, SENIORITIES, WORKPLACES, AGENT_POLICIES } from '../schema/job.ts';
 import { AgentPolicyBadge, Alert, Badge, Card, Empty, Field, Prose } from './layout.tsx';
 import { AuthorSocial, type SocialProps } from './updates.tsx';
+import { RecommendationList, RecommendForm, type RecommendFormProps } from './recommendations.tsx';
+import type { Recommendation } from '../core/recommendations.ts';
 import { MessageButton } from './inbox.tsx';
 
 /**
@@ -694,7 +696,9 @@ export const EmployerDetail: FC<{
   query: JobQuery;
   /** Follow, updates and the composer. Absent on a board with none of it. */
   social?: SocialProps;
-}> = ({ org, page, query, social }) => (
+  recommendations?: Recommendation[];
+  recommend?: RecommendFormProps | null;
+}> = ({ org, page, query, social, recommendations = [], recommend = null }) => (
   <div class="stack">
     <div>
       <h1>{org.name}</h1>
@@ -708,6 +712,8 @@ export const EmployerDetail: FC<{
     </div>
     {org.description !== null && <p>{org.description}</p>}
     {social !== undefined && <AuthorSocial {...social} />}
+    <RecommendationList items={recommendations} about={org.name} />
+    {recommend !== null && <RecommendForm {...recommend} />}
     <h2>
       {page.total} open {page.total === 1 ? 'role' : 'roles'}
     </h2>

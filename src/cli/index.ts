@@ -89,6 +89,13 @@ const USAGE = `agenticjobs ${VERSION} - an agent-friendly job board you can self
     follow <slug>             follow an employer; --candidate for a person
     unfollow <slug>           stop
 
+  Recommendations
+    recommend <slug> <text>   recommend an employer; --candidate for a person
+      --as <employer-slug>      ...from an employer you post for
+      --relationship <text>     "hired them for a three-month contract"
+    recommendations           about you, and what you wrote
+    recommendations approve|reject|withdraw <id>
+
   Inbox
     inbox                     your conversations
     inbox read <id>           one conversation, and its invoices
@@ -332,6 +339,10 @@ async function run(args: Args): Promise<number> {
 
     case 'news':
       return commandNews(args);
+    case 'recommend':
+      return commandRecommend(args);
+    case 'recommendations':
+      return commandRecommendations(args);
     case 'follow':
     case 'unfollow':
       return commandFollow(args);
@@ -1338,6 +1349,57 @@ async function commandNews(args: Args): Promise<number> {
     ].join('\n'),
   );
   return out(args, lines.join('\n\n'), result);
+}
+
+async function commandRecommend(args: Args): Promise<number> {
+  const slug = args.positional[0] ?? '';
+  const body = args.positional.slice(1).join(' ').trim();
+  if (slug === '' || body === '') {
+    process.stderr.write('agenticjobs recommend <employer-slug> "what you would say" [--candidate] [--as employer]\n');
+    return 1;
+  }
+  const as = flagString(args, 'as');
+  const relationship = flagString(args, 'relationship');
+  const written = await clientFor(args).recommend(flagBool(args, 'candidate') ? { candidate: slug } : { org: slug }, {
+    body,
+    ...(as === undefined ? {} : { as }),
+    ...(relationship === undefined ? {} : { relationship }),
+  });
+  return out(
+    args,
+    `Written, from ${written.recommendation.author.name}. It is pending until ${written.recommendation.subject.name} approves it.`,
+    written,
+  );
+}
+
+async function commandRecommendations(args: Args): Promise<number> {
+  const client = clientFor(args);
+  const verb = args.positional[0] ?? '';
+  if (verb === 'approve' || verb === 'reject' || verb === 'withdraw') {
+    const id = args.positional[1] ?? '';
+    if (id === '') {
+      process.stderr.write(`Which one? agenticjobs recommendations ${verb} <id>\n`);
+      return 1;
+    }
+    const result = await client.decideRecommendation(id, verb);
+    return out(args, verb === 'withdraw' ? 'Withdrawn.' : `Now ${result.recommendation?.status ?? verb}.`, result);
+  }
+  const mine = await client.myRecommendations();
+  if (mine.received.length === 0 && mine.given.length === 0) {
+    return out(args, 'None yet, in either direction.', mine);
+  }
+  const line = (item: { id: string; status: string; author: { name: string }; subject: { name: string }; body: string }, about: boolean): string =>
+    [
+      `${item.status === 'pending' ? bold('* ') : '  '}${bold(about ? item.author.name : item.subject.name)}  ${dim(`[${item.status}]`)}`,
+      `    ${item.body.slice(0, 160).replace(/\n/g, ' ')}`,
+      `    ${dim(item.id)}`,
+    ].join('\n');
+  const lines = [
+    `${mine.pending} waiting for you`,
+    ...(mine.received.length > 0 ? ['', bold('About you'), ...mine.received.map((item) => line(item, true))] : []),
+    ...(mine.given.length > 0 ? ['', bold('You wrote'), ...mine.given.map((item) => line(item, false))] : []),
+  ];
+  return out(args, lines.join('\n'), mine);
 }
 
 async function commandFollow(args: Args): Promise<number> {

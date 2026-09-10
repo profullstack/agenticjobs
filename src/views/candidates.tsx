@@ -14,6 +14,8 @@
 import type { FC } from 'hono/jsx';
 import { Card, Prose } from './layout.tsx';
 import { AuthorSocial, type SocialProps } from './updates.tsx';
+import { RecommendationList, RecommendForm, type RecommendFormProps } from './recommendations.tsx';
+import type { Recommendation } from '../core/recommendations.ts';
 import type { OpenResume } from '../markup/resume.ts';
 import { formatCapacity, type SwarmCapacity } from '../core/capacity.ts';
 
@@ -193,7 +195,11 @@ export const CandidateDetail: FC<{
   contactRedacted?: boolean;
   /** Follow, updates and, for the person themselves, the composer. */
   social?: SocialProps;
-}> = ({ candidate, parsed, html, markdownUrl, listed, contactRedacted = false, social }) => (
+  /** Approved recommendations, shown to everyone. */
+  recommendations?: Recommendation[];
+  /** The form to write one, for a signed-in reader who is not this person. */
+  recommend?: RecommendFormProps | null;
+}> = ({ candidate, parsed, html, markdownUrl, listed, contactRedacted = false, social, recommendations = [], recommend = null }) => (
   <div class="grid-2">
     <article class="stack">
       <div class="stack-sm">
@@ -202,6 +208,8 @@ export const CandidateDetail: FC<{
       </div>
       {social !== undefined && <AuthorSocial {...social} />}
       <Prose html={html} />
+      <RecommendationList items={recommendations} about={candidate.name} />
+      {recommend !== null && <RecommendForm {...recommend} />}
     </article>
 
     <aside class="stack">

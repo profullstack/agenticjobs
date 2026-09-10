@@ -252,6 +252,42 @@ export const TOOLS: ToolDefinition[] = [
     ),
   },
   {
+    name: 'recommend',
+    title: 'Write a recommendation',
+    description:
+      'Recommend a candidate (candidate: their slug) or an employer (org: its slug). Not a rating: a paragraph with a name on it, shown on their page once they approve it. As this account, which needs a published resume, or as an employer this account posts for ("as"). Writing again replaces the earlier one. Ten a day.',
+    inputSchema: object(
+      {
+        candidate: string("A candidate's slug."),
+        org: string("An employer's slug."),
+        as: string('Write as this employer. Optional.'),
+        relationship: string('"Hired them for a three-month contract". Optional.'),
+        body: string('What you would say. Plain text, 20 to 2000 characters.'),
+      },
+      ['body'],
+    ),
+  },
+  {
+    name: 'list_recommendations',
+    title: 'Recommendations about this account',
+    description:
+      'What has been written about this account and its employers, every status, and what this account wrote. Pending ones are waiting for a decision.',
+    inputSchema: object({}),
+  },
+  {
+    name: 'decide_recommendation',
+    title: 'Approve, reject or withdraw a recommendation',
+    description:
+      'approve puts one written about you on your page; reject keeps it off, and can be used later to take an approved one down; withdraw deletes one you wrote.',
+    inputSchema: object(
+      {
+        id: string('The recommendation id, from list_recommendations.'),
+        action: { type: 'string', enum: ['approve', 'reject', 'withdraw'] },
+      },
+      ['id', 'action'],
+    ),
+  },
+  {
     name: 'search_network',
     title: 'Search every board',
     description:
@@ -567,6 +603,61 @@ export async function callTool(
       if (response.status === 401) return toolError(signInFirst(caller));
       if (response.status !== 200) return toolError(message(response.body, 'Nobody by that name.'));
       return text(wanted ? 'Following.' : 'Not following.', response.body);
+    }
+
+    case 'recommend': {
+      const candidate = typeof args['candidate'] === 'string' ? args['candidate'] : '';
+      const org = typeof args['org'] === 'string' ? args['org'] : '';
+      if (candidate === '' && org === '') return toolError('Name a candidate with candidate, or an employer with org.');
+      const path =
+        candidate !== ''
+          ? `/api/v1/candidates/${encodeURIComponent(candidate)}/recommendations`
+          : `/api/v1/orgs/${encodeURIComponent(org)}/recommendations`;
+      const response = await caller.call('POST', path, {
+        body: args['body'],
+        ...(typeof args['relationship'] === 'string' ? { relationship: args['relationship'] } : {}),
+        ...(typeof args['as'] === 'string' && args['as'] !== '' ? { as: args['as'] } : {}),
+      });
+      if (response.status === 401) return toolError(signInFirst(caller));
+      if (response.status !== 201) return toolError(message(response.body, 'The recommendation was not written.'));
+      const written = (response.body as { recommendation?: { subject?: { name?: string }; author?: { name?: string } } }).recommendation;
+      return text(
+        `Written, from ${written?.author?.name ?? 'you'}. It is pending until ${written?.subject?.name ?? 'they'} approves it, and is not on their page until then.`,
+        response.body,
+      );
+    }
+
+    case 'list_recommendations': {
+      const response = await caller.call('GET', '/api/v1/me/recommendations');
+      if (response.status === 401) return toolError(signInFirst(caller));
+      const mine = response.body as {
+        received: { id: string; status: string; author: { name: string }; subject: { name: string }; body: string }[];
+        given: { id: string; status: string; subject: { name: string }; body: string }[];
+        pending: number;
+      };
+      const lines = [
+        `${mine.pending} waiting for a decision.`,
+        '',
+        ...mine.received.map((item) => `- [${item.status}] ${item.author.name} about ${item.subject.name}: ${item.body.slice(0, 100)} [${item.id}]`),
+        ...(mine.given.length > 0 ? ['', 'You wrote:'] : []),
+        ...mine.given.map((item) => `- [${item.status}] about ${item.subject.name}: ${item.body.slice(0, 100)} [${item.id}]`),
+      ];
+      return text(lines.join('\n'), response.body);
+    }
+
+    case 'decide_recommendation': {
+      const action = String(args['action'] ?? '');
+      if (!['approve', 'reject', 'withdraw'].includes(action)) return toolError('action is approve, reject or withdraw.');
+      const response = await caller.call(
+        'POST',
+        `/api/v1/recommendations/${encodeURIComponent(String(args['id'] ?? ''))}/${action}`,
+      );
+      if (response.status === 401) return toolError(signInFirst(caller));
+      if (response.status !== 200) return toolError(message(response.body, 'Nothing changed.'));
+      return text(
+        action === 'approve' ? 'Approved. It is on the page now.' : action === 'reject' ? 'Rejected. It is not shown.' : 'Withdrawn.',
+        response.body,
+      );
     }
 
     case 'search_network': {

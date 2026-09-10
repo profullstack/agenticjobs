@@ -42,6 +42,17 @@ export interface ClientOptions {
   userAgent?: string;
 }
 
+export interface RecommendationLike {
+  id: string;
+  body: string;
+  relationship: string | null;
+  status: string;
+  author: { kind: string; name: string; slug: string | null };
+  subject: { kind: string; name: string; slug: string | null };
+  createdAt: string;
+  decidedAt: string | null;
+}
+
 export class BoardClient {
   readonly server: string;
   private token: string | null;
@@ -403,6 +414,38 @@ export class BoardClient {
     connectUrl?: string;
   }> {
     return this.request('GET', '/api/v1/coinpay');
+  }
+
+  // --- recommendations --------------------------------------------------
+
+  async recommendations(subject: { candidate?: string; org?: string }): Promise<{ items: RecommendationLike[]; total: number }> {
+    const path =
+      subject.candidate !== undefined && subject.candidate !== ''
+        ? `/api/v1/candidates/${encodeURIComponent(subject.candidate)}/recommendations`
+        : `/api/v1/orgs/${encodeURIComponent(subject.org ?? '')}/recommendations`;
+    return this.request('GET', path);
+  }
+
+  async recommend(
+    subject: { candidate?: string; org?: string },
+    input: { body: string; relationship?: string; as?: string },
+  ): Promise<{ recommendation: RecommendationLike }> {
+    const path =
+      subject.candidate !== undefined && subject.candidate !== ''
+        ? `/api/v1/candidates/${encodeURIComponent(subject.candidate)}/recommendations`
+        : `/api/v1/orgs/${encodeURIComponent(subject.org ?? '')}/recommendations`;
+    return this.request('POST', path, input);
+  }
+
+  async myRecommendations(): Promise<{ received: RecommendationLike[]; given: RecommendationLike[]; pending: number }> {
+    return this.request('GET', '/api/v1/me/recommendations');
+  }
+
+  async decideRecommendation(
+    id: string,
+    action: 'approve' | 'reject' | 'withdraw',
+  ): Promise<{ recommendation?: RecommendationLike; withdrawn?: boolean }> {
+    return this.request('POST', `/api/v1/recommendations/${encodeURIComponent(id)}/${action}`);
   }
 
   // --- federation -------------------------------------------------------

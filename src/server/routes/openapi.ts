@@ -42,6 +42,11 @@ export function openApiDocument(config: Config): Record<string, unknown> {
       { name: 'employers', description: 'The organisations a listing belongs to.' },
       { name: 'updates', description: 'Short posts from employers and candidates, and following them.' },
       {
+        name: 'recommendations',
+        description:
+          'What somebody who worked with you says about you, on your page once you approve it. Not a rating: a paragraph with a name on it, in either direction.',
+      },
+      {
         name: 'inbox',
         description: 'Private conversations. The only way to reach somebody here; there is no public commenting.',
       },
@@ -574,6 +579,77 @@ export function openApiDocument(config: Config): Record<string, unknown> {
             },
           ],
           responses: { 200: ok('The listing.'), 400: err(), 401: err(), 403: err(), 404: err() },
+        },
+      },
+      '/api/v1/candidates/{slug}/recommendations': {
+        get: {
+          tags: ['recommendations'],
+          summary: "The approved recommendations on a candidate's page.",
+          parameters: [pathParam('slug')],
+          responses: { 200: ok('Recommendations.'), 404: err() },
+        },
+        post: {
+          tags: ['recommendations'],
+          summary: 'Recommend a candidate.',
+          description:
+            'As yourself, which needs a published resume so it is signed by a page, or as an employer you post for ("as"). Pending until the candidate approves it; writing again replaces it. Ten a day.',
+          security: [{ bearer: [] }],
+          parameters: [pathParam('slug')],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['body'],
+                  properties: {
+                    body: { type: 'string', minLength: 20, maxLength: 2000 },
+                    relationship: { type: 'string', maxLength: 120, description: '"Hired them for a three-month contract".' },
+                    as: { type: 'string', description: 'An employer slug you post for.' },
+                  },
+                },
+              },
+            },
+          },
+          responses: { 201: ok('The recommendation, pending.'), 400: err(), 401: err(), 403: err(), 404: err(), 429: err() },
+        },
+      },
+      '/api/v1/orgs/{slug}/recommendations': {
+        get: {
+          tags: ['recommendations'],
+          summary: "The approved recommendations on an employer's page.",
+          parameters: [pathParam('slug')],
+          responses: { 200: ok('Recommendations.'), 404: err() },
+        },
+        post: {
+          tags: ['recommendations'],
+          summary: 'Recommend an employer.',
+          description: 'The same rules as recommending a candidate. Members cannot recommend their own employer.',
+          security: [{ bearer: [] }],
+          parameters: [pathParam('slug')],
+          responses: { 201: ok('The recommendation, pending.'), 400: err(), 401: err(), 403: err(), 404: err(), 429: err() },
+        },
+      },
+      '/api/v1/me/recommendations': {
+        get: {
+          tags: ['recommendations'],
+          summary: 'About you and your employers, every status, and what you wrote.',
+          security: [{ bearer: [] }],
+          responses: { 200: ok('received, given, and how many are pending.'), 401: err() },
+        },
+      },
+      '/api/v1/recommendations/{id}/{action}': {
+        post: {
+          tags: ['recommendations'],
+          summary: 'approve or reject one written about you, or withdraw one you wrote.',
+          description:
+            'The subject decides, and can change their mind later: an approved one can be rejected, which takes it off the page. Withdraw deletes one you wrote.',
+          security: [{ bearer: [] }],
+          parameters: [
+            pathParam('id'),
+            { name: 'action', in: 'path', required: true, schema: { type: 'string', enum: ['approve', 'reject', 'withdraw'] } },
+          ],
+          responses: { 200: ok('The recommendation, or withdrawn: true.'), 401: err(), 404: err() },
         },
       },
       '/api/v1/auth/magic-link': {

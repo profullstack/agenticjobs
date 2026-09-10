@@ -95,6 +95,16 @@ import {
   type Target,
   type Update,
 } from '../../core/updates.ts';
+import {
+  decide as decideRecommendation,
+  listApproved,
+  listGiven,
+  listReceived,
+  notifySubject,
+  resolve as resolveRecommendation,
+  withdraw as withdrawRecommendation,
+  writeRecommendation,
+} from '../../core/recommendations.ts';
 import { sameOrigin } from '../../config.ts';
 import { announce, Blocked, listInstances, listTopics } from '../../directory/registry.ts';
 import { federatedSearch, targetsFromDescriptors } from '../../directory/federate.ts';
@@ -1075,6 +1085,100 @@ export function apiRoutes(): Hono<AppEnv> {
     if (viewer === null) return fail(c, 401, 'unauthorised', 'Sign in to see who you follow.');
     const items = await listFollowing(pool, viewer.id);
     return c.json({ items, total: items.length });
+  });
+
+  // --- recommendations ----------------------------------------------------
+
+  /**
+   * Written by somebody who worked with the subject, shown once the subject
+   * approves. Reading is public: an approved recommendation is on the page.
+   */
+  api.get('/candidates/:slug/recommendations', async (c) => {
+    const { pool } = c.get('deps');
+    const userId = await userForCandidate(pool, c.req.param('slug'));
+    if (userId === null) return fail(c, 404, 'not_found', `Nobody here is "${c.req.param('slug')}".`);
+    const items = await listApproved(pool, { kind: 'candidate', userId });
+    return c.json({ items, total: items.length });
+  });
+
+  api.get('/orgs/:slug/recommendations', async (c) => {
+    const { pool } = c.get('deps');
+    const org = await getOrgBySlug(pool, c.req.param('slug'));
+    if (org === null) return fail(c, 404, 'not_found', `No employer here is "${c.req.param('slug')}".`);
+    const items = await listApproved(pool, { kind: 'employer', orgId: org.id });
+    return c.json({ items, total: items.length });
+  });
+
+  /**
+   * Write one. As yourself, which needs a published resume so it is signed
+   * by a page, or as an employer you post for ("as"). It is pending until
+   * the subject approves it, and writing again replaces it.
+   */
+  const recommend = async (c: Ctx, target: { candidate?: string; org?: string }): Promise<Response> => {
+    const { pool, config, mailer } = c.get('deps');
+    const viewer = viewerOf(c);
+    if (viewer === null) return fail(c, 401, 'unauthorised', 'Sign in to write a recommendation.');
+    const body = await readBody(c);
+    const resolved = await resolveRecommendation(pool, viewer.id, {
+      ...target,
+      ...(typeof body['as'] === 'string' ? { as: body['as'] } : {}),
+    });
+    if (typeof resolved === 'string') {
+      const notFound = /^Nobody here|^No employer/.test(resolved);
+      const noPage = /Publish a resume|signed by a page/.test(resolved);
+      return fail(c, notFound ? 404 : noPage ? 403 : 400, notFound ? 'not_found' : noPage ? 'no_profile' : 'invalid', resolved);
+    }
+    const written = await writeRecommendation(pool, viewer.id, {
+      as: resolved.as,
+      subject: resolved.subject,
+      body: body['body'],
+      relationship: body['relationship'],
+    });
+    if (typeof written === 'string') {
+      return fail(c, /limit/.test(written) ? 429 : 400, /limit/.test(written) ? 'rate_limited' : 'invalid', written);
+    }
+    void notifySubject({
+      pool,
+      mailer,
+      boardName: config.boardName,
+      publicUrl: config.publicUrl,
+      recommendation: written,
+      subject: resolved.subject,
+    }).catch(() => undefined);
+    return c.json({ recommendation: written }, 201);
+  };
+
+  api.post('/candidates/:slug/recommendations', (c) => recommend(c, { candidate: c.req.param('slug') }));
+  api.post('/orgs/:slug/recommendations', (c) => recommend(c, { org: c.req.param('slug') }));
+
+  /** About you and your employers, every status, and what you wrote. */
+  api.get('/me/recommendations', async (c) => {
+    const { pool } = c.get('deps');
+    const viewer = viewerOf(c);
+    if (viewer === null) return fail(c, 401, 'unauthorised', 'Sign in to see your recommendations.');
+    const [received, given] = await Promise.all([listReceived(pool, viewer.id), listGiven(pool, viewer.id)]);
+    return c.json({ received, given, pending: received.filter((item) => item.status === 'pending').length });
+  });
+
+  /**
+   * Approve or reject one written about you, or withdraw one you wrote. A
+   * 404 covers "no such recommendation" and "not yours to decide", which
+   * are the same fact to a caller who should not be able to tell.
+   */
+  api.post('/recommendations/:id/:action{approve|reject|withdraw}', async (c) => {
+    const { pool } = c.get('deps');
+    const viewer = viewerOf(c);
+    if (viewer === null) return fail(c, 401, 'unauthorised', 'Sign in first.');
+    const id = c.req.param('id');
+    const action = c.req.param('action');
+    if (action === 'withdraw') {
+      const gone = await withdrawRecommendation(pool, viewer.id, id);
+      if (!gone) return fail(c, 404, 'not_found', 'No such recommendation, or it is not yours to withdraw.');
+      return c.json({ withdrawn: true });
+    }
+    const decided = await decideRecommendation(pool, viewer.id, id, action === 'approve' ? 'approved' : 'rejected');
+    if (decided === null) return fail(c, 404, 'not_found', 'No such recommendation, or it is not yours to decide.');
+    return c.json({ recommendation: decided });
   });
 
   // --- sign in ----------------------------------------------------------

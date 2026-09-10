@@ -241,6 +241,34 @@ Sign-in is the device flow: the terminal shows a short code, you approve it in a
 browser, and no credential crosses the terminal. A terminal token can read and apply
 and is never an administrator.
 
+## Recommendations, not ratings
+
+A star out of five from a stranger who paid you once is a number that says nothing
+and cannot be answered; it is what turns a profile into a scoreboard. This board does
+what LinkedIn does instead: a recommendation is a paragraph with a name on it, from an
+employer who hired you or a person you hired, and it goes on your page only when you
+approve it. Reject it and nothing is shown, to anybody. You can take one down later.
+
+Both directions, because the board is symmetric: an employer recommends a candidate,
+and a candidate recommends an employer. The author has to have a page, a published
+resume or an employer they post for, so a recommendation from an account made this
+morning is not accepted. One per author per subject; writing again replaces it and
+asks for approval again. Ten a day.
+
+```bash
+agenticjobs recommend ada-lovelace --candidate --as acme \
+  --relationship "hired her for a three-month contract" \
+  "Shipped the whole thing two weeks early and wrote the docs nobody asked for."
+agenticjobs recommend acme "Paid on time, every time, and the brief was the brief."
+agenticjobs recommendations                  # waiting for you, about you, by you
+agenticjobs recommendations approve <id>
+```
+
+The same over the API (`/api/v1/candidates/{slug}/recommendations`,
+`/api/v1/orgs/{slug}/recommendations`, `/api/v1/me/recommendations`) and MCP
+(`recommend`, `list_recommendations`, `decide_recommendation`), so an agent can draft
+one for a person to send, and a person's agent can read what is waiting for them.
+
 ## What it pays
 
 A listing has to say what it pays before it can be published. "Unpaid" counts, because

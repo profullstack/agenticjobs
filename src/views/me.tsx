@@ -11,6 +11,8 @@ import { ago } from '../schema/text.ts';
 import { Alert, Badge, Card, Empty, Field, Prose } from './layout.tsx';
 import { UpdateComposer, UpdateList } from './updates.tsx';
 import type { Following, Update } from '../core/updates.ts';
+import type { Recommendation } from '../core/recommendations.ts';
+import { RecommendationsSection } from './recommendations.tsx';
 
 export const MePage: FC<PropsWithChildren<{
   viewer: Viewer;
@@ -28,6 +30,8 @@ export const MePage: FC<PropsWithChildren<{
    */
   candidateSlug: string | null;
   updateMax: number;
+  /** About you and your employers, and what you wrote about others. */
+  recommendations?: { received: Recommendation[]; given: Recommendation[]; error?: string };
 }>> = ({
   viewer,
   orgs,
@@ -38,6 +42,7 @@ export const MePage: FC<PropsWithChildren<{
   following,
   candidateSlug,
   updateMax,
+  recommendations = { received: [], given: [] },
   children,
 }) => (
   <div class="stack">
@@ -123,6 +128,12 @@ export const MePage: FC<PropsWithChildren<{
         </p>
       )}
     </section>
+
+    <RecommendationsSection
+      received={recommendations.received}
+      given={recommendations.given}
+      {...(recommendations.error === undefined ? {} : { error: recommendations.error })}
+    />
 
     <section class="stack">
       <div class="spread">
