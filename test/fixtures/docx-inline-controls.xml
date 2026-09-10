@@ -19,5 +19,14 @@
     <w:p>
       <w:r><w:t xml:space="preserve">Plain &amp; </w:t></w:r><w:r><w:t>escaped &lt;text&gt;</w:t></w:r>
     </w:p>
+    <w:p>
+      <w:r><w:t>Ren&#xE9;e / Ren&#xe9;e / Ren&#233;e / &#x674E;&#x534E; / &#x1F4BB;</w:t></w:r>
+    </w:p>
+    <w:p>
+      <w:r><w:t>&lt;text&gt; &quot;quoted&quot; &apos;apostrophe&apos; &amp;</w:t></w:r>
+    </w:p>
+    <w:p>
+      <w:r><w:t>Literal references: &#38;amp; / &#x26;lt; / &amp;#65;</w:t></w:r>
+    </w:p>
   </w:body>
 </w:document>
