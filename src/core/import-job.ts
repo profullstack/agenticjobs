@@ -225,10 +225,12 @@ export function extractJob(html: string, sourceUrl: string): ImportedJob {
     warnings.push('The page had a JobPosting but it was missing a title or a description.');
   }
 
+  // Decoding a missing or blank heading returns an empty string, not null.
+  // Keep trying the next source until there is a readable title.
   const title = trimSiteName(
-    metaContent(html, 'og:title') ??
-      decode(/<h1[^>]*>([\s\S]*?)<\/h1>/i.exec(html)?.[1]?.replace(/<[^>]+>/g, '') ?? '') ??
-      decode(/<title[^>]*>([\s\S]*?)<\/title>/i.exec(html)?.[1] ?? ''),
+    metaContent(html, 'og:title')?.trim() ||
+      decode(/<h1[^>]*>([\s\S]*?)<\/h1>/i.exec(html)?.[1]?.replace(/<[^>]+>/g, '') ?? '').trim() ||
+      decode(/<title[^>]*>([\s\S]*?)<\/title>/i.exec(html)?.[1] ?? '').trim(),
   );
   if (title === '') throw new JobImportProblem('That page has no title, so there is nothing to import.');
 

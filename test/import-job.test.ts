@@ -77,6 +77,66 @@ test('scripts and styles never become the description', () => {
   assert.match(job.description, /Real text\./);
 });
 
+for (const scenario of [
+  {
+    label: 'the document title when no Open Graph title or heading exists',
+    meta: '',
+    heading: '',
+    expected: 'Research & Development Engineer',
+  },
+  {
+    label: 'the document title when the heading contains only whitespace',
+    meta: '',
+    heading: '<h1> <span>&nbsp;</span> </h1>',
+    expected: 'Research & Development Engineer',
+  },
+  {
+    label: 'the heading when the Open Graph title decodes to whitespace',
+    meta: '<meta property="og:title" content="&nbsp;">',
+    heading: '<h1>Heading role</h1>',
+    expected: 'Heading role',
+  },
+  {
+    label: 'the Open Graph title ahead of both the heading and document title',
+    meta: '<meta property="og:title" content="Metadata role | Example Careers">',
+    heading: '<h1>Heading role</h1>',
+    expected: 'Metadata role',
+  },
+  {
+    label: 'the heading ahead of the document title',
+    meta: '',
+    heading: '<h1><span>Design &amp; Engineering</span></h1>',
+    expected: 'Design & Engineering',
+  },
+]) {
+  test(`a page import uses ${scenario.label}`, () => {
+    const html = `<!doctype html><html><head>
+      <title>Research &amp; Development Engineer | Example Careers</title>
+      ${scenario.meta}</head><body><main>${scenario.heading}
+      <p>Build useful tools.</p></main></body></html>`;
+    const job = extractJob(html, 'https://example.com/jobs/engineer');
+    assert.equal(job.via, 'page');
+    assert.equal(job.title, scenario.expected);
+    assert.match(job.description, /Build useful tools\./);
+    assert.ok(job.warnings.some((warning) => /no JobPosting data/i.test(warning)));
+  });
+}
+
+test('a document title alone does not allow an empty description to be imported', () => {
+  assert.throws(
+    () =>
+      extractJob(
+        '<html><head><title>Role</title></head><body><main></main></body></html>',
+        'https://example.com/jobs/empty',
+      ),
+    (error: unknown) => {
+      assert.ok(error instanceof JobImportProblem);
+      assert.match(error.message, /no readable text/);
+      return true;
+    },
+  );
+});
+
 test('a malformed JSON-LD block does not abandon the import', () => {
   const html = `<script type="application/ld+json">{ this is not json </script>
     <body><main><h1>Still a job</h1><p>Body text.</p></main></body>`;
