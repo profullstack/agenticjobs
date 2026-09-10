@@ -126,12 +126,10 @@ export class BoardClient {
       } catch {
         // A board that answers HTML where JSON was asked for is usually a
         // proxy or a login wall, and saying so beats "unexpected token <".
-        if (!response.ok) {
-          throw new ApiError(
-            `${this.server} answered ${response.status} with something that is not JSON. Is that a board?`,
-            response.status,
-          );
-        }
+        throw new ApiError(
+          `${this.server} answered ${response.status} with something that is not JSON. Is that a board?`,
+          response.status,
+        );
       }
 
       if (!response.ok) {
