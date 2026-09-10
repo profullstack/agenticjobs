@@ -114,13 +114,21 @@ function jsonLdNodes(html: string): Record<string, unknown>[] {
     /<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi,
   );
   for (const block of blocks) {
+    const source = block[1] ?? '';
     let parsed: unknown;
     try {
-      parsed = JSON.parse(decode(block[1] ?? ''));
+      // Entities inside valid JSON belong to its values. Decoding first can
+      // turn &quot; into JSON syntax or escaped description text into tags.
+      parsed = JSON.parse(source);
     } catch {
-      // A malformed block is not a reason to abandon the import; there is
-      // usually more than one and the page still has readable text.
-      continue;
+      try {
+        // Keep accepting pages that escaped the entire block as HTML.
+        parsed = JSON.parse(decode(source));
+      } catch {
+        // A malformed block is not a reason to abandon the import; there is
+        // usually more than one and the page still has readable text.
+        continue;
+      }
     }
     const queue = Array.isArray(parsed) ? [...parsed] : [parsed];
     while (queue.length > 0) {

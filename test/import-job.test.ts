@@ -39,6 +39,68 @@ test('a page that publishes JobPosting data is read from the data', () => {
   assert.ok(!job.description.includes('ignored furniture'));
 });
 
+for (const scenario of [
+  {
+    label: 'named quote entities',
+    description: '<p>Maintain &quot;Search&quot; &amp; Ranking.</p>',
+    expected: 'Maintain "Search" & Ranking.',
+  },
+  {
+    label: 'numeric quote entities',
+    description: '<p>Maintain &#34;Search&#34;.</p>',
+    expected: 'Maintain "Search".',
+  },
+  {
+    label: 'escaped angle brackets',
+    description: '<p>Write examples using &lt;Job&gt; and &lt;/Job&gt;.</p>',
+    expected: 'Write examples using <Job> and </Job>.',
+  },
+  {
+    label: 'literal entity examples',
+    description: '<p>Document the &amp;quot; entity.</p>',
+    expected: 'Document the &quot; entity.',
+  },
+]) {
+  test(`a JSON-LD description preserves ${scenario.label}`, () => {
+    const data = JSON.stringify({
+      '@context': 'https://schema.org',
+      '@type': 'JobPosting',
+      title: 'Structured role',
+      description: scenario.description,
+      employmentType: 'FULL_TIME',
+      jobLocationType: 'TELECOMMUTE',
+    });
+    const html = `<script type="application/ld+json">${data}</script>
+      <main><h1>Fallback role</h1><p>Fallback description.</p></main>`;
+    const job = extractJob(html, 'https://example.com/jobs/structured');
+    assert.equal(job.via, 'jsonld');
+    assert.equal(job.title, 'Structured role');
+    assert.equal(job.description, scenario.expected);
+    assert.equal(job.employmentType, 'full-time');
+    assert.equal(job.workplace, 'remote');
+    assert.deepEqual(job.warnings, []);
+  });
+}
+
+test('a whole JSON-LD block escaped as HTML remains importable', () => {
+  const escaped = JSON.stringify({
+    '@type': 'JobPosting',
+    title: 'Legacy role',
+    description: '<p>Research &amp; development.</p>',
+  })
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+  const job = extractJob(
+    `<script type="application/ld+json">${escaped}</script>`,
+    'https://example.com/jobs/legacy',
+  );
+  assert.equal(job.via, 'jsonld');
+  assert.equal(job.title, 'Legacy role');
+  assert.equal(job.description, 'Research & development.');
+});
+
 test('a JobPosting inside an @graph is still found', () => {
   const html = `<script type="application/ld+json">
     {"@context":"https://schema.org","@graph":[
