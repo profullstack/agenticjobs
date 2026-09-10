@@ -31,14 +31,7 @@ const AGENTS_KEYS = /^(agents?|sub-?agents?|swarm(\s*size)?|parallelism|capacity
 /** Contact keys that answer "what does it cost". */
 const RATE_KEYS = /^(rate|rates|price|pricing|cost|hourly|hourly\s*rate)$/i;
 
-/**
- * Currency symbols we understand, mapped to the code we report.
- *
- * Deliberately short. A symbol we do not know is not an error — the amount
- * still parses and the currency comes back as written, so a resume priced in
- * something exotic is listed with its own label rather than silently relabelled
- * as dollars.
- */
+/** Currency symbols used when no supported currency code is stated. */
 const SYMBOLS: [string, string][] = [
   ['$', 'USD'],
   ['€', 'EUR'],
@@ -53,7 +46,7 @@ export interface SwarmCapacity {
   ratePerAgent: number | null;
   /** Hourly cost of the whole swarm. Null when the resume gave no price. */
   totalPerHour: number | null;
-  /** ISO code where we recognised one, otherwise the symbol as written. */
+  /** Recognised currency code, defaulting to USD when no currency is recognised. */
   currency: string;
   /**
    * True when the resume priced one agent and we multiplied, false when it
@@ -116,22 +109,22 @@ export function parseRate(value: string): ParsedRate | null {
   const text = value.trim();
   if (text === '') return null;
 
-  let currency = '';
-  for (const [symbol, code] of SYMBOLS) {
-    if (text.includes(symbol)) {
-      currency = code;
-      break;
-    }
-  }
+  // An explicit code qualifies an ambiguous symbol, e.g. "CAD $100".
+  const code = /\b(usd|eur|gbp|jpy|cad|aud|chf|sek|nzd)\b/i.exec(text);
+  let currency = code?.[1]?.toUpperCase() ?? '';
   if (currency === '') {
-    const code = /\b(usd|eur|gbp|jpy|cad|aud|chf|sek|nzd)\b/i.exec(text);
-    if (code?.[1] !== undefined) currency = code[1].toUpperCase();
+    for (const [symbol, symbolCode] of SYMBOLS) {
+      if (text.includes(symbol)) {
+        currency = symbolCode;
+        break;
+      }
+    }
   }
 
   // Strip any currency code before looking for digits, or "USD 100" would be
   // fine but a stray code containing digits would not.
   const numeric = text.replace(/\b[a-z]{3}\b/gi, ' ').replace(/,/g, '');
-  const match = /\d+(?:\.\d+)?/.exec(numeric);
+  const match = /(?:\d+(?:\.\d+)?|\.\d+)/.exec(numeric);
   if (match === null) return null;
   const amount = Number.parseFloat(match[0]);
   if (!Number.isFinite(amount) || amount <= 0) return null;

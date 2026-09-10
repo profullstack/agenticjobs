@@ -101,6 +101,45 @@ test('currency is reported, not assumed to be dollars', () => {
   assert.match(formatCapacity(capacity!), /EUR/);
 });
 
+test('a stated currency code qualifies a dollar amount in a resume', () => {
+  for (const [rate, currency] of [
+    ['CAD $100/hour/agent', 'CAD'],
+    ['$100 AUD/hour/agent', 'AUD'],
+    ['nzd $100/hour/agent', 'NZD'],
+  ] as const) {
+    const resume = parseResume(`# Example\n\n- **Agents**: 2\n- **Rate**: ${rate}\n`);
+    const capacity = parseCapacity(resume.contact);
+    assert.equal(capacity?.currency, currency, rate);
+    assert.equal(capacity?.totalPerHour, 200, rate);
+    assert.equal(
+      formatCapacity(capacity!),
+      `2 agents · ${currency} 100/hr each · ${currency} 200/hr total`,
+      rate,
+    );
+  }
+});
+
+test('a fractional rate does not need a leading zero', () => {
+  for (const [rate, amount] of [
+    ['$.50/hour', 0.5],
+    ['$.05/hr', 0.05],
+    ['$.005/hr', 0.005],
+    ['$0.50/hour', 0.5],
+  ] as const) {
+    assert.deepEqual(parseRate(rate), { amount, currency: 'USD', perAgent: false }, rate);
+  }
+  assert.equal(parseRate('$.00/hour'), null);
+  assert.equal(parseRate('$./hour'), null);
+});
+
+test('fractional per-agent rates retain their value in the displayed total', () => {
+  const resume = parseResume('# Example\n\n- **Agents**: 3\n- **Rate**: $.25/hour/agent\n');
+  const capacity = parseCapacity(resume.contact);
+  assert.equal(capacity?.ratePerAgent, 0.25);
+  assert.equal(capacity?.totalPerHour, 0.75);
+  assert.equal(formatCapacity(capacity!), '3 agents · $0.25/hr each · $0.75/hr total');
+});
+
 test('a single agent is formatted without a redundant total', () => {
   const capacity = parseCapacity(
     contact([
