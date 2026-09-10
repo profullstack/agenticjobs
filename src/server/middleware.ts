@@ -41,12 +41,21 @@ export function withViewer(deps: Deps): MiddlewareHandler<AppEnv> {
       c.set('viewer', viewer);
       // The nav's unread count, for a person on a page. One indexed query, and
       // only on the surface that has a nav: an API call has nowhere to show it.
-      if (viewer !== null && !c.req.path.startsWith('/api/') && !c.req.path.startsWith('/assets/')) {
+      if (
+        viewer !== null &&
+        !c.req.path.startsWith('/api/') &&
+        !c.req.path.startsWith('/assets/')
+      ) {
         c.set('unread', await unreadThreads(deps.pool, viewer.id));
       }
     }
     await next();
   };
+}
+
+/** The origin of a URL, for a CSP source list; a bare origin passes through. */
+function originOf(url: string): string {
+  return new URL(url).origin;
 }
 
 /**
@@ -63,12 +72,23 @@ export function withViewer(deps: Deps): MiddlewareHandler<AppEnv> {
  * `style` attribute for a computed width - note that in CSP a style ATTRIBUTE
  * is covered by style-src, not by style-src-attr alone, which is a distinction
  * that has cost time before.
+ *
+ * form-action covers more than where a form posts. Chrome and Safari also
+ * apply it to the redirect a form submission comes back with, so a POST that
+ * answers 303 to another origin is refused by the browser and the person is
+ * left on a blank page with the work already done on the server. Paying an
+ * invoice is exactly that shape: the board mints the quote and sends the
+ * payer to CoinPay's hosted page. Every origin a form may be sent on to is
+ * named here; 'self' alone looked complete and was not.
  */
-export function securityHeaders(): MiddlewareHandler<AppEnv> {
+export function securityHeaders(
+  options: { formActions?: string[] } = {},
+): MiddlewareHandler<AppEnv> {
+  const formActions = ["'self'", ...(options.formActions ?? []).map(originOf)].join(' ');
   const policy = [
     `default-src 'self'`,
     `base-uri 'self'`,
-    `form-action 'self'`,
+    `form-action ${formActions}`,
     `frame-ancestors 'none'`,
     `object-src 'none'`,
     `script-src 'self' https://crawlproof.com`,

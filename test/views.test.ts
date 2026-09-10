@@ -104,7 +104,9 @@ test('searching from a tagged page keeps the tag', async () => {
   const { EMPTY_QUERY } = await import('../dist/schema/query.js');
 
   const html = String(
-    Filters({ query: { ...EMPTY_QUERY, tags: ['javascript', 'react'], salaryMin: 100, org: 'acme' } }),
+    Filters({
+      query: { ...EMPTY_QUERY, tags: ['javascript', 'react'], salaryMin: 100, org: 'acme' },
+    }),
   );
 
   assert.match(html, /name="tags" value="javascript,react"/, 'tags must survive a search');
@@ -239,6 +241,27 @@ test('the third-party script is a real tag, and the policy lets it run', async (
 
   assert.match(policy, /script-src [^;]*'self'/, "the board's own script still runs");
   assert.match(policy, /script-src [^;]*https:\/\/crawlproof\.com/, 'and so does the stats tag');
+});
+
+test('the policy lets a payer be sent on to CoinPay after they press Pay', async () => {
+  // Pay is a form. The board mints the quote and answers 303 to CoinPay's
+  // hosted page, and Chrome checks that redirect against form-action too. With
+  // 'self' alone the payment existed and the person saw nothing happen.
+  const { securityHeaders } = await import('../dist/server/middleware.js');
+
+  const withCoinPay = new Headers();
+  await securityHeaders({ formActions: ['https://coinpayportal.com/pay/x'] })(
+    { res: { headers: withCoinPay } } as never,
+    async () => undefined,
+  );
+  const policy = withCoinPay.get('content-security-policy') ?? '';
+  assert.match(policy, /form-action 'self' https:\/\/coinpayportal\.com(;|$)/, policy);
+  assert.ok(!policy.includes('coinpayportal.com/pay'), 'an origin is listed, not a path');
+
+  // A board with no billing names nobody else.
+  const without = new Headers();
+  await securityHeaders()({ res: { headers: without } } as never, async () => undefined);
+  assert.match(without.get('content-security-policy') ?? '', /form-action 'self'(;|$)/);
 });
 
 test('an employer can act on an application from the page they read it on', async () => {
