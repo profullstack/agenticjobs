@@ -35,6 +35,27 @@ test('an unspecified salary and an unpaid one read differently', () => {
   );
 });
 
+test('one-sided salary ranges are labelled as bounds, not fixed pay', () => {
+  assert.equal(
+    formatSalary({ min: null, max: 120_000, currency: 'USD', period: 'year' }),
+    'Up to $120k a year',
+  );
+  assert.equal(
+    formatSalary({ min: 120_000, max: null, currency: 'EUR', period: 'year' }),
+    'From €120k a year',
+  );
+  assert.equal(
+    formatSalary({ min: 120_000, max: 120_000, currency: 'USD', period: 'year' }),
+    '$120k a year',
+    'equal endpoints still describe fixed pay',
+  );
+  assert.equal(
+    formatSalary({ min: 120_000, max: null, currency: 'USD', period: 'year', unpaid: true }),
+    'Unpaid',
+    'an explicit unpaid flag still wins over a stale bound',
+  );
+});
+
 test('unpaid beats any range that came with it', () => {
   // A form can post a stale range alongside a ticked box. "Unpaid, $40k a
   // year" is not a listing anybody can act on.
