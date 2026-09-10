@@ -37,13 +37,21 @@ export function createApp(
   const app = new Hono<AppEnv>();
 
   app.use('*', withViewer(deps));
-  app.use('*', securityHeaders());
+  // A payer is sent from a form on this board to CoinPay's hosted pay page,
+  // and the policy has to say so or the browser stops the redirect.
+  app.use(
+    '*',
+    securityHeaders({ formActions: config.coinpay === null ? [] : [config.coinpay.url] }),
+  );
   app.use('/api/*', apiCors());
 
   app.route('/api/v1', apiRoutes());
   // The MCP tools call this same app, so the getter is resolved lazily: the
   // app does not exist yet at the point the routes are mounted on it.
-  app.route('/api/mcp', mcpRoutes(() => app));
+  app.route(
+    '/api/mcp',
+    mcpRoutes(() => app),
+  );
   app.route('/auth/passkey', passkeyRoutes());
   app.route('/', discoveryRoutes());
   app.route('/', inboxRoutes());
