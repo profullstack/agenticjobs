@@ -179,9 +179,11 @@ function amountOf(digits: string, scale: string | undefined): number {
   return base * factor;
 }
 
-/** One money token: an optional symbol or code, digits, an optional k/m. */
+/** One money token: an optional symbol or code, digits, an optional k/m.
+ * A scale must end before a letter so it cannot consume a ticker or "monthly".
+ */
 const MONEY =
-  /(?:([$€£¥])\s*)?(?:([A-Za-z]{3,5})\s+)?(\d[\d,_]*(?:\.\d+)?)\s*([kKmM])?(?:\s*([$€£¥])|\s*([A-Za-z]{3,5})\b)?/y;
+  /(?:([$€£¥])\s*)?(?:([A-Za-z]{3,5})\s+)?(\d[\d,_]*(?:\.\d+)?)\s*([kKmM](?![A-Za-z]))?(?:\s*([$€£¥])|\s*([A-Za-z]{3,5})\b)?/y;
 
 interface Money {
   amount: number;
