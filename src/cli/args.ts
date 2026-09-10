@@ -122,7 +122,9 @@ export function flagString(args: Args, ...names: string[]): string | undefined {
 
 export function flagBool(args: Args, ...names: string[]): boolean {
   for (const name of names) {
-    const value = args.flags[name];
+    const raw = args.flags[name];
+    // Repeated options use their last value, just like flagString.
+    const value = Array.isArray(raw) ? raw[raw.length - 1] : raw;
     if (value === true) return true;
     if (typeof value === 'string') return !['false', '0', 'no'].includes(value.toLowerCase());
   }
