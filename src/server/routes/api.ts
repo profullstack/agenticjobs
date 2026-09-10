@@ -103,6 +103,27 @@ import { APPLICATION_DECISIONS, isApplicationDecision } from '../../schema/job.t
 import { jobPostingJsonLd } from '../../schema/jsonld.ts';
 import { parseResume } from '../../markup/resume.ts';
 import { renderMarkdown } from '../../markup/markdown.ts';
+import {
+  counterpartyFrom,
+  getThread,
+  listThreads,
+  markRead,
+  notifyParticipants,
+  sendMessage,
+  startThread,
+} from '../../core/inbox.ts';
+import {
+  applyWebhook,
+  cancelInvoice,
+  getInvoice,
+  listInvoicesFor,
+  listInvoicesIn,
+  requestPayment,
+  sendInvoice,
+  syncInvoice,
+} from '../../core/invoices.ts';
+import { disconnect, finishConnect, getAccount } from '../../core/coinpay.ts';
+import { coinpayRedirectUri } from './pages.tsx';
 import { descriptorFor } from './descriptor.ts';
 import { openApiDocument } from './openapi.ts';
 import type { AppEnv } from '../deps.ts';
@@ -126,6 +147,10 @@ function fail(
 
 function viewerOf(c: Ctx): Viewer | null {
   return c.get('viewer');
+}
+
+function isUuid(value: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
 }
 
 /** Body from JSON or a form, so curl, a browser and a model all work. */
@@ -1109,6 +1134,276 @@ export function apiRoutes(): Hono<AppEnv> {
       query,
     );
     return c.json(result);
+  });
+
+  // --- inbox ------------------------------------------------------------
+
+  /**
+   * Private conversations. Everything here needs the caller's identity, and
+   * nothing here is visible to anyone outside the conversation: a thread id
+   * that is not yours is a 404, not a 403, so ids cannot be probed.
+   */
+  api.get('/inbox', async (c) => {
+    const { pool } = c.get('deps');
+    const viewer = viewerOf(c);
+    if (viewer === null) return fail(c, 401, 'unauthenticated', 'Sign in to read your inbox.');
+    const items = await listThreads(pool, viewer.id);
+    return c.json({ items, total: items.length, unread: items.filter((t) => t.unread > 0).length });
+  });
+
+  /**
+   * Start a conversation, or continue the one these two parties already have.
+   *
+   * `candidate` or `employer` names who it is to, by slug. `as` is an employer
+   * slug to write as, for a member writing on the company's behalf. `job` ties
+   * it to a listing.
+   */
+  api.post('/inbox', async (c) => {
+    const { pool, config, mailer } = c.get('deps');
+    const viewer = viewerOf(c);
+    if (viewer === null) return fail(c, 401, 'unauthenticated', 'Sign in to send a message.');
+    const body = await readBody(c);
+    const to = await counterpartyFrom(pool, {
+      candidate: typeof body['candidate'] === 'string' ? body['candidate'] : null,
+      employer: typeof body['employer'] === 'string' ? body['employer'] : null,
+    });
+    if (to === null) {
+      return fail(c, 404, 'not_found', 'Name a candidate or an employer by slug. Nobody here matches.');
+    }
+    const jobSlug = typeof body['job'] === 'string' ? body['job'].trim() : '';
+    const job = jobSlug === '' ? null : await getJobBySlug(pool, jobSlug);
+    if (jobSlug !== '' && job === null) return fail(c, 404, 'not_found', `No job with the slug "${jobSlug}".`);
+    const asSlug = typeof body['as'] === 'string' ? body['as'].trim() : '';
+    const asOrg = asSlug === '' ? null : await getOrgBySlug(pool, asSlug);
+    if (asSlug !== '' && asOrg === null) return fail(c, 404, 'not_found', `No employer with the slug "${asSlug}".`);
+
+    const started = await startThread(pool, viewer.id, to, {
+      subject: body['subject'],
+      body: body['body'],
+      jobId: job?.id ?? null,
+      as: asOrg?.id ?? null,
+    });
+    if (typeof started === 'string') {
+      return fail(c, started.includes('conversations today') ? 429 : 400, 'rejected', started);
+    }
+    await notifyParticipants(pool, {
+      mailer,
+      boardName: config.boardName,
+      publicUrl: config.publicUrl,
+      threadId: started.threadId,
+      senderId: viewer.id,
+      kind: 'text',
+    });
+    return c.json(
+      { ...started, url: `${config.publicUrl}/inbox/${started.threadId}` },
+      started.created ? 201 : 200,
+    );
+  });
+
+  api.get('/inbox/:id', async (c) => {
+    const { pool, coinpay } = c.get('deps');
+    const viewer = viewerOf(c);
+    if (viewer === null) return fail(c, 401, 'unauthenticated', 'Sign in to read your inbox.');
+    const id = c.req.param('id');
+    if (!isUuid(id)) return fail(c, 404, 'not_found', 'No such conversation.');
+    const thread = await getThread(pool, id, viewer.id);
+    if (thread === null) return fail(c, 404, 'not_found', 'No such conversation.');
+    const invoices = await Promise.all(
+      (await listInvoicesIn(pool, coinpay, id)).map((invoice) => syncInvoice(pool, coinpay, invoice)),
+    );
+    await markRead(pool, id, viewer.id);
+    return c.json({ thread, invoices });
+  });
+
+  api.post('/inbox/:id/messages', async (c) => {
+    const { pool, config, mailer } = c.get('deps');
+    const viewer = viewerOf(c);
+    if (viewer === null) return fail(c, 401, 'unauthenticated', 'Sign in to send a message.');
+    const id = c.req.param('id');
+    if (!isUuid(id)) return fail(c, 404, 'not_found', 'No such conversation.');
+    const body = await readBody(c);
+    const sent = await sendMessage(pool, id, viewer.id, body['body']);
+    if (typeof sent === 'string') {
+      return fail(c, sent.includes('not in that') ? 404 : 400, 'rejected', sent);
+    }
+    await notifyParticipants(pool, {
+      mailer,
+      boardName: config.boardName,
+      publicUrl: config.publicUrl,
+      threadId: id,
+      senderId: viewer.id,
+      kind: 'text',
+    });
+    return c.json({ message: sent }, 201);
+  });
+
+  // --- invoices and billing ------------------------------------------------
+
+  /**
+   * Send an invoice into a conversation. The caller is the payee; the money
+   * settles to the wallet on their connected CoinPay account, in `currency`
+   * (a chain they have a wallet on). Omit `currency` when there is one wallet.
+   */
+  api.post('/inbox/:id/invoices', async (c) => {
+    const { pool, config, mailer, coinpay } = c.get('deps');
+    const viewer = viewerOf(c);
+    if (viewer === null) return fail(c, 401, 'unauthenticated', 'Sign in to send an invoice.');
+    const id = c.req.param('id');
+    if (!isUuid(id)) return fail(c, 404, 'not_found', 'No such conversation.');
+    const body = await readBody(c);
+    const invoice = await sendInvoice(pool, coinpay, {
+      threadId: id,
+      payeeId: viewer.id,
+      amount: body['amount'],
+      currency: body['currency'],
+      description: body['description'],
+    });
+    if (typeof invoice === 'string') {
+      return fail(c, invoice.includes('not in that') ? 404 : 400, 'rejected', invoice);
+    }
+    await notifyParticipants(pool, {
+      mailer,
+      boardName: config.boardName,
+      publicUrl: config.publicUrl,
+      threadId: id,
+      senderId: viewer.id,
+      kind: 'invoice',
+    });
+    return c.json({ invoice }, 201);
+  });
+
+  /** Every invoice the caller sent or can pay, newest first. */
+  api.get('/invoices', async (c) => {
+    const { pool, coinpay } = c.get('deps');
+    const viewer = viewerOf(c);
+    if (viewer === null) return fail(c, 401, 'unauthenticated', 'Sign in to read your invoices.');
+    const items = await listInvoicesFor(pool, coinpay, viewer.id);
+    return c.json({ items, total: items.length });
+  });
+
+  api.get('/invoices/:id', async (c) => {
+    const { pool, coinpay } = c.get('deps');
+    const viewer = viewerOf(c);
+    if (viewer === null) return fail(c, 401, 'unauthenticated', 'Sign in to read an invoice.');
+    const id = c.req.param('id');
+    if (!isUuid(id)) return fail(c, 404, 'not_found', 'No such invoice.');
+    const invoice = await getInvoice(pool, coinpay, id, viewer.id);
+    if (invoice === null) return fail(c, 404, 'not_found', 'No such invoice.');
+    return c.json({ invoice: await syncInvoice(pool, coinpay, invoice) });
+  });
+
+  /**
+   * Get a live quote to pay an invoice. The response carries `payment.url`,
+   * the CoinPay page to pay on, and `payment.address` plus `amountCrypto` for
+   * a wallet that would rather pay directly.
+   */
+  api.post('/invoices/:id/pay', async (c) => {
+    const { pool, config, coinpay } = c.get('deps');
+    const viewer = viewerOf(c);
+    if (viewer === null) return fail(c, 401, 'unauthenticated', 'Sign in to pay an invoice.');
+    const id = c.req.param('id');
+    if (!isUuid(id)) return fail(c, 404, 'not_found', 'No such invoice.');
+    const result = await requestPayment(pool, coinpay, {
+      invoiceId: id,
+      payerId: viewer.id,
+      publicUrl: config.publicUrl,
+    });
+    if (typeof result === 'string') {
+      return fail(c, result === 'No such invoice.' ? 404 : 400, 'rejected', result);
+    }
+    return c.json({ invoice: result });
+  });
+
+  api.post('/invoices/:id/cancel', async (c) => {
+    const { pool, coinpay } = c.get('deps');
+    const viewer = viewerOf(c);
+    if (viewer === null) return fail(c, 401, 'unauthenticated', 'Sign in first.');
+    const id = c.req.param('id');
+    if (!isUuid(id)) return fail(c, 404, 'not_found', 'No such invoice.');
+    const invoice = await getInvoice(pool, coinpay, id, viewer.id);
+    if (invoice === null) return fail(c, 404, 'not_found', 'No such invoice.');
+    const cancelled = await cancelInvoice(pool, id, viewer.id);
+    if (!cancelled) {
+      return fail(c, 409, 'not_cancellable', 'Only the sender can cancel an invoice, and only while it is unpaid.');
+    }
+    return c.json({ ok: true });
+  });
+
+  /**
+   * The caller's CoinPay connection: whether this board has billing at all,
+   * and whether this account is connected well enough to be paid.
+   */
+  api.get('/coinpay', async (c) => {
+    const { pool, config, coinpay } = c.get('deps');
+    const viewer = viewerOf(c);
+    if (viewer === null) return fail(c, 401, 'unauthenticated', 'Sign in first.');
+    if (coinpay === null) return c.json({ configured: false, account: null });
+    const account = await getAccount(pool, viewer.id);
+    return c.json({
+      configured: true,
+      account,
+      // Connecting needs a browser: it is CoinPay's consent screen.
+      connectUrl: `${config.publicUrl}/me/coinpay/connect`,
+    });
+  });
+
+  api.delete('/coinpay', async (c) => {
+    const { pool } = c.get('deps');
+    const viewer = viewerOf(c);
+    if (viewer === null) return fail(c, 401, 'unauthenticated', 'Sign in first.');
+    return c.json({ ok: await disconnect(pool, viewer.id) });
+  });
+
+  /**
+   * Where CoinPay sends the person after consent. Under /api/v1 because that
+   * is the path registered on the OAuth client; it answers a browser, with a
+   * redirect, not JSON.
+   */
+  api.get('/coinpay/callback', async (c) => {
+    const { pool, config, coinpay } = c.get('deps');
+    const params = new URL(c.req.url).searchParams;
+    const code = params.get('code') ?? '';
+    const state = params.get('state') ?? '';
+    if (params.get('error') !== null) {
+      const said = params.get('error_description') ?? params.get('error') ?? 'refused';
+      return c.redirect(`/me?coinpay=${encodeURIComponent(`CoinPay said: ${said}`)}#billing`, 303);
+    }
+    if (code === '' || state === '') return fail(c, 400, 'bad_request', 'Missing code or state.');
+    if (coinpay === null) return fail(c, 404, 'not_found', 'This board has no payment rail configured.');
+    const done = await finishConnect(pool, coinpay, {
+      state,
+      code,
+      redirectUri: coinpayRedirectUri(config.publicUrl),
+    });
+    if (typeof done === 'string') {
+      return c.redirect(`/me?coinpay=${encodeURIComponent(done)}#billing`, 303);
+    }
+    const back = done.redirect ?? '/me#billing';
+    if (back.startsWith('/me')) return c.redirect('/me?coinpay=connected#billing', 303);
+    return c.redirect(`${back}${back.includes('?') ? '&' : '?'}coinpay=connected`, 303);
+  });
+
+  /**
+   * CoinPay telling us a payment settled. Verified against the business's
+   * webhook secret; an unsigned or mis-signed body is dropped with a 401 and
+   * the invoice waits for the next page load to ask CoinPay directly.
+   */
+  api.post('/coinpay/webhook', async (c) => {
+    const { pool, coinpay } = c.get('deps');
+    if (coinpay === null) return fail(c, 404, 'not_found', 'This board has no payment rail configured.');
+    const raw = await c.req.text();
+    if (!coinpay.verifyWebhook(raw, c.req.header('x-coinpay-signature'))) {
+      return fail(c, 401, 'bad_signature', "The signature does not match this board's webhook secret.");
+    }
+    let payload: Record<string, unknown>;
+    try {
+      const parsed = JSON.parse(raw) as unknown;
+      payload = typeof parsed === 'object' && parsed !== null ? (parsed as Record<string, unknown>) : {};
+    } catch {
+      return fail(c, 400, 'bad_request', 'The body is not JSON.');
+    }
+    const outcome = await applyWebhook(pool, payload);
+    return c.json({ received: true, outcome });
   });
 
   // --- this instance ----------------------------------------------------

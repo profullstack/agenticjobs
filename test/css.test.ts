@@ -40,7 +40,18 @@ test('wide content has somewhere to scroll that is not the page', () => {
   // Both of these carry content the author does not control the width of: a
   // pasted URL in a code block, a table in a Markdown description.
   for (const selector of ['.code-block', '.table-wrap']) {
-    const block = new RegExp(`\\${selector}\\s*\\{[^}]*\\}`).exec(css)?.[0] ?? '';
+    // Anchored to a line start: `.grid-2 > aside .code-block` is a different rule.
+    const block = new RegExp(`(?:^|\\n)\\${selector}\\s*\\{[^}]*\\}`).exec(css)?.[0] ?? '';
     assert.match(block, /overflow-x:\s*auto/, `${selector} must scroll inside itself`);
   }
+});
+
+test('the sidebar wraps what cannot break on its own', () => {
+  // The 20rem sidebar holds emails, URLs and the API line an agent copies.
+  // None of those contain a space, so without this rule each one is a single
+  // word wider than its card and overflows the border rather than wrapping.
+  const aside = /\.grid-2 > aside\s*\{[^}]*\}/.exec(css)?.[0] ?? '';
+  assert.match(aside, /overflow-wrap:\s*anywhere/, 'the sidebar must allow a break anywhere');
+  const code = /\.grid-2 > aside \.code-block\s*\{[^}]*\}/.exec(css)?.[0] ?? '';
+  assert.match(code, /white-space:\s*pre-wrap/, 'a sidebar code block wraps rather than scrolls');
 });

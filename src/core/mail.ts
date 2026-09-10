@@ -158,3 +158,35 @@ export async function deliverMagicLink(options: {
   console.log(`magic link for ${options.email}: ${options.url}`);
   return false;
 }
+
+/**
+ * "You have a message" — and only that.
+ *
+ * The body stays on the board. A conversation here is private to the people in
+ * it; the mail servers between here and somebody's phone are not, and a mail
+ * that carries an invoice amount is the kind of thing that gets forwarded.
+ */
+export function inboxMessage(options: {
+  to: string;
+  boardName: string;
+  /** Who wrote, as the recipient would know them. */
+  from: string;
+  subject: string;
+  url: string;
+  kind: 'text' | 'invoice';
+}): Message {
+  const what = options.kind === 'invoice' ? 'sent you an invoice' : 'sent you a message';
+  const subject = `${options.from} ${what} on ${options.boardName}`;
+  const lead =
+    options.subject === ''
+      ? `${options.from} ${what}.`
+      : `${options.from} ${what} in "${options.subject}".`;
+  const text = [lead, '', options.url, '', 'Open it on the board to read and reply.'].join('\n');
+  const url = escapeHtml(options.url);
+  const html = [
+    `<p>${escapeHtml(lead)}</p>`,
+    `<p><a href="${url}">${url}</a></p>`,
+    `<p style="color:#666;font-size:12px">Open it on the board to read and reply.</p>`,
+  ].join('');
+  return { to: options.to, subject, html, text };
+}

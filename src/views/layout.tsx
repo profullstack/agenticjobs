@@ -25,6 +25,8 @@ export interface PageProps {
   /** Hidden from search engines: dashboards, editors, one-off flows. */
   noindex?: boolean;
   isDirectory?: boolean;
+  /** Conversations with something unread, shown beside Inbox. */
+  unread?: number;
 }
 
 export const Layout: FC<PropsWithChildren<PageProps>> = (props) => {
@@ -39,6 +41,7 @@ export const Layout: FC<PropsWithChildren<PageProps>> = (props) => {
     canonical,
     noindex,
     isDirectory,
+    unread = 0,
     children,
   } = props;
 
@@ -139,6 +142,17 @@ export const Layout: FC<PropsWithChildren<PageProps>> = (props) => {
                 </a>
               ) : (
                 <>
+                  <a href="/inbox" aria-current={path.startsWith('/inbox') ? 'page' : undefined}>
+                    Inbox
+                    {unread > 0 && (
+                      <>
+                        {' '}
+                        <span class="nav-count" aria-label={`${unread} unread`}>
+                          {unread}
+                        </span>
+                      </>
+                    )}
+                  </a>
                   <a href="/me" aria-current={path.startsWith('/me') ? 'page' : undefined}>
                     You
                   </a>

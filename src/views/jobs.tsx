@@ -9,6 +9,7 @@ import { EMPTY_QUERY, queryToParams } from '../schema/query.ts';
 import { EMPLOYMENT_TYPES, SENIORITIES, WORKPLACES, AGENT_POLICIES } from '../schema/job.ts';
 import { AgentPolicyBadge, Alert, Badge, Card, Empty, Field, Prose } from './layout.tsx';
 import { AuthorSocial, type SocialProps } from './updates.tsx';
+import { MessageButton } from './inbox.tsx';
 
 /**
  * Where a tag points when there is no search to add it to.
@@ -386,7 +387,9 @@ export const JobDetail: FC<{
   values?: Record<string, string>;
   signedIn: boolean;
   resumes?: { slug: string; title: string }[];
-}> = ({ job, html, publicUrl, applied, problems, values, signedIn, resumes }) => {
+  /** A private line to the employer, absent when the viewer is one of them. */
+  message?: { to: { employer: string }; job: string; signedIn: boolean; next: string };
+}> = ({ job, html, publicUrl, applied, problems, values, signedIn, resumes, message }) => {
   const salary = formatSalary(job.salary);
   return (
     <div class="grid-2">
@@ -495,6 +498,12 @@ export const JobDetail: FC<{
             <h2 class="card-title">{job.org.name}</h2>
           </div>
           {job.org.description !== null && <p class="small">{job.org.description}</p>}
+          {message !== undefined && (
+            <p>
+              <MessageButton {...message} />{' '}
+              <span class="small muted">A question about the role, privately.</span>
+            </p>
+          )}
           {job.org.website !== null && (
             <p class="small">
               <a href={job.org.website} rel="nofollow noopener">

@@ -271,6 +271,72 @@ author, and the same text twice is refused. 600 characters and one link, rendere
 text and marked `nofollow`, because a board with an open posting form is a link farm
 the moment it passes PageRank on.
 
+## Inbox, and invoices
+
+There is no public comment box anywhere on the board. A board with one gets used as
+the place to hand in invoices, because an invoice has to go somewhere and a comment
+under a listing was the only somewhere. So reaching somebody here is private: a
+conversation between you and a candidate, or you and an employer, and nobody else.
+Writing to an employer reaches every member of it.
+
+```bash
+agenticjobs message acme "Is the Go role open to contractors?" --job senior-go-engineer
+agenticjobs message jane-doe --candidate "Saw your resume. Free for a call this week?"
+agenticjobs inbox                          # your conversations
+agenticjobs inbox read <id>                # one, with its invoices
+agenticjobs reply <id> "Thursday works."
+```
+
+The button is on every candidate's and every employer's page, and on a listing. Twenty
+new conversations a day per account; replies are not counted. The other side is
+emailed that there is a message, never the message itself: the conversation is private
+to the people in it and somebody else's mail server is not.
+
+An invoice is a message with money attached. The payee sends it from the conversation,
+in US dollars, choosing a chain they hold a wallet for; the other side presses Pay and
+settles it on [CoinPay](https://coinpayportal.com), straight to that wallet. The board
+never holds the money.
+
+```bash
+agenticjobs billing                        # is a CoinPay account connected?
+agenticjobs invoice <thread-id> 1200 --currency USDC_POL --for "Sprint 3, as agreed"
+agenticjobs invoices                       # sent and received
+agenticjobs pay <invoice-id>               # a quote, and the page to pay on
+```
+
+Connecting a CoinPay account is a browser step (`/me`, Billing, Connect CoinPay): it is
+CoinPay's consent screen, asking for `wallet:read` and nothing else. The board reads
+which wallets you can be paid to and uses the token for nothing else; it cannot move
+funds or create anything on your account.
+
+### Turning billing on
+
+Billing is off until the operator gives the board its own CoinPay credentials. Two
+sets, because two jobs: an OAuth client so *people* can connect their accounts, and a
+business key so the *board* can mint the payment a payer settles. All four or none;
+a partial set is logged at boot and leaves billing off rather than half on.
+
+```bash
+COINPAY_CLIENT_ID=cp_...          # coinpay oauth create --name your-board \
+COINPAY_CLIENT_SECRET=cps_...     #   --redirect-uri https://your-board/api/v1/coinpay/callback \
+                                  #   --scope openid,profile,email,wallet:read
+COINPAY_API_KEY=cp_live_...       # coinpay business create --name your-board \
+COINPAY_BUSINESS_ID=...           #   --category marketplace \
+COINPAY_WEBHOOK_SECRET=whsec_...  #   --webhook-url https://your-board/api/v1/coinpay/webhook
+COINPAY_URL=https://coinpayportal.com   # optional
+```
+
+The redirect URI has to be registered on the OAuth client byte for byte, and the
+client has to be registered for `wallet:read`: CoinPay narrows a grant to the client's
+registered scopes without an error, and a board that trusts its own request shows
+"Connected" beside an account it cannot read a wallet from. The board checks the scope
+on the token it got back, and says "Reconnect required" when it is missing.
+
+Payment is confirmed by CoinPay's webhook, and by asking CoinPay whenever the
+conversation is opened, so a lost webhook delays the answer rather than losing it.
+Without `COINPAY_WEBHOOK_SECRET` every webhook is refused and polling is the only
+source, which works and is slower.
+
 ## Posting from myna
 
 A job opening goes out with the rest of a launch:

@@ -37,7 +37,33 @@ export interface Config {
   openaiApiKey: string | null;
   /** Overrides the per-provider default model. */
   writerModel: string | null;
+  /**
+   * CoinPay, for invoices sent through the inbox. Null leaves billing off and
+   * absent from every page rather than present and broken.
+   */
+  coinpay: CoinPayConfig | null;
   version: string;
+}
+
+/**
+ * Everything the board needs to settle an invoice on CoinPay.
+ *
+ * Two credentials for two jobs. The OAuth client is how a *person* connects
+ * their own CoinPay account so the board can read which wallets they can be
+ * paid to. The business key is the *board's*, and is what mints a payment
+ * whose payee is that person's wallet: an OAuth token cannot create payments,
+ * and a board that held its users' merchant keys would be a worse design than
+ * one that holds its own.
+ */
+export interface CoinPayConfig {
+  /** The portal's origin, no trailing slash. The API is under `/api`. */
+  url: string;
+  clientId: string;
+  clientSecret: string;
+  apiKey: string;
+  businessId: string;
+  /** Verifies webhooks. Null means status is learned by polling only. */
+  webhookSecret: string | null;
 }
 
 function trimSlash(value: string): string {
@@ -81,6 +107,42 @@ export function sameOrigin(a: string | null, b: string | null): boolean {
   }
 }
 
+/**
+ * The CoinPay block, or null.
+ *
+ * All four credentials or none: a board with a client id and no business key
+ * could let people connect wallets nobody can ever pay, which is a feature
+ * that looks finished and is not. A partial set is logged so the operator
+ * finds out at boot rather than from a confused user.
+ */
+export function coinpayConfig(
+  env: NodeJS.ProcessEnv,
+  log: (message: string) => void = (message) => console.error(message),
+): CoinPayConfig | null {
+  const read = (name: string): string => env[name]?.trim() ?? '';
+  const clientId = read('COINPAY_CLIENT_ID');
+  const clientSecret = read('COINPAY_CLIENT_SECRET');
+  const apiKey = read('COINPAY_API_KEY');
+  const businessId = read('COINPAY_BUSINESS_ID');
+  const present = [clientId, clientSecret, apiKey, businessId].filter((v) => v !== '').length;
+  if (present === 0) return null;
+  if (present < 4) {
+    log(
+      'coinpay: set all of COINPAY_CLIENT_ID, COINPAY_CLIENT_SECRET, COINPAY_API_KEY and COINPAY_BUSINESS_ID, or none. Billing is off.',
+    );
+    return null;
+  }
+  const webhookSecret = read('COINPAY_WEBHOOK_SECRET');
+  return {
+    url: trimSlash(read('COINPAY_URL') || 'https://coinpayportal.com'),
+    clientId,
+    clientSecret,
+    apiKey,
+    businessId,
+    webhookSecret: webhookSecret === '' ? null : webhookSecret,
+  };
+}
+
 function flag(value: string | undefined, fallback = false): boolean {
   if (value === undefined || value.trim() === '') return fallback;
   return ['1', 'true', 'yes', 'on'].includes(value.trim().toLowerCase());
@@ -116,12 +178,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     anthropicApiKey: env['ANTHROPIC_API_KEY']?.trim() || null,
     openaiApiKey: env['OPENAI_API_KEY']?.trim() || null,
     writerModel: env['WRITER_MODEL']?.trim() || null,
+    coinpay: coinpayConfig(env),
     version: env['npm_package_version']?.trim() || VERSION,
   };
 }
 
 /** Kept in step with package.json by the release script. */
-export const VERSION = '0.11.0';
+export const VERSION = '0.12.0';
 export const SOFTWARE_NAME = 'agenticjobs';
 
 /**

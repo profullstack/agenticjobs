@@ -12,6 +12,7 @@ import type { FC } from 'hono/jsx';
 import { Card, Empty, Field } from './layout.tsx';
 import { ago } from '../schema/text.ts';
 import type { Following, Update } from '../core/updates.ts';
+import { MessageButton } from './inbox.tsx';
 
 /** Where an author's own page is, when they have one. */
 function authorHref(author: Update['author']): string | null {
@@ -180,12 +181,20 @@ export interface SocialProps {
   };
   /** Present only when the viewer is allowed to post as this author. */
   composer: { action: string; max: number } | null;
+  /**
+   * A way to write to this author privately. Absent on your own page, and
+   * the only way to reach somebody here: there is no public comment box.
+   */
+  message?: { to: { candidate: string } | { employer: string }; signedIn: boolean; next: string };
   error?: string;
 }
 
-export const AuthorSocial: FC<SocialProps> = ({ as, updates, follow, composer, error }) => (
+export const AuthorSocial: FC<SocialProps> = ({ as, updates, follow, composer, message, error }) => (
   <div class="stack">
-    <FollowButton {...follow} />
+    <div class="row" style="align-items:center;gap:.6rem;flex-wrap:wrap">
+      <FollowButton {...follow} />
+      {message !== undefined && <MessageButton {...message} />}
+    </div>
     {composer !== null && (
       <UpdateComposer action={composer.action} as={as} max={composer.max} error={error} />
     )}

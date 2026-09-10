@@ -12,6 +12,7 @@ import type pg from 'pg';
 import type { Config } from '../config.ts';
 import { apiRoutes } from './routes/api.ts';
 import { pageRoutes } from './routes/pages.tsx';
+import { inboxRoutes } from './routes/inbox.tsx';
 import { discoveryRoutes } from './routes/discovery.ts';
 import { mcpRoutes } from './routes/mcp.ts';
 import { passkeyRoutes } from './routes/passkey.ts';
@@ -19,18 +20,20 @@ import { apiCors, securityHeaders, withViewer } from './middleware.ts';
 import { Layout } from '../views/layout.tsx';
 import { createMailer } from '../core/mail.ts';
 import type { Mailer } from '../core/mail.ts';
+import { createCoinPay, type CoinPayClient } from '../core/coinpay.ts';
 import type { AppEnv, Deps } from './deps.ts';
 
 /**
- * The mailer is built once, here, and injectable so a test can watch what
- * would have been sent without a provider or a network.
+ * The mailer and the CoinPay client are built once, here, and injectable so a
+ * test can watch what would have been sent without a provider or a network.
  */
 export function createApp(
   pool: pg.Pool,
   config: Config,
   mailer: Mailer | null = createMailer(config),
+  coinpay: CoinPayClient | null = config.coinpay === null ? null : createCoinPay(config.coinpay),
 ): Hono<AppEnv> {
-  const deps: Deps = { pool, config, mailer };
+  const deps: Deps = { pool, config, mailer, coinpay };
   const app = new Hono<AppEnv>();
 
   app.use('*', withViewer(deps));
@@ -43,6 +46,7 @@ export function createApp(
   app.route('/api/mcp', mcpRoutes(() => app));
   app.route('/auth/passkey', passkeyRoutes());
   app.route('/', discoveryRoutes());
+  app.route('/', inboxRoutes());
   app.route('/', pageRoutes());
 
   app.notFound((c) => {

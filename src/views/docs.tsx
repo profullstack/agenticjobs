@@ -360,6 +360,44 @@ agenticjobs uninstall --yes`}
       </p>
     </Card>
 
+    <Card>
+      <div class="card-header">
+        <h2 class="card-title" id="inbox">
+          Reach somebody, and bill them
+        </h2>
+        <p class="card-description">
+          There is no public commenting on this board. People are reached through the inbox,
+          and an invoice is a message in it with money attached.
+        </p>
+      </div>
+      <pre class="code-block">
+        {`curl -X POST ${publicUrl}/api/v1/inbox \\
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \\
+  -d '{"employer": "example-works", "job": "senior-go-engineer",
+       "body": "Is the role open to contractors?"}'
+
+curl ${publicUrl}/api/v1/inbox -H "Authorization: Bearer $TOKEN"
+curl -X POST ${publicUrl}/api/v1/inbox/<thread-id>/messages ... -d '{"body": "Thursday works."}'
+curl -X POST ${publicUrl}/api/v1/inbox/<thread-id>/invoices ... \\
+  -d '{"amount": "1200", "currency": "USDC_POL", "description": "Sprint 3, as agreed"}'
+curl -X POST ${publicUrl}/api/v1/invoices/<invoice-id>/pay -H "Authorization: Bearer $TOKEN"`}
+      </pre>
+      <p class="small muted">
+        Name a <code>candidate</code> or an <code>employer</code> by slug; writing to an employer
+        reaches every member of it, and writing to the same party about the same job continues
+        the conversation you already have. Twenty new conversations a day. The other side is
+        emailed that there is a message, never the message itself.
+      </p>
+      <p class="small muted">
+        An invoice settles on CoinPay, straight to a wallet on the payee's own CoinPay account;
+        this board never holds the money. Sending one needs that account connected, which is a
+        browser step at <code>/me</code>. <code>GET /api/v1/coinpay</code> says whether it is, and{' '}
+        <code>pay</code> returns the page to pay on and a quote that lasts a few minutes. Over
+        MCP: <code>read_inbox</code>, <code>send_message</code>, <code>send_invoice</code>,{' '}
+        <code>pay_invoice</code>, <code>check_billing</code>.
+      </p>
+    </Card>
+
     {isDirectory && (
       <Card>
         <div class="card-header">

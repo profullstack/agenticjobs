@@ -88,6 +88,20 @@ const USAGE = `agenticjobs ${VERSION} - an agent-friendly job board you can self
     follow <slug>             follow an employer; --candidate for a person
     unfollow <slug>           stop
 
+  Inbox
+    inbox                     your conversations
+    inbox read <id>           one conversation, and its invoices
+    message <slug> <text>     write to an employer; --candidate for a person
+      --job <slug>              about a listing
+      --as <employer-slug>      write as an employer you belong to
+      --subject <text>
+    reply <id> <text>         reply in a conversation
+    invoice <id> <amount>     bill the other side, in USD; --currency <chain>
+      --for <text>              what it is for
+    invoices                  every invoice you sent or can pay
+    pay <invoice-id>          get a quote and the CoinPay page to pay on
+    billing                   whether your CoinPay account is connected
+
   Hiring
     employer list             the employers you can post under
     employer show <slug>
@@ -316,6 +330,21 @@ async function run(args: Args): Promise<number> {
     case 'follow':
     case 'unfollow':
       return commandFollow(args);
+
+    case 'inbox':
+      return commandInbox(args);
+    case 'message':
+      return commandMessage(args);
+    case 'reply':
+      return commandReply(args);
+    case 'invoice':
+      return commandInvoice(args);
+    case 'invoices':
+      return commandInvoices(args);
+    case 'pay':
+      return commandPay(args);
+    case 'billing':
+      return commandBilling(args);
 
     case 'announce':
       return commandAnnounce(args);
@@ -1309,6 +1338,159 @@ async function commandFollow(args: Args): Promise<number> {
   return out(
     args,
     `${following ? 'Following' : 'Not following'} ${slug}. ${result.followers} ${result.followers === 1 ? 'follower' : 'followers'}.`,
+    result,
+  );
+}
+
+// --- inbox ----------------------------------------------------------------
+
+async function commandInbox(args: Args): Promise<number> {
+  const client = clientFor(args);
+  if (args.positional[0] === 'read') {
+    const id = args.positional[1] ?? '';
+    if (id === '') {
+      process.stderr.write('Which one? agenticjobs inbox read <id>\n');
+      return 1;
+    }
+    const result = await client.thread(id);
+    const lines = result.thread.messages.map((message) =>
+      [
+        `${bold(message.mine ? 'You' : message.sender.name)} ${dim(ago(message.createdAt))}${message.kind === 'invoice' ? dim(' (invoice)') : ''}`,
+        `  ${message.body.replace(/\n/g, '\n  ')}`,
+      ].join('\n'),
+    );
+    const invoices = result.invoices.map(
+      (invoice) => `  ${invoice.id}  $${invoice.amountUsd} ${invoice.currency}  ${invoice.status}`,
+    );
+    return out(
+      args,
+      [
+        `${bold(result.thread.subject)} ${dim(`with ${result.thread.with.name}`)}`,
+        '',
+        lines.join('\n\n'),
+        ...(invoices.length === 0 ? [] : ['', bold('Invoices'), ...invoices]),
+      ].join('\n'),
+      result,
+    );
+  }
+  const result = await client.inbox();
+  if (result.items.length === 0) return out(args, 'Nothing in the inbox.', result);
+  const lines = result.items.map((thread) =>
+    [
+      `${bold(thread.with.name)} ${dim(ago(thread.lastMessageAt))}${thread.unread > 0 ? ` ${bold(`${thread.unread} new`)}` : ''}`,
+      `  ${thread.subject}`,
+      `  ${dim(thread.preview)}`,
+      `  ${dim(thread.id)}`,
+    ].join('\n'),
+  );
+  return out(args, lines.join('\n\n'), result);
+}
+
+async function commandMessage(args: Args): Promise<number> {
+  const slug = args.positional[0] ?? '';
+  const body = args.positional.slice(1).join(' ');
+  if (slug === '' || body === '') {
+    process.stderr.write('agenticjobs message <employer-slug> <text> [--candidate] [--job <slug>] [--as <employer>]\n');
+    return 1;
+  }
+  const candidate = flagBool(args, 'candidate');
+  const job = flagString(args, 'job');
+  const as = flagString(args, 'as');
+  const subject = flagString(args, 'subject');
+  const result = await clientFor(args).startThread({
+    ...(candidate ? { candidate: slug } : { employer: slug }),
+    ...(job === undefined || job === null ? {} : { job }),
+    ...(as === undefined || as === null ? {} : { as }),
+    ...(subject === undefined || subject === null ? {} : { subject }),
+    body,
+  });
+  return out(
+    args,
+    `${result.created ? 'Sent' : 'Added to the conversation you already have'}. ${result.url}`,
+    result,
+  );
+}
+
+async function commandReply(args: Args): Promise<number> {
+  const id = args.positional[0] ?? '';
+  const body = args.positional.slice(1).join(' ');
+  if (id === '' || body === '') {
+    process.stderr.write('agenticjobs reply <thread-id> <text>\n');
+    return 1;
+  }
+  const result = await clientFor(args).reply(id, body);
+  return out(args, 'Sent.', result);
+}
+
+async function commandInvoice(args: Args): Promise<number> {
+  const id = args.positional[0] ?? '';
+  const amount = args.positional[1] ?? '';
+  if (id === '' || amount === '') {
+    process.stderr.write('agenticjobs invoice <thread-id> <amount-usd> [--currency <chain>] [--for <text>]\n');
+    return 1;
+  }
+  const currency = flagString(args, 'currency');
+  const description = flagString(args, 'for');
+  const result = await clientFor(args).sendInvoice(id, {
+    amount,
+    ...(currency === undefined || currency === null ? {} : { currency }),
+    ...(description === undefined || description === null ? {} : { description }),
+  });
+  return out(
+    args,
+    `Invoice sent: $${result.invoice.amountUsd} in ${result.invoice.currency}. ${dim(result.invoice.id)}`,
+    result,
+  );
+}
+
+async function commandInvoices(args: Args): Promise<number> {
+  const result = await clientFor(args).invoices();
+  if (result.items.length === 0) return out(args, 'No invoices.', result);
+  const lines = result.items.map(
+    (invoice) =>
+      `${bold(`$${invoice.amountUsd}`)} ${invoice.currency}  ${invoice.status}  ${dim(`from ${invoice.payee.name}, ${ago(invoice.createdAt)}`)}\n  ${dim(invoice.id)}`,
+  );
+  return out(args, lines.join('\n'), result);
+}
+
+async function commandPay(args: Args): Promise<number> {
+  const id = args.positional[0] ?? '';
+  if (id === '') {
+    process.stderr.write('agenticjobs pay <invoice-id>\n');
+    return 1;
+  }
+  const result = await clientFor(args).payInvoice(id);
+  const invoice = result.invoice;
+  if (invoice.status === 'paid') return out(args, 'Already paid.', result);
+  if (invoice.payment === null) return out(args, 'No quote came back. Try again in a moment.', result);
+  return out(
+    args,
+    [
+      `Pay at ${bold(invoice.payment.url)}`,
+      ...(invoice.payment.amountCrypto === null
+        ? []
+        : [`  ${invoice.payment.amountCrypto} ${invoice.currency} to ${invoice.payment.address ?? ''}`]),
+      dim('  The quote lasts a few minutes.'),
+    ].join('\n'),
+    result,
+  );
+}
+
+async function commandBilling(args: Args): Promise<number> {
+  const result = await clientFor(args).billing();
+  if (!result.configured) return out(args, 'This board has no billing configured.', result);
+  if (result.account === null) {
+    return out(args, `No CoinPay account connected. Connect one in a browser: ${result.connectUrl ?? ''}`, result);
+  }
+  if (!result.account.usable) {
+    return out(args, `The CoinPay connection has lapsed. Reconnect in a browser: ${result.connectUrl ?? ''}`, result);
+  }
+  const wallets = result.account.wallets;
+  return out(
+    args,
+    wallets.length === 0
+      ? 'Connected, but the CoinPay account has no wallet yet.'
+      : `Connected. Can be paid in: ${wallets.map((w) => `${w.chain} ${dim(w.address)}`).join(', ')}.`,
     result,
   );
 }

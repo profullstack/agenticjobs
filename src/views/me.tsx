@@ -3,7 +3,7 @@
  * applications you have sent, and your resumes.
  */
 
-import type { FC } from 'hono/jsx';
+import type { FC, PropsWithChildren } from 'hono/jsx';
 import type { Job, Organisation } from '../schema/index.ts';
 import type { Resume } from '../core/resumes.ts';
 import type { Viewer } from '../core/auth.ts';
@@ -12,7 +12,7 @@ import { Alert, Badge, Card, Empty, Field, Prose } from './layout.tsx';
 import { UpdateComposer, UpdateList } from './updates.tsx';
 import type { Following, Update } from '../core/updates.ts';
 
-export const MePage: FC<{
+export const MePage: FC<PropsWithChildren<{
   viewer: Viewer;
   orgs: Organisation[];
   jobs: Job[];
@@ -28,7 +28,7 @@ export const MePage: FC<{
    */
   candidateSlug: string | null;
   updateMax: number;
-}> = ({
+}>> = ({
   viewer,
   orgs,
   jobs,
@@ -38,6 +38,7 @@ export const MePage: FC<{
   following,
   candidateSlug,
   updateMax,
+  children,
 }) => (
   <div class="stack">
     <div>
@@ -219,6 +220,7 @@ export const MePage: FC<{
         </button>
       </form>
     </Card>
+    {children}
   </div>
 );
 
