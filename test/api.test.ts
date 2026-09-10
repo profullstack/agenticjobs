@@ -629,6 +629,95 @@ describe('the API', { skip: reason === '' ? false : `no database: ${reason}` }, 
     });
   });
 
+  describe('salary period comparisons', () => {
+    test('salary filters, ordering and pagination compare annual amounts', async () => {
+      assert.ok(pool);
+      const { createSession, ensureUser } = await import('../dist/core/auth.js');
+      const { createOrg } = await import('../dist/core/orgs.js');
+      const stamp = `${Date.now()}${Math.random().toString(36).slice(2, 7)}`;
+      const user = await ensureUser(pool as never, `salary+${stamp}@example.com`, 'Salary Co');
+      const token = await createSession(pool as never, user.id, { label: 't' });
+      const org = await createOrg(pool as never, user.id, { name: `Salary ${stamp}` });
+      if (typeof org === 'string') throw new Error(org);
+      const auth = { authorization: `Bearer ${token}` };
+      const slugs = new Map<string, string>();
+
+      const add = async (label: string, salary: Record<string, unknown>) => {
+        const response = await post(
+          '/api/v1/jobs',
+          {
+            org: org.slug,
+            title: `${label} ${stamp}`,
+            description: 'A listing used to compare different salary periods in search results.',
+            agentPolicy: 'welcome',
+            ...salary,
+          },
+          auth,
+        );
+        assert.equal(response.status, 201);
+        const body = (await response.json()) as { job: { slug: string } };
+        slugs.set(label, body.job.slug);
+        assert.equal((await post(`/api/v1/jobs/${body.job.slug}/publish`, {}, auth)).status, 200);
+      };
+
+      await add('Yearly', { salaryMin: 180_000, salaryPeriod: 'year' });
+      await add('Hourly', { salaryMin: 80, salaryMax: 100, salaryPeriod: 'hour' });
+      await add('Daily', { salaryMin: 900, salaryPeriod: 'day' });
+      await add('Weekly', { salaryMax: 4300, salaryPeriod: 'week' });
+      await add('Monthly', { salaryMin: 20_000, salaryPeriod: 'month' });
+      await add('Hourly minimum', { salaryMin: 120, salaryPeriod: 'hour' });
+      await add('Hourly maximum', { salaryMax: 110, salaryPeriod: 'hour' });
+      await add('Unspecified', {});
+      await add('Unpaid', { salaryUnpaid: true, salaryMax: 100_000, salaryPeriod: 'month' });
+
+      const expected = [
+        'Hourly minimum',
+        'Monthly',
+        'Daily',
+        'Hourly maximum',
+        'Weekly',
+        'Hourly',
+      ].map((label) => slugs.get(label));
+      const url = `/api/v1/jobs?org=${org.slug}&salaryMin=200000&sort=salary`;
+      const response = await get(url);
+      assert.equal(response.status, 200);
+      const page = (await response.json()) as {
+        items: { slug: string; salary: { min: number; max: number; period: string } }[];
+        total: number;
+      };
+      assert.deepEqual(
+        page.items.map((job) => job.slug),
+        expected,
+      );
+      assert.equal(Number(page.total), expected.length);
+      const hourly = page.items.find((job) => job.slug === slugs.get('Hourly'));
+      assert.equal(hourly?.salary.min, 80, 'the stored hourly range is not rewritten');
+      assert.equal(hourly?.salary.max, 100);
+      assert.equal(hourly?.salary.period, 'hour');
+
+      const secondPage = (await (await get(`${url}&limit=2&offset=2`)).json()) as {
+        items: { slug: string }[];
+        total: number;
+      };
+      assert.deepEqual(
+        secondPage.items.map((job) => job.slug),
+        expected.slice(2, 4),
+      );
+      assert.equal(Number(secondPage.total), expected.length);
+
+      // Valid stored integers can annualise beyond Postgres's integer range.
+      await add('Large hourly amount', { salaryMax: 2_000_000, salaryPeriod: 'hour' });
+      const largeResponse = await get(url);
+      assert.equal(
+        largeResponse.status,
+        200,
+        'annualisation must not overflow SQL integer arithmetic',
+      );
+      const largePage = (await largeResponse.json()) as { items: { slug: string }[] };
+      assert.equal(largePage.items[0]?.slug, slugs.get('Large hourly amount'));
+    });
+  });
+
   describe('deciding on an application', () => {
     /**
      * An employer, a published listing, and one application sitting on it.

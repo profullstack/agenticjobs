@@ -56,7 +56,11 @@ export function openApiDocument(config: Config): Record<string, unknown> {
             param('seniority', 'intern, junior, mid, senior, staff, principal, lead'),
             param('agentPolicy', 'welcome, disclose, human-only'),
             param('tag', 'Repeatable. Matches tags and stack.'),
-            param('salaryMin', 'Minimum, compared against the top of each range.', 'integer'),
+            param(
+              'salaryMin',
+              'Minimum annualised salary, compared against the top of each range.',
+              'integer',
+            ),
             param('org', 'Employer slug.'),
             param('sort', 'recent, relevant, salary'),
             param('limit', '1-100, default 25', 'integer'),

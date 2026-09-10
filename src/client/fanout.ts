@@ -9,6 +9,7 @@
  */
 
 import type { Job, JobQuery } from '../schema/index.ts';
+import { annualisedTopSalary } from '../schema/salary.ts';
 import { BoardClient } from './client.ts';
 import { loadConfig, type BoardConfig } from './config.ts';
 
@@ -88,7 +89,11 @@ export async function searchEverywhere(
 
   // Each board sorted its own page; "newest" across three boards is none of
   // those orders, so it is redone here.
-  jobs.sort((a, b) => published(b.job) - published(a.job));
+  if (query.sort === 'salary') {
+    jobs.sort((a, b) => annualisedTopSalary(b.job.salary) - annualisedTopSalary(a.job.salary));
+  } else {
+    jobs.sort((a, b) => published(b.job) - published(a.job));
+  }
 
   return {
     jobs,

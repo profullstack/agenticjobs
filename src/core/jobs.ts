@@ -27,6 +27,17 @@ import {
   type Workplace,
 } from '../schema/index.ts';
 import { clean, parseList, slugify, suffix } from '../schema/text.ts';
+import { PER_YEAR } from '../schema/salary.ts';
+
+// Filtering and ordering must compare periods on the same basis as the
+// structured data and merged searches. Cast before multiplying: the stored
+// integer range can annualise beyond Postgres's 32-bit integer limit.
+const ANNUAL_TOP_SALARY = `case when j.salary_unpaid then null else
+  coalesce(j.salary_max, j.salary_min)::bigint * (case j.salary_period
+    ${Object.entries(PER_YEAR)
+      .map(([period, factor]) => `when '${period}' then ${factor}`)
+      .join(' ')}
+    else 1 end) end`;
 
 interface JobRow {
   id: string;
@@ -190,7 +201,7 @@ function conditions(query: JobQuery, includeUnpublished: boolean): {
     params.push(query.salaryMin);
     // Compared against the top of the range: a listing that says 90k-140k is a
     // match for someone who needs 120k, and one that says 90k-100k is not.
-    where.push(`coalesce(j.salary_max, j.salary_min) >= $${params.length}`);
+    where.push(`${ANNUAL_TOP_SALARY} >= $${params.length}`);
   }
   if (query.org !== null) {
     params.push(query.org);
@@ -202,7 +213,7 @@ function conditions(query: JobQuery, includeUnpublished: boolean): {
 
 function orderBy(query: JobQuery): string {
   if (query.sort === 'salary') {
-    return `order by coalesce(j.salary_max, j.salary_min, 0) desc, j.published_at desc nulls last`;
+    return `order by ${ANNUAL_TOP_SALARY} desc nulls last, j.published_at desc nulls last`;
   }
   if (query.sort === 'relevant' && query.q !== null) {
     // ts_rank against the same tsquery the where clause used. Without a query

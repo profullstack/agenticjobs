@@ -12,20 +12,12 @@
  */
 
 import type { Job } from './job.ts';
+import { PER_YEAR } from './salary.ts';
 
 export interface JsonLdJobPosting extends Record<string, unknown> {
   '@context': 'https://schema.org';
   '@type': 'JobPosting';
 }
-
-/** Annualise so `baseSalary` is comparable between listings. */
-const PER_YEAR: Record<string, number> = {
-  hour: 2080,
-  day: 260,
-  week: 52,
-  month: 12,
-  year: 1,
-};
 
 export function jobPostingJsonLd(job: Job, origin: string): JsonLdJobPosting {
   const url = `${origin}/jobs/${job.slug}`;
