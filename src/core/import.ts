@@ -238,14 +238,17 @@ function runsToText(paragraph: string): string {
   let out = '';
   const runs = paragraph.match(/<w:r[ >][\s\S]*?<\/w:r>/g) ?? [];
   for (const run of runs) {
-    const pieces = run.match(/<w:t(?:\s[^>]*)?>([\s\S]*?)<\/w:t>/g) ?? [];
+    // Text, tabs and breaks can alternate inside one run. Run boundaries
+    // must not change the text that arrives in the resume editor.
+    const pieces = [
+      ...run.matchAll(/<w:t(?:\s[^>]*)?>([\s\S]*?)<\/w:t>|<w:(tab|br|cr)\b[^>]*>/g),
+    ];
     let text = pieces
-      .map((piece) => decodeXml(piece.replace(/<[^>]+>/g, '')))
+      .map((piece) => (piece[1] !== undefined ? decodeXml(piece[1]) : piece[2] === 'tab' ? '  ' : '\n'))
       .join('');
-    if (text === '') {
-      // A tab or an explicit break carries meaning even with no text.
-      if (/<w:tab\b/.test(run)) out += '  ';
-      if (/<w:br\b/.test(run)) out += '\n';
+    if (!pieces.some((piece) => (piece[1] ?? '') !== '')) {
+      // Controls alone do not need emphasis markers around them.
+      out += text;
       continue;
     }
     if (/<w:b\/>|<w:b\s[^>]*w:val="(?:1|true|on)"/.test(run)) text = `**${text}**`;
