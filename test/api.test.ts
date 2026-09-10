@@ -1289,7 +1289,10 @@ describe('the API', { skip: reason === '' ? false : `no database: ${reason}` }, 
         });
       };
 
-      const both = await publish('Both Person', ['JavaScript', 'React', 'Node.js']);
+      // Node.js is beyond the eight badges shown on a directory card.
+      const both = await publish('Both Person', [
+        'Python', 'Go', 'SQL', 'Docker', 'Linux', 'TypeScript', 'JavaScript', 'React', 'Node.js',
+      ]);
       const one = await publish('One Person', ['JavaScript']);
 
       // Several tags describe one person's skill set, so they narrow.
@@ -1317,6 +1320,15 @@ describe('the API', { skip: reason === '' ? false : `no database: ${reason}` }, 
       assert.ok(!xml.includes('One Person'), 'a filtered feed must not carry non-matches');
       // A filtered feed is about the people, not the jobs as well.
       assert.ok(!xml.includes('<category>Job</category>'), xml.slice(0, 400));
+
+      // The display limit must not change who matches in other representations.
+      for (const path of ['/candidates', '/candidates.md']) {
+        const response = await get(`${path}?tags=javascript,react,node.js`, { accept: 'text/html' });
+        assert.equal(response.status, 200);
+        const body = await response.text();
+        assert.match(body, /Both Person/);
+        assert.ok(!body.includes('One Person'), path);
+      }
     });
 
     test('a private resume has no public address at all', async () => {

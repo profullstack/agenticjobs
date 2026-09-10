@@ -19,10 +19,10 @@ const LOCATION_KEYS = /^(location|based|city|where|region)$/i;
  * Skills, from the section a resume marks as skills.
  *
  * Takes the bullets under the heading, and splits a comma-separated line,
- * because both are how people write that section. Capped, because a directory
- * row is a summary and some resumes list sixty.
+ * because both are how people write that section. Keep all skills for filters
+ * and the index; a directory card applies its own display limit.
  */
-function skillsOf(resume: Resume, limit = 8): string[] {
+function skillsOf(resume: Resume): string[] {
   const section = resume.parsed?.sections.find((item) => item.kind === 'skills');
   if (section === undefined) return [];
 
@@ -50,7 +50,6 @@ function skillsOf(resume: Resume, limit = 8): string[] {
     if (seen.has(key)) continue;
     seen.add(key);
     out.push(cleaned);
-    if (out.length >= limit) break;
   }
   return out;
 }
