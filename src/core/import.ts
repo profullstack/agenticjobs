@@ -263,13 +263,13 @@ function stripMarks(value: string): string {
 }
 
 function decodeXml(value: string): string {
-  return value
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/&apos;/g, "'")
-    .replace(/&#(\d+);/g, (_whole, code: string) => String.fromCodePoint(Number(code)))
-    .replace(/&amp;/g, '&');
+  const named: Record<string, string> = { lt: '<', gt: '>', quot: '"', apos: "'", amp: '&' };
+  // One pass keeps a decoded ampersand from starting another reference.
+  return value.replace(/&(#x[0-9a-fA-F]+|#\d+|lt|gt|quot|apos|amp);/g, (whole, entity: string) => {
+    if (entity.startsWith('#x')) return String.fromCodePoint(Number.parseInt(entity.slice(2), 16));
+    if (entity.startsWith('#')) return String.fromCodePoint(Number(entity.slice(1)));
+    return named[entity] ?? whole;
+  });
 }
 
 /** Laying text back out of a PDF is poppler's job, not ours. */

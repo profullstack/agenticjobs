@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { test } from 'node:test';
 import { importDocument } from '../dist/core/import.js';
 
-test('a Word import keeps inline tabs and breaks in order, with or without text in the run', async () => {
+test('a Word import preserves inline controls and decodes XML text exactly once', async () => {
   // The adjacent XML file is the readable word/document.xml from this DOCX.
   // Its first two paragraphs encode the same text using different run boundaries.
   const bytes = await readFile(new URL('./fixtures/docx-inline-controls.docx', import.meta.url));
@@ -24,6 +24,9 @@ test('a Word import keeps inline tabs and breaks in order, with or without text 
       '*Italic',
       'line*',
       'Plain & escaped <text>',
+      'Renée / Renée / Renée / 李华 / 💻',
+      '<text> "quoted" \'apostrophe\' &',
+      'Literal references: &amp; / &lt; / &#65;',
     ].join('\n'),
     via: 'docx',
     warnings: [],
