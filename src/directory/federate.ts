@@ -18,6 +18,7 @@
 
 import type { Job, JobQuery } from '../schema/index.ts';
 import { queryToParams } from '../schema/query.ts';
+import { annualisedTopSalary } from '../schema/salary.ts';
 import type { InstanceDescriptor } from '../schema/instance.ts';
 import { fetchJson, FetchProblem } from './fetch.ts';
 
@@ -166,7 +167,7 @@ export async function federatedSearch(
  */
 function sortMerged(jobs: FederatedJob[], query: JobQuery): void {
   if (query.sort === 'salary') {
-    jobs.sort((a, b) => topSalary(b.job) - topSalary(a.job));
+    jobs.sort((a, b) => annualisedTopSalary(b.job.salary) - annualisedTopSalary(a.job.salary));
     return;
   }
   jobs.sort((a, b) => published(b.job) - published(a.job));
@@ -174,8 +175,4 @@ function sortMerged(jobs: FederatedJob[], query: JobQuery): void {
 
 function published(job: Job): number {
   return Date.parse(job.publishedAt ?? job.createdAt) || 0;
-}
-
-function topSalary(job: Job): number {
-  return job.salary.max ?? job.salary.min ?? 0;
 }
