@@ -114,13 +114,21 @@ function jsonLdNodes(html: string): Record<string, unknown>[] {
     /<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi,
   );
   for (const block of blocks) {
+    const source = block[1] ?? '';
     let parsed: unknown;
     try {
-      parsed = JSON.parse(decode(block[1] ?? ''));
+      // Entities inside valid JSON belong to its values. Decoding first can
+      // turn &quot; into JSON syntax or escaped description text into tags.
+      parsed = JSON.parse(source);
     } catch {
-      // A malformed block is not a reason to abandon the import; there is
-      // usually more than one and the page still has readable text.
-      continue;
+      try {
+        // Keep accepting pages that escaped the entire block as HTML.
+        parsed = JSON.parse(decode(source));
+      } catch {
+        // A malformed block is not a reason to abandon the import; there is
+        // usually more than one and the page still has readable text.
+        continue;
+      }
     }
     const queue = Array.isArray(parsed) ? [...parsed] : [parsed];
     while (queue.length > 0) {
@@ -225,10 +233,12 @@ export function extractJob(html: string, sourceUrl: string): ImportedJob {
     warnings.push('The page had a JobPosting but it was missing a title or a description.');
   }
 
+  // Decoding a missing or blank heading returns an empty string, not null.
+  // Keep trying the next source until there is a readable title.
   const title = trimSiteName(
-    metaContent(html, 'og:title') ??
-      decode(/<h1[^>]*>([\s\S]*?)<\/h1>/i.exec(html)?.[1]?.replace(/<[^>]+>/g, '') ?? '') ??
-      decode(/<title[^>]*>([\s\S]*?)<\/title>/i.exec(html)?.[1] ?? ''),
+    metaContent(html, 'og:title')?.trim() ||
+      decode(/<h1[^>]*>([\s\S]*?)<\/h1>/i.exec(html)?.[1]?.replace(/<[^>]+>/g, '') ?? '').trim() ||
+      decode(/<title[^>]*>([\s\S]*?)<\/title>/i.exec(html)?.[1] ?? '').trim(),
   );
   if (title === '') throw new JobImportProblem('That page has no title, so there is nothing to import.');
 

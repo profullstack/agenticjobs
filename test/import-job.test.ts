@@ -39,6 +39,68 @@ test('a page that publishes JobPosting data is read from the data', () => {
   assert.ok(!job.description.includes('ignored furniture'));
 });
 
+for (const scenario of [
+  {
+    label: 'named quote entities',
+    description: '<p>Maintain &quot;Search&quot; &amp; Ranking.</p>',
+    expected: 'Maintain "Search" & Ranking.',
+  },
+  {
+    label: 'numeric quote entities',
+    description: '<p>Maintain &#34;Search&#34;.</p>',
+    expected: 'Maintain "Search".',
+  },
+  {
+    label: 'escaped angle brackets',
+    description: '<p>Write examples using &lt;Job&gt; and &lt;/Job&gt;.</p>',
+    expected: 'Write examples using <Job> and </Job>.',
+  },
+  {
+    label: 'literal entity examples',
+    description: '<p>Document the &amp;quot; entity.</p>',
+    expected: 'Document the &quot; entity.',
+  },
+]) {
+  test(`a JSON-LD description preserves ${scenario.label}`, () => {
+    const data = JSON.stringify({
+      '@context': 'https://schema.org',
+      '@type': 'JobPosting',
+      title: 'Structured role',
+      description: scenario.description,
+      employmentType: 'FULL_TIME',
+      jobLocationType: 'TELECOMMUTE',
+    });
+    const html = `<script type="application/ld+json">${data}</script>
+      <main><h1>Fallback role</h1><p>Fallback description.</p></main>`;
+    const job = extractJob(html, 'https://example.com/jobs/structured');
+    assert.equal(job.via, 'jsonld');
+    assert.equal(job.title, 'Structured role');
+    assert.equal(job.description, scenario.expected);
+    assert.equal(job.employmentType, 'full-time');
+    assert.equal(job.workplace, 'remote');
+    assert.deepEqual(job.warnings, []);
+  });
+}
+
+test('a whole JSON-LD block escaped as HTML remains importable', () => {
+  const escaped = JSON.stringify({
+    '@type': 'JobPosting',
+    title: 'Legacy role',
+    description: '<p>Research &amp; development.</p>',
+  })
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+  const job = extractJob(
+    `<script type="application/ld+json">${escaped}</script>`,
+    'https://example.com/jobs/legacy',
+  );
+  assert.equal(job.via, 'jsonld');
+  assert.equal(job.title, 'Legacy role');
+  assert.equal(job.description, 'Research & development.');
+});
+
 test('a JobPosting inside an @graph is still found', () => {
   const html = `<script type="application/ld+json">
     {"@context":"https://schema.org","@graph":[
@@ -75,6 +137,66 @@ test('scripts and styles never become the description', () => {
   assert.ok(!job.description.includes('do not read me'), job.description);
   assert.ok(!job.description.includes('color:red'), job.description);
   assert.match(job.description, /Real text\./);
+});
+
+for (const scenario of [
+  {
+    label: 'the document title when no Open Graph title or heading exists',
+    meta: '',
+    heading: '',
+    expected: 'Research & Development Engineer',
+  },
+  {
+    label: 'the document title when the heading contains only whitespace',
+    meta: '',
+    heading: '<h1> <span>&nbsp;</span> </h1>',
+    expected: 'Research & Development Engineer',
+  },
+  {
+    label: 'the heading when the Open Graph title decodes to whitespace',
+    meta: '<meta property="og:title" content="&nbsp;">',
+    heading: '<h1>Heading role</h1>',
+    expected: 'Heading role',
+  },
+  {
+    label: 'the Open Graph title ahead of both the heading and document title',
+    meta: '<meta property="og:title" content="Metadata role | Example Careers">',
+    heading: '<h1>Heading role</h1>',
+    expected: 'Metadata role',
+  },
+  {
+    label: 'the heading ahead of the document title',
+    meta: '',
+    heading: '<h1><span>Design &amp; Engineering</span></h1>',
+    expected: 'Design & Engineering',
+  },
+]) {
+  test(`a page import uses ${scenario.label}`, () => {
+    const html = `<!doctype html><html><head>
+      <title>Research &amp; Development Engineer | Example Careers</title>
+      ${scenario.meta}</head><body><main>${scenario.heading}
+      <p>Build useful tools.</p></main></body></html>`;
+    const job = extractJob(html, 'https://example.com/jobs/engineer');
+    assert.equal(job.via, 'page');
+    assert.equal(job.title, scenario.expected);
+    assert.match(job.description, /Build useful tools\./);
+    assert.ok(job.warnings.some((warning) => /no JobPosting data/i.test(warning)));
+  });
+}
+
+test('a document title alone does not allow an empty description to be imported', () => {
+  assert.throws(
+    () =>
+      extractJob(
+        '<html><head><title>Role</title></head><body><main></main></body></html>',
+        'https://example.com/jobs/empty',
+      ),
+    (error: unknown) => {
+      assert.ok(error instanceof JobImportProblem);
+      assert.match(error.message, /no readable text/);
+      return true;
+    },
+  );
 });
 
 test('a malformed JSON-LD block does not abandon the import', () => {
