@@ -104,10 +104,11 @@ export function formatSalary(salary: {
   };
   const min = salary.min;
   const max = salary.max;
-  const range =
-    min !== null && max !== null && min !== max
-      ? `${money(min)} - ${money(max)}`
-      : money((min ?? max) as number);
+  // A single endpoint is a bound, not a fixed salary. Keep that distinction
+  // wherever a listing is shown, including the CLI and federated results.
+  if (min === null) return `Up to ${money(max as number)} a ${salary.period}`;
+  if (max === null) return `From ${money(min)} a ${salary.period}`;
+  const range = min !== max ? `${money(min)} - ${money(max)}` : money(min);
   return `${range} a ${salary.period}`;
 }
 
