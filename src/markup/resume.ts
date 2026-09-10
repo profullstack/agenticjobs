@@ -267,7 +267,16 @@ function parseContact(raw: string): ResumeContact | null {
 }
 
 function stripMarkdown(value: string): string {
-  return value.replace(/[*_`]/g, '').trim();
+  let text = value.trim();
+  for (;;) {
+    // Formatting may wrap a contact value, but punctuation inside an address
+    // is data: deleting it changes the mailbox or URL we link to.
+    const code = /^(`+)([\s\S]*?)\1$/.exec(text);
+    if (code !== null) return (code[2] ?? '').trim();
+    const emphasis = /^(\*{1,3}|_{1,3})(?=\S)([\s\S]*\S)\1$/.exec(text);
+    if (emphasis === null) return text;
+    text = emphasis[2] ?? '';
+  }
 }
 
 function hrefFor(value: string): string | null {
