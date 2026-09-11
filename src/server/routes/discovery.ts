@@ -222,7 +222,7 @@ export function discoveryRoutes(): Hono<AppEnv> {
           title: `${job.title} at ${job.org.name}`,
           content_text: toPlainText(job.description, 600),
           date_published: job.publishedAt ?? job.createdAt,
-          tags: [...job.tags, ...job.stack, job.workplace, job.employmentType],
+          tags: [...new Set([...job.tags, ...job.stack, job.workplace, job.employmentType])],
           authors: [{ name: job.org.name }],
           _agenticjobs: {
             agentPolicy: job.agentPolicy,
