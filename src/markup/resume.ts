@@ -295,7 +295,9 @@ function parseRange(subtitle: string): { start: string | null; end: string | nul
   const bracketed = /\(([^)]*)\)\s*$/.exec(subtitle);
   const candidate = bracketed?.[1] ?? subtitle;
   // An en dash, an em dash and a hyphen all show up in real resumes.
-  const split = candidate.split(/\s+(?:to|-|–|—)\s+/i);
+  // Typographic dashes also appear without spaces (2019–2021). Keep
+  // whitespace required around ASCII hyphens so ISO dates stay intact.
+  const split = candidate.split(/\s+(?:to|-)\s+|\s*[–—]\s*/i);
   if (split.length < 2) {
     if (bracketed !== null && candidate.trim() !== '') {
       return { start: candidate.trim(), end: null, current: PRESENT.test(candidate) };
