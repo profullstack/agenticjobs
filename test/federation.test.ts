@@ -17,6 +17,12 @@ test('loopback and private addresses are never listed', () => {
     'http://localhost:8787',
     'http://127.0.0.1',
     'http://[::1]',
+    'http://[::]',
+    'http://[fe80::1]',
+    'http://[::ffff:127.0.0.1]',
+    'http://[::ffff:10.0.0.5]',
+    'http://[::ffff:169.254.169.254]',
+    'http://[::127.0.0.1]',
     'http://10.0.0.5',
     'http://192.168.1.4',
     'http://172.16.0.1',
@@ -34,6 +40,7 @@ test('loopback and private addresses are never listed', () => {
 test('172.32 is public, which is the edge of that range people get wrong', () => {
   assert.notEqual(publishable('http://172.32.0.1'), null);
   assert.notEqual(publishable('https://example.com'), null);
+  assert.notEqual(publishable('http://[::ffff:172.32.0.1]'), null);
 });
 
 test('only the origin survives, so credentials and paths cannot ride along', () => {
