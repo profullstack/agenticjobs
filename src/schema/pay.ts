@@ -429,7 +429,7 @@ export function formatAmount(amount: number, currency: string): string {
 
 function trimNumber(amount: number): string {
   if (Number.isInteger(amount)) return amount.toLocaleString('en-US');
-  return amount.toLocaleString('en-US', { maximumFractionDigits: 8 });
+  return amount.toLocaleString('en-US', { maximumSignificantDigits: 21 });
 }
 
 function suffixOf(line: PayLine): string {
