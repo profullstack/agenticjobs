@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
-import { flagBool, flagList, flagString, parseArgs } from '../dist/cli/args.js';
+import { flagBool, flagList, flagNumber, flagString, parseArgs } from '../dist/cli/args.js';
 
 test('boolean search flags preserve the following search words', () => {
   const args = parseArgs(['search', '--remote', 'rust', '--agents', 'developer']);
@@ -53,6 +53,11 @@ test('the last value of a repeated boolean flag wins', () => {
     const args = parseArgs(['apply', 'example', ...flags]);
     assert.equal(flagBool(args, 'draft'), expected, flags.join(' '));
   }
+});
+
+test('numeric flags preserve fractional amounts and reject partial numbers', () => {
+  assert.equal(flagNumber(parseArgs(['search', '--min', '0.25']), 'min'), 0.25);
+  assert.equal(flagNumber(parseArgs(['search', '--min', '12px']), 'min'), undefined);
 });
 
 test('repeating --draft and --json keeps the CLI request held and its output JSON', async (t) => {
