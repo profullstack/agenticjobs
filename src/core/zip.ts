@@ -17,6 +17,7 @@ import { inflateRawSync } from 'node:zlib';
 
 const EOCD_SIGNATURE = 0x06054b50;
 const CENTRAL_SIGNATURE = 0x02014b50;
+const LOCAL_SIGNATURE = 0x04034b50;
 // The upload limit bounds compressed bytes, not the XML we allocate here.
 const MAX_ENTRY_BYTES = 16 * 1024 * 1024;
 
@@ -28,6 +29,7 @@ interface Entry {
   compressedSize: number;
   uncompressedSize: number;
   localHeaderOffset: number;
+  centralDirectoryOffset: number;
 }
 
 function findEndOfCentralDirectory(buffer: Buffer): number {
@@ -42,7 +44,8 @@ function findEndOfCentralDirectory(buffer: Buffer): number {
 function readEntries(buffer: Buffer): Entry[] {
   const eocd = findEndOfCentralDirectory(buffer);
   const count = buffer.readUInt16LE(eocd + 10);
-  let offset = buffer.readUInt32LE(eocd + 16);
+  const centralDirectoryOffset = buffer.readUInt32LE(eocd + 16);
+  let offset = centralDirectoryOffset;
   const entries: Entry[] = [];
 
   for (let index = 0; index < count; index += 1) {
@@ -56,7 +59,14 @@ function readEntries(buffer: Buffer): Entry[] {
     const commentLength = buffer.readUInt16LE(offset + 32);
     const localHeaderOffset = buffer.readUInt32LE(offset + 42);
     const name = buffer.toString('utf8', offset + 46, offset + 46 + nameLength);
-    entries.push({ name, method, compressedSize, uncompressedSize, localHeaderOffset });
+    entries.push({
+      name,
+      method,
+      compressedSize,
+      uncompressedSize,
+      localHeaderOffset,
+      centralDirectoryOffset,
+    });
     offset += 46 + nameLength + extraLength + commentLength;
   }
   return entries;
@@ -71,12 +81,18 @@ export function readZipEntry(buffer: Buffer, wanted: string): Buffer | null {
 
   const local = entry.localHeaderOffset;
   if (local + 30 > buffer.length) throw new ZipProblem('Truncated archive.');
+  if (buffer.readUInt32LE(local) !== LOCAL_SIGNATURE) {
+    throw new ZipProblem('Invalid ZIP local header.');
+  }
   // The local header's own name and extra lengths are the authoritative ones:
   // the extra field is routinely a different length here than in the central
   // directory, and using the wrong one lands mid-stream.
   const nameLength = buffer.readUInt16LE(local + 26);
   const extraLength = buffer.readUInt16LE(local + 28);
   const start = local + 30 + nameLength + extraLength;
+  if (start > entry.centralDirectoryOffset || entry.compressedSize > entry.centralDirectoryOffset - start) {
+    throw new ZipProblem('Truncated archive.');
+  }
   const data = buffer.subarray(start, start + entry.compressedSize);
 
   if (entry.method === 0) {

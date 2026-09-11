@@ -41,3 +41,16 @@ test('declared oversized entries are rejected and ordinary entries still read', 
     assert.deepEqual(readZipEntry(archive(xml, method), 'word/document.xml'), xml);
   }
 });
+
+test('entry data cannot run into the central directory', () => {
+  const zipped = archive(Buffer.from('<w:document/>'), 0);
+  const central = zipped.indexOf(Buffer.from([0x50, 0x4b, 0x01, 0x02]));
+  zipped.writeUInt32LE(zipped.length, central + 20);
+  assert.throws(() => readZipEntry(zipped, 'word/document.xml'), ZipProblem);
+});
+
+test('an entry must point to a real local header', () => {
+  const zipped = archive(Buffer.from('<w:document/>'), 0);
+  zipped.writeUInt32LE(0, 0);
+  assert.throws(() => readZipEntry(zipped, 'word/document.xml'), ZipProblem);
+});
