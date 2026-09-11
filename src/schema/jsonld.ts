@@ -66,15 +66,16 @@ export function jobPostingJsonLd(job: Job, origin: string): JsonLdJobPosting {
 
   const salary = job.salary;
   if (salary.min !== null || salary.max !== null) {
-    const min = salary.min ?? salary.max;
-    const max = salary.max ?? salary.min;
+    // An absent endpoint is an open bound, not an exact salary. Keep it
+    // absent in both representations instead of copying the other endpoint.
+    const { min, max } = salary;
     doc['baseSalary'] = {
       '@type': 'MonetaryAmount',
       currency: salary.currency.toUpperCase(),
       value: {
         '@type': 'QuantitativeValue',
-        minValue: min,
-        maxValue: max,
+        ...(min !== null ? { minValue: min } : {}),
+        ...(max !== null ? { maxValue: max } : {}),
         unitText: salary.period.toUpperCase(),
       },
     };
@@ -83,8 +84,8 @@ export function jobPostingJsonLd(job: Job, origin: string): JsonLdJobPosting {
       currency: salary.currency.toUpperCase(),
       value: {
         '@type': 'QuantitativeValue',
-        minValue: Math.round((min ?? 0) * (PER_YEAR[salary.period] ?? 1)),
-        maxValue: Math.round((max ?? 0) * (PER_YEAR[salary.period] ?? 1)),
+        ...(min !== null ? { minValue: Math.round(min * (PER_YEAR[salary.period] ?? 1)) } : {}),
+        ...(max !== null ? { maxValue: Math.round(max * (PER_YEAR[salary.period] ?? 1)) } : {}),
         unitText: 'YEAR',
       },
     };

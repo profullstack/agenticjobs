@@ -169,3 +169,33 @@ test('the agent policy travels where a validator will accept it', () => {
   assert.ok(extra.some((entry) => entry.name === 'applySchemaUrl'));
   assert.equal(jsonld['directApply'], true);
 });
+
+for (const [label, min, max, expected] of [
+  ['floor', 100, null, { minValue: 100 }],
+  ['ceiling', null, 200, { maxValue: 200 }],
+  ['range', 100, 200, { minValue: 100, maxValue: 200 }],
+  ['fixed', 100, 100, { minValue: 100, maxValue: 100 }],
+  ['zero floor', 0, null, { minValue: 0 }],
+] as const) {
+  test(`structured salary preserves the stated ${label}`, () => {
+    const job = { ...JOB, salary: { ...JOB.salary, min, max } };
+    const jsonld = jobPostingJsonLd(job as never, 'https://board.example');
+    const base = jsonld['baseSalary'] as { value: Record<string, unknown> };
+    const annual = jsonld['estimatedSalary'] as { value: Record<string, unknown> };
+    assert.deepEqual(base.value, {
+      '@type': 'QuantitativeValue', ...expected, unitText: 'HOUR',
+    });
+    assert.deepEqual(annual.value, {
+      '@type': 'QuantitativeValue',
+      ...Object.fromEntries(Object.entries(expected).map(([key, value]) => [key, value * 2080])),
+      unitText: 'YEAR',
+    });
+  });
+}
+
+test('an unspecified structured salary does not become a zero salary', () => {
+  const job = { ...JOB, salary: { ...JOB.salary, min: null, max: null } };
+  const jsonld = jobPostingJsonLd(job as never, 'https://board.example');
+  assert.equal(Object.hasOwn(jsonld, 'baseSalary'), false);
+  assert.equal(Object.hasOwn(jsonld, 'estimatedSalary'), false);
+});
