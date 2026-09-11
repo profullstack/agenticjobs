@@ -750,6 +750,41 @@ a.badge-plain:hover .badge {
   font-weight: 600;
 }
 
+/* A body inside a card: a message, an update, a recommendation, an answer.
+   Same grammar as a listing, tighter spacing, and no heading taller than the
+   card's own title. The last block loses its bottom margin so the meta line
+   underneath sits where it did when the body was one paragraph. */
+.prose-compact {
+  max-width: none;
+}
+
+.prose-compact p,
+.prose-compact ul,
+.prose-compact ol,
+.prose-compact blockquote,
+.prose-compact pre,
+.prose-compact .table-wrap {
+  margin: 0 0 0.6rem;
+}
+
+.prose-compact > :last-child {
+  margin-bottom: 0;
+}
+
+.prose-compact h1,
+.prose-compact h2,
+.prose-compact h3,
+.prose-compact h4,
+.prose-compact h5,
+.prose-compact h6 {
+  font-size: 1.05em;
+  margin: 0.9rem 0 0.3rem;
+}
+
+.prose-compact hr {
+  margin: 0.9rem 0;
+}
+
 /* --- misc -------------------------------------------------------------- */
 
 .code-block {
@@ -884,8 +919,6 @@ a.badge-plain:hover .badge {
 
 .update-body {
   margin: 0;
-  /* Written in a textarea, so its line breaks are the ones the author made. */
-  white-space: pre-wrap;
   /* A pasted URL is one unbreakable word and would otherwise push the card
      wider than the viewport on a phone. */
   overflow-wrap: anywhere;
@@ -950,8 +983,6 @@ a.badge-plain:hover .badge {
 
 .message-body {
   margin: 0;
-  /* Typed in a textarea, so the line breaks are the author's. */
-  white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
 
@@ -973,7 +1004,7 @@ a.badge-plain:hover .badge {
 
 .invoice-description {
   margin: 0;
-  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .invoice-form > summary {
@@ -1020,8 +1051,6 @@ a.badge-plain:hover .badge {
 }
 
 .recommendation-body {
-  /* A recommendation is text. Its line breaks are the only formatting it has. */
-  white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
 

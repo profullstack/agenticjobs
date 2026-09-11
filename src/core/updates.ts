@@ -15,9 +15,9 @@
  *    database, so it holds however the update arrived.
  *  - 600 characters, one link. Long enough for news, short enough that nobody
  *    tries to publish an article here.
- *  - The body is text. Not Markdown, not HTML: the link is a column, so the
- *    one thing worth linking is already structured and nothing has to be
- *    sanitised out of prose.
+ *  - The body is plain text or Markdown, like every other body on the board,
+ *    and is stored as typed. The link is still its own column, so the one
+ *    thing a reader needs is structured whether or not the prose repeats it.
  */
 
 import type pg from 'pg';
@@ -210,10 +210,10 @@ export async function postUpdate(
   // The author has to be allowed to post as this target. An org post needs
   // membership; a candidate post can only ever be your own.
   if (target.kind === 'employer') {
-    const member = await pool.query(`select 1 from memberships where user_id = $1 and org_id = $2`, [
-      authorId,
-      target.orgId,
-    ]);
+    const member = await pool.query(
+      `select 1 from memberships where user_id = $1 and org_id = $2`,
+      [authorId, target.orgId],
+    );
     if (member.rows.length === 0) return 'You do not post for that employer.';
   } else if (target.userId !== authorId) {
     return 'You can only post updates as yourself.';
@@ -258,18 +258,13 @@ function cap(limit: number): number {
 
 /** Everything anybody posted, newest first. The board's news page. */
 export async function listUpdates(pool: pg.Pool, limit = 50): Promise<Update[]> {
-  const result = await pool.query<UpdateRow>(
-    `${SELECT} order by u.created_at desc limit $1`,
-    [cap(limit)],
-  );
+  const result = await pool.query<UpdateRow>(`${SELECT} order by u.created_at desc limit $1`, [
+    cap(limit),
+  ]);
   return result.rows.map(toUpdate);
 }
 
-export async function listUpdatesFor(
-  pool: pg.Pool,
-  target: Target,
-  limit = 20,
-): Promise<Update[]> {
+export async function listUpdatesFor(pool: pg.Pool, target: Target, limit = 20): Promise<Update[]> {
   const column = target.kind === 'employer' ? 'u.org_id' : 'u.user_id';
   const owner = target.kind === 'employer' ? target.orgId : target.userId;
   const result = await pool.query<UpdateRow>(
@@ -310,11 +305,7 @@ export async function listFollowedUpdates(
  * Whoever wrote it, or anybody who posts for that employer: a person who
  * leaves a company should not leave a post nobody there can take down.
  */
-export async function deleteUpdate(
-  pool: pg.Pool,
-  viewerId: string,
-  id: string,
-): Promise<boolean> {
+export async function deleteUpdate(pool: pg.Pool, viewerId: string, id: string): Promise<boolean> {
   const result = await pool.query(
     `delete from updates u
       where u.id = $1

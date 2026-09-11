@@ -2,15 +2,15 @@
  * Recommendations: the ones on a page, the form that writes one, and the
  * section of /me where they are approved or rejected.
  *
- * A recommendation is text and is rendered as text, with its line breaks
- * kept. It carries a name and a link to the page that name has, because a
- * paragraph nobody signed is a review, and this is not a review.
+ * A recommendation is plain text or Markdown, rendered the way every other
+ * body on the board is. It carries a name and a link to the page that name
+ * has, because a paragraph nobody signed is a review, and this is not a review.
  */
 
 import type { FC } from 'hono/jsx';
 import type { Recommendation, RecommendationParty } from '../core/recommendations.ts';
 import { ago } from '../schema/text.ts';
-import { Alert, Badge, Card, Field } from './layout.tsx';
+import { Alert, Badge, Card, Field, MARKDOWN_HINT, Markdown } from './layout.tsx';
 
 function pageOf(party: RecommendationParty): string | null {
   if (party.slug === null) return null;
@@ -27,7 +27,7 @@ export const RecommendationItem: FC<{ item: Recommendation; showSubject?: boolea
   showSubject = false,
 }) => (
   <div class="recommendation">
-    <div class="recommendation-body">{item.body}</div>
+    <Markdown source={item.body} class="prose-compact recommendation-body" />
     <p class="small muted recommendation-meta">
       <strong>
         <PartyName party={item.author} />
@@ -46,7 +46,10 @@ export const RecommendationItem: FC<{ item: Recommendation; showSubject?: boolea
 );
 
 /** The approved ones, on a candidate's or an employer's page. */
-export const RecommendationList: FC<{ items: Recommendation[]; about: string }> = ({ items, about }) =>
+export const RecommendationList: FC<{ items: Recommendation[]; about: string }> = ({
+  items,
+  about,
+}) =>
   items.length === 0 ? (
     <></>
   ) : (
@@ -83,7 +86,14 @@ export interface RecommendFormProps {
   error?: string;
 }
 
-export const RecommendForm: FC<RecommendFormProps> = ({ action, asOptions, canWriteAsSelf, existing, values = {}, error }) => (
+export const RecommendForm: FC<RecommendFormProps> = ({
+  action,
+  asOptions,
+  canWriteAsSelf,
+  existing,
+  values = {},
+  error,
+}) => (
   <details class="card" id="recommend">
     <summary class="card-title" style="cursor:pointer">
       {existing === null ? 'Write a recommendation' : 'Rewrite your recommendation'}
@@ -93,19 +103,29 @@ export const RecommendForm: FC<RecommendFormProps> = ({ action, asOptions, canWr
       {existing !== null && (
         <p class="small muted">
           You wrote one {ago(existing.createdAt)}; it is{' '}
-          <Badge variant={existing.status === 'approved' ? 'primary' : 'outline'}>{existing.status}</Badge>.
-          Writing again replaces it and asks them to read it again.
+          <Badge variant={existing.status === 'approved' ? 'primary' : 'outline'}>
+            {existing.status}
+          </Badge>
+          . Writing again replaces it and asks them to read it again.
         </p>
       )}
       {!canWriteAsSelf && asOptions.length === 0 ? (
         <p class="small muted">
-          A recommendation is signed by a page. <a href="/me/resumes/new">Publish a resume</a> to write
-          one as yourself, or add the employer you are writing for.
+          A recommendation is signed by a page. <a href="/me/resumes/new">Publish a resume</a> to
+          write one as yourself, or add the employer you are writing for.
         </p>
       ) : (
         <form class="stack-sm" method="post" action={action}>
           {(asOptions.length > 0 || !canWriteAsSelf) && (
-            <Field label="From" name="as" hint={canWriteAsSelf ? 'Yourself, or an employer you post for.' : 'An employer you post for.'}>
+            <Field
+              label="From"
+              name="as"
+              hint={
+                canWriteAsSelf
+                  ? 'Yourself, or an employer you post for.'
+                  : 'An employer you post for.'
+              }
+            >
               <select class="select" id="as" name="as">
                 {canWriteAsSelf && (
                   <option value="" selected={(values['as'] ?? '') === ''}>
@@ -120,7 +140,11 @@ export const RecommendForm: FC<RecommendFormProps> = ({ action, asOptions, canWr
               </select>
             </Field>
           )}
-          <Field label="How you know them" name="relationship" hint='"Hired them for a three-month contract", "Worked together at Acme". Optional.'>
+          <Field
+            label="How you know them"
+            name="relationship"
+            hint='"Hired them for a three-month contract", "Worked together at Acme". Optional.'
+          >
             <input
               class="input"
               type="text"
@@ -130,8 +154,20 @@ export const RecommendForm: FC<RecommendFormProps> = ({ action, asOptions, canWr
               value={values['relationship'] ?? existing?.relationship ?? ''}
             />
           </Field>
-          <Field label="What you would say" name="body" hint="At least 20 characters. It goes on their page with your name on it, once they approve it.">
-            <textarea class="textarea" id="body" name="body" rows={5} required minlength={20} maxlength={2000}>
+          <Field
+            label="What you would say"
+            name="body"
+            hint={`At least 20 characters. ${MARKDOWN_HINT} It goes on their page with your name on it, once they approve it.`}
+          >
+            <textarea
+              class="textarea"
+              id="body"
+              name="body"
+              rows={5}
+              required
+              minlength={20}
+              maxlength={2000}
+            >
               {values['body'] ?? existing?.body ?? ''}
             </textarea>
           </Field>
@@ -185,9 +221,7 @@ export const RecommendationsSection: FC<{
       {pending.length > 0 && (
         <Card>
           <div class="card-header">
-            <h3 class="card-title">
-              {pending.length} waiting for you
-            </h3>
+            <h3 class="card-title">{pending.length} waiting for you</h3>
           </div>
           <ul class="recommendations">
             {pending.map((item) => (
@@ -229,7 +263,9 @@ export const RecommendationsSection: FC<{
               <li class="stack-sm">
                 <RecommendationItem item={item} showSubject />
                 <div class="row" style="align-items:center;gap:.6rem">
-                  <Badge variant={item.status === 'approved' ? 'primary' : 'outline'}>{item.status}</Badge>
+                  <Badge variant={item.status === 'approved' ? 'primary' : 'outline'}>
+                    {item.status}
+                  </Badge>
                   <form method="post" action={`/me/recommendations/${item.id}/withdraw`}>
                     <button class="btn btn-ghost btn-sm" type="submit">
                       Withdraw

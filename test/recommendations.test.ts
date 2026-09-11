@@ -25,13 +25,13 @@ const ITEM = {
   decidedAt: new Date().toISOString(),
 };
 
-test('a recommendation renders as text, signed and linked, never as markup', () => {
+test('a recommendation renders as prose, signed and linked, never as markup', () => {
   const html = render(
     RecommendationList({ items: [{ ...ITEM, body: 'Great <script>alert(1)</script>\nSecond' }], about: 'Ada' }),
   );
   assert.ok(!html.includes('<script>alert'), html);
   assert.match(html, /&lt;script&gt;/);
-  assert.match(html, /Great[^]*\nSecond/, 'line breaks survive into the markup');
+  assert.match(html, /Great[^]*<br \/>Second/, 'line breaks survive into the markup');
   assert.match(html, /href="\/employers\/acme"/, 'the author is linked to their page');
   assert.match(html, /Hired her for a three-month contract/);
   assert.match(html, /shown because Ada approved/);

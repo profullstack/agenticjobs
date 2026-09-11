@@ -9,7 +9,7 @@
  */
 
 import type { FC } from 'hono/jsx';
-import { Card, Empty, Field } from './layout.tsx';
+import { Card, Empty, Field, MARKDOWN_HINT, Markdown } from './layout.tsx';
 import { ago } from '../schema/text.ts';
 import type { Following, Update } from '../core/updates.ts';
 import { MessageButton } from './inbox.tsx';
@@ -53,9 +53,9 @@ export const UpdateItem: FC<{ update: Update; showAuthor?: boolean }> = ({
           </span>
         </p>
       )}
-      {/* The body is text, and it is rendered as text. Nothing an author
-          typed becomes markup on somebody else's page. */}
-      <p class="update-body">{update.body}</p>
+      {/* Plain text or Markdown. Nothing an author typed becomes a tag on
+          somebody else's page; the renderer escapes before it marks up. */}
+      <Markdown source={update.body} class="prose-compact update-body" />
       {update.link !== null && (
         <p class="small">
           {/* nofollow, because a board with an open posting form is a link
@@ -99,12 +99,12 @@ export const UpdateComposer: FC<{
     <div class="card-header">
       <h2 class="card-title">Post an update</h2>
       <p class="card-description">
-        As <strong>{as}</strong>. What changed: a role filled, something shipped, when you are
-        free next. Five a day, {max} characters, one link.
+        As <strong>{as}</strong>. What changed: a role filled, something shipped, when you are free
+        next. Five a day, {max} characters, one link.
       </p>
     </div>
     <form method="post" action={action} class="stack-sm">
-      <Field label="Update" name="body" error={error}>
+      <Field label="Update" name="body" hint={MARKDOWN_HINT} error={error}>
         <textarea
           id="body"
           name="body"
@@ -189,7 +189,14 @@ export interface SocialProps {
   error?: string;
 }
 
-export const AuthorSocial: FC<SocialProps> = ({ as, updates, follow, composer, message, error }) => (
+export const AuthorSocial: FC<SocialProps> = ({
+  as,
+  updates,
+  follow,
+  composer,
+  message,
+  error,
+}) => (
   <div class="stack">
     <div class="row" style="align-items:center;gap:.6rem;flex-wrap:wrap">
       <FollowButton {...follow} />
@@ -268,8 +275,8 @@ export const UpdatesPage: FC<{
       <Empty>
         <h2>Nothing posted yet</h2>
         <p>
-          An employer or a candidate posts here from their own page. It is the space between
-          "posted a job" and silence.
+          An employer or a candidate posts here from their own page. It is the space between "posted
+          a job" and silence.
         </p>
       </Empty>
     ) : (
@@ -278,8 +285,9 @@ export const UpdatesPage: FC<{
 
     <p class="small muted">
       This page is a feed: <a href="/updates/feed">/updates/feed</a>, as Markdown at{' '}
-      <a href="/updates.md">/updates.md</a>, as JSON at <a href="/api/v1/updates">/api/v1/updates</a>.
-      One author at a time with <code>?org=slug</code> or <code>?candidate=slug</code>.
+      <a href="/updates.md">/updates.md</a>, as JSON at{' '}
+      <a href="/api/v1/updates">/api/v1/updates</a>. One author at a time with{' '}
+      <code>?org=slug</code> or <code>?candidate=slug</code>.
     </p>
   </div>
 );
