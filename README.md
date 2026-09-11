@@ -120,6 +120,12 @@ The convention is [OpenResume.md](docs/openresume.md). The listing format is
 [OpenJob](docs/openjob.md). Both are conventions anyone can implement, and neither
 requires this software.
 
+The same rule holds for every other box on the board. A listing description, an
+employer profile, a cover letter, a message, an invoice description, an update and a
+recommendation all take plain text or Markdown, and each is shown rendered: paste an
+email and it reads as written, paste a bullet list and it is a list. Nothing anyone
+types ever becomes a tag.
+
 ## Run your own
 
 ```bash

@@ -11,6 +11,7 @@ import type { FC, PropsWithChildren } from 'hono/jsx';
 import { raw } from 'hono/html';
 import type { Viewer } from '../core/auth.ts';
 import { jsonForScript } from '../markup/escape.ts';
+import { renderMarkdown } from '../markup/markdown.ts';
 
 export interface PageProps {
   title: string;
@@ -70,7 +71,12 @@ export const Layout: FC<PropsWithChildren<PageProps>> = (props) => {
         <link rel="stylesheet" href="/assets/app.css" />
         <link rel="manifest" href="/manifest.webmanifest" />
         <link rel="icon" href="/assets/icon.svg" type="image/svg+xml" />
-        <link rel="alternate" type="application/json" href="/jobs.json" title={`${boardName} jobs`} />
+        <link
+          rel="alternate"
+          type="application/json"
+          href="/jobs.json"
+          title={`${boardName} jobs`}
+        />
         {/* Jobs and candidates separately; both take ?tags=a,b. */}
         <link rel="alternate" type="application/rss+xml" href="/feed" title={`${boardName} jobs`} />
         <link
@@ -122,7 +128,10 @@ export const Layout: FC<PropsWithChildren<PageProps>> = (props) => {
               >
                 Candidates
               </a>
-              <a href="/employers" aria-current={path.startsWith('/employers') ? 'page' : undefined}>
+              <a
+                href="/employers"
+                aria-current={path.startsWith('/employers') ? 'page' : undefined}
+              >
                 Employers
               </a>
               <a href="/updates" aria-current={path.startsWith('/updates') ? 'page' : undefined}>
@@ -182,9 +191,9 @@ export const Layout: FC<PropsWithChildren<PageProps>> = (props) => {
         </footer>
         <script src="/assets/app.js" defer></script>
         {/*
-          * CrawlProof, as a plain tag. `defer` is what `strategy` meant on the
-          * component this replaced: run after parsing, never block the page.
-          */}
+         * CrawlProof, as a plain tag. `defer` is what `strategy` meant on the
+         * component this replaced: run after parsing, never block the page.
+         */}
         <script
           data-site="98e94c73-a6c0-491d-aa41-4c58c93f5ee1"
           src="https://crawlproof.com/stats.js"
@@ -198,6 +207,32 @@ export const Layout: FC<PropsWithChildren<PageProps>> = (props) => {
 /** Rendered Markdown. The only place already-escaped HTML enters a page. */
 export const Prose: FC<{ html: string; class?: string }> = ({ html, class: className }) => (
   <div class={className === undefined ? 'prose' : `prose ${className}`}>{raw(html)}</div>
+);
+
+/** The hint under every box that takes prose. One wording, so it reads as one rule. */
+export const MARKDOWN_HINT = 'Plain text or Markdown.';
+
+/**
+ * Something a person typed, rendered as Markdown.
+ *
+ * Every content box on the board takes plain text or Markdown, and this is
+ * the one way either is shown. Plain text comes out as it went in: a line
+ * break stays a line break and a blank line starts a paragraph, so a pasted
+ * email reads as it was written. Markdown gets its lists, links and emphasis.
+ * Nothing typed ever becomes a tag; the renderer escapes before it marks up.
+ *
+ * Headings are pushed down two levels by default because these bodies sit
+ * inside a page that already has its h1 and h2. Images are off by default
+ * because most of these are read by strangers, and an image is a request to a
+ * server the author chose.
+ */
+export const Markdown: FC<{
+  source: string;
+  class?: string;
+  headingOffset?: number;
+  images?: boolean;
+}> = ({ source, class: className, headingOffset = 2, images = false }) => (
+  <Prose html={renderMarkdown(source, { headingOffset, noImages: !images })} class={className} />
 );
 
 export const Card: FC<PropsWithChildren<{ class?: string; id?: string; hidden?: boolean }>> = ({
@@ -224,7 +259,9 @@ export const Badge: FC<PropsWithChildren<{ variant?: string; class?: string }>> 
   class: className,
   children,
 }) => (
-  <span class={['badge', variant ? `badge-${variant}` : '', className ?? ''].filter(Boolean).join(' ')}>
+  <span
+    class={['badge', variant ? `badge-${variant}` : '', className ?? ''].filter(Boolean).join(' ')}
+  >
     {children}
   </span>
 );

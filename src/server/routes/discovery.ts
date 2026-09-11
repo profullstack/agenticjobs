@@ -17,7 +17,14 @@ import { countJobs, searchJobs } from '../../core/jobs.ts';
 import { listOrgs } from '../../core/orgs.ts';
 import { listPublicResumes } from '../../core/resumes.ts';
 import { tagsFrom, toCandidateSummary, withTags } from '../../core/candidates.ts';
-import { listScoped, listUpdates, scopeFrom, type Scope, type Update } from '../../core/updates.ts';
+import {
+  BODY_MAX,
+  listScoped,
+  listUpdates,
+  scopeFrom,
+  type Scope,
+  type Update,
+} from '../../core/updates.ts';
 import { parseQuery, queryToParams } from '../../schema/query.ts';
 import type { JobQuery } from '../../schema/index.ts';
 import { WELL_KNOWN_PATH } from '../../schema/instance.ts';
@@ -41,7 +48,6 @@ const MIME: Record<string, string> = {
   '.txt': 'text/plain; charset=utf-8',
   '.json': 'application/json',
 };
-
 
 /**
  * The querystring that identifies a filtered feed.
@@ -113,7 +119,6 @@ function rss(
   return c.body(xml, 200, { 'content-type': 'application/rss+xml; charset=utf-8' });
 }
 
-
 /**
  * An update as a feed entry.
  *
@@ -124,13 +129,16 @@ function rss(
 function updateEntry(update: Update, publicUrl: string): FeedEntry {
   const { author } = update;
   return {
-    title: `${author.name}: ${update.body.slice(0, 80)}${update.body.length > 80 ? '...' : ''}`,
+    title: `${author.name}: ${toPlainText(update.body, 80)}`,
     // Anchored on the board's own page rather than on the link the update
     // carries, because the guid is this URL: two employers linking the same
     // launch post must not collapse into one item in a reader.
     url: `${publicUrl}/updates#${update.id}`,
     at: update.createdAt,
-    body: update.link === null ? update.body : `${update.body} ${update.link}`,
+    body:
+      update.link === null
+        ? toPlainText(update.body, BODY_MAX)
+        : `${toPlainText(update.body, BODY_MAX)} ${update.link}`,
     category: 'Update',
   };
 }
@@ -304,7 +312,8 @@ export function discoveryRoutes(): Hono<AppEnv> {
     const narrowed = describeQuery(requested);
 
     return rss(c, {
-      title: narrowed === null ? `${config.boardName} jobs` : `${config.boardName} jobs: ${narrowed}`,
+      title:
+        narrowed === null ? `${config.boardName} jobs` : `${config.boardName} jobs: ${narrowed}`,
       link: search === '' ? config.publicUrl : `${config.publicUrl}/?${search}`,
       description:
         narrowed === null
@@ -391,7 +400,9 @@ export function discoveryRoutes(): Hono<AppEnv> {
         : 'Short posts from the employers and candidates on this board. Everyone posting is a',
       ...(scope.kind === 'unknown'
         ? []
-        : ['real employer or a person with a resume here, and nobody may post more than five a day.']),
+        : [
+            'real employer or a person with a resume here, and nobody may post more than five a day.',
+          ]),
       '',
       `${updates.length} ${updates.length === 1 ? 'update' : 'updates'}.`,
       '',
@@ -479,16 +490,15 @@ export function discoveryRoutes(): Hono<AppEnv> {
         // filters either. Unfiltered, it is exactly what a reader following
         // the whole board wants.
         ...(filtered ? [] : updates.map((update) => updateEntry(update, config.publicUrl))),
-        ...(jobsOnly
-          ? []
-          : withTags(candidates.map(toCandidateSummary), query.tags)
-        ).map((summary) => ({
-          title: `${summary.name} is looking`,
-          url: `${config.publicUrl}/candidates/${summary.slug}`,
-          at: summary.updatedAt,
-          body: summary.headline ?? `${summary.name} published a resume.`,
-          category: 'Candidate',
-        })),
+        ...(jobsOnly ? [] : withTags(candidates.map(toCandidateSummary), query.tags)).map(
+          (summary) => ({
+            title: `${summary.name} is looking`,
+            url: `${config.publicUrl}/candidates/${summary.slug}`,
+            at: summary.updatedAt,
+            body: summary.headline ?? `${summary.name} published a resume.`,
+            category: 'Candidate',
+          }),
+        ),
       ],
     });
   });

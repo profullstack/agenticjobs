@@ -8,7 +8,18 @@ import { ago } from '../schema/text.ts';
 import { formatMethod, formatPayLine, formatPayShort, payOfJob, payStated } from '../schema/pay.ts';
 import { EMPTY_QUERY, queryToParams } from '../schema/query.ts';
 import { EMPLOYMENT_TYPES, SENIORITIES, WORKPLACES, AGENT_POLICIES } from '../schema/job.ts';
-import { AgentPolicyBadge, Alert, Badge, Card, Empty, Field, Prose } from './layout.tsx';
+import {
+  AgentPolicyBadge,
+  Alert,
+  Badge,
+  Card,
+  Empty,
+  Field,
+  MARKDOWN_HINT,
+  Markdown,
+  Prose,
+} from './layout.tsx';
+import { toPlainText } from '../markup/markdown.ts';
 import { AuthorSocial, type SocialProps } from './updates.tsx';
 import { RecommendationList, RecommendForm, type RecommendFormProps } from './recommendations.tsx';
 import type { Recommendation } from '../core/recommendations.ts';
@@ -210,11 +221,11 @@ export const JobCard: FC<{
 export const Filters: FC<{ query: JobQuery; action?: string }> = ({ query, action = '/' }) => (
   <form class="filters" method="get" action={action}>
     {/*
-      * A GET form submits its own fields and nothing else, so anything set by
-      * a link rather than a control is dropped the moment somebody searches.
-      * Tags are set by clicking a badge, which meant searching from a tagged
-      * page silently threw the tag away. These carry them through.
-      */}
+     * A GET form submits its own fields and nothing else, so anything set by
+     * a link rather than a control is dropped the moment somebody searches.
+     * Tags are set by clicking a badge, which meant searching from a tagged
+     * page silently threw the tag away. These carry them through.
+     */}
     {query.tags.length > 0 && <input type="hidden" name="tags" value={query.tags.join(',')} />}
     {query.salaryMin !== null && (
       <input type="hidden" name="salaryMin" value={String(query.salaryMin)} />
@@ -250,7 +261,12 @@ export const Filters: FC<{ query: JobQuery; action?: string }> = ({ query, actio
         value={query.agentPolicy}
         options={AGENT_POLICIES}
       />
-      <Select name="sort" label="Newest" value={query.sort === 'recent' ? null : query.sort} options={['relevant', 'salary'] as const} />
+      <Select
+        name="sort"
+        label="Newest"
+        value={query.sort === 'recent' ? null : query.sort}
+        options={['relevant', 'salary'] as const}
+      />
       <button class="btn btn-secondary btn-sm" type="submit">
         Apply filters
       </button>
@@ -314,9 +330,9 @@ export const InstallStrip: FC<{ publicUrl: string }> = ({ publicUrl }) => (
     </div>
     <pre class="code-block install-line">curl -fsSL {publicUrl}/install.sh | sh</pre>
     <p class="small muted install-note">
-      No root, nothing outside your home directory. Then{' '}
-      <code>agenticjobs signup</code>. Updating is <code>agenticjobs update</code> and removing
-      is <code>agenticjobs uninstall</code>. <a href="/docs">What it installs</a>.
+      No root, nothing outside your home directory. Then <code>agenticjobs signup</code>. Updating
+      is <code>agenticjobs update</code> and removing is <code>agenticjobs uninstall</code>.{' '}
+      <a href="/docs">What it installs</a>.
     </p>
   </div>
 );
@@ -335,10 +351,10 @@ export const JobList: FC<{
     </div>
     <Filters query={query} />
     {/*
-      * Every filter, not only the tags. "Filtering by" rather than "Tagged"
-      * because a workplace and a salary floor are not tags, and calling them
-      * one is how `remote` ended up with nowhere to be shown.
-      */}
+     * Every filter, not only the tags. "Filtering by" rather than "Tagged"
+     * because a workplace and a salary floor are not tags, and calling them
+     * one is how `remote` ended up with nowhere to be shown.
+     */}
     {activeFilters(query).length > 0 && (
       <p class="row" style="align-items:center;flex-wrap:wrap;gap:.5rem">
         <span class="small muted">Filtering by:</span>
@@ -373,10 +389,10 @@ export const JobList: FC<{
     )}
     <Pagination page={page} query={query} />
     <p class="small muted">
-      This search is a feed: <a href="/feed">/feed</a>, and <code>/feed?tags=react,go</code> for
-      any set of tags. People are at <a href="/candidates">/candidates</a>, with{' '}
-      <a href="/candidates/feed">/candidates/feed</a>. What everyone is up to between
-      listings is at <a href="/updates">/updates</a>.
+      This search is a feed: <a href="/feed">/feed</a>, and <code>/feed?tags=react,go</code> for any
+      set of tags. People are at <a href="/candidates">/candidates</a>, with{' '}
+      <a href="/candidates/feed">/candidates/feed</a>. What everyone is up to between listings is at{' '}
+      <a href="/updates">/updates</a>.
     </p>
   </div>
 );
@@ -416,7 +432,10 @@ export const JobDetail: FC<{
             {job.employmentType}
           </a>
           {job.seniority !== null && (
-            <a class="badge badge-outline" href={facetHref(undefined, { seniority: job.seniority })}>
+            <a
+              class="badge badge-outline"
+              href={facetHref(undefined, { seniority: job.seniority })}
+            >
               {job.seniority}
             </a>
           )}
@@ -456,7 +475,10 @@ export const JobDetail: FC<{
             <p class="small muted">Each one finds the other jobs asking for it.</p>
             <div class="row" style="flex-wrap:wrap;gap:.35rem">
               {[...job.stack, ...job.tags]
-                .filter((item, index, all) => all.findIndex((other) => other.toLowerCase() === item.toLowerCase()) === index)
+                .filter(
+                  (item, index, all) =>
+                    all.findIndex((other) => other.toLowerCase() === item.toLowerCase()) === index,
+                )
                 .map((item) => (
                   <a class="badge" href={jobTagHref([item])}>
                     {item}
@@ -488,9 +510,7 @@ export const JobDetail: FC<{
         <Card>
           <div class="card-header">
             <h2 class="card-title">For agents</h2>
-            <p class="card-description">
-              This job is machine readable. No scraping, no rendering.
-            </p>
+            <p class="card-description">This job is machine readable. No scraping, no rendering.</p>
           </div>
           <p class="small muted">The form above, as data:</p>
           <pre class="code-block">
@@ -506,7 +526,9 @@ export const JobDetail: FC<{
           <div class="card-header">
             <h2 class="card-title">{job.org.name}</h2>
           </div>
-          {job.org.description !== null && <p class="small">{job.org.description}</p>}
+          {job.org.description !== null && (
+            <Markdown source={job.org.description} class="prose-compact small" />
+          )}
           {message !== undefined && (
             <p>
               <MessageButton {...message} />{' '}
@@ -575,14 +597,20 @@ const ApplyForm: FC<{
     <form class="stack" method="post" action={`/jobs/${job.slug}/apply`} novalidate>
       {problems.length > 0 && (
         <Alert variant="error">
-          {problems.length === 1 ? 'One answer needs fixing.' : `${problems.length} answers need fixing.`}
+          {problems.length === 1
+            ? 'One answer needs fixing.'
+            : `${problems.length} answers need fixing.`}
         </Alert>
       )}
       {job.apply.schema.fields.map((field) => (
         <Field
           label={field.label}
           name={field.name}
-          hint={field.help}
+          hint={
+            field.type === 'textarea'
+              ? [field.help, MARKDOWN_HINT].filter((part) => part !== undefined).join(' ')
+              : field.help
+          }
           error={errorFor(field.name)}
         >
           {field.type === 'textarea' ? (
@@ -656,8 +684,8 @@ const ApplyForm: FC<{
             />
           </Field>
           <label class="row small" style="margin-top:.5rem">
-            <input type="checkbox" name="agent.supervised" value="true" />
-            A person read it before it was sent
+            <input type="checkbox" name="agent.supervised" value="true" />A person read it before it
+            was sent
           </label>
         </fieldset>
       )}
@@ -681,7 +709,9 @@ export const EmployerList: FC<{ orgs: Organisation[] }> = ({ orgs }) => (
           <li>
             <a class="card card-link" href={`/employers/${org.slug}`}>
               <h2 class="card-title">{org.name}</h2>
-              {org.description !== null && <p class="card-description">{org.description}</p>}
+              {org.description !== null && (
+                <p class="card-description">{toPlainText(org.description, 200)}</p>
+              )}
             </a>
           </li>
         ))}
@@ -710,7 +740,7 @@ export const EmployerDetail: FC<{
         </p>
       )}
     </div>
-    {org.description !== null && <p>{org.description}</p>}
+    {org.description !== null && <Markdown source={org.description} headingOffset={1} images />}
     {social !== undefined && <AuthorSocial {...social} />}
     <RecommendationList items={recommendations} about={org.name} />
     {recommend !== null && <RecommendForm {...recommend} />}

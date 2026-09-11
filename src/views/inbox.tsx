@@ -12,7 +12,7 @@ import type { Message, Party, Thread, ThreadSummary } from '../core/inbox.ts';
 import type { Invoice } from '../core/invoices.ts';
 import type { Account, Wallet } from '../core/coinpay.ts';
 import { ago } from '../schema/text.ts';
-import { Alert, Badge, Card, Empty, Field } from './layout.tsx';
+import { Alert, Badge, Card, Empty, Field, MARKDOWN_HINT, Markdown } from './layout.tsx';
 
 function partyHref(party: Party): string | null {
   if (party.slug === null) return null;
@@ -166,7 +166,7 @@ export const NewThreadPage: FC<{
             value={values['subject'] ?? ''}
           />
         </Field>
-        <Field label="Message" name="body">
+        <Field label="Message" name="body" hint={MARKDOWN_HINT}>
           <textarea id="body" name="body" class="textarea" rows={8} maxlength={4000} required>
             {values['body'] ?? ''}
           </textarea>
@@ -212,7 +212,9 @@ export const InvoiceCard: FC<{ invoice: Invoice; threadId: string; viewerId: str
         </span>
         <StatusBadge status={invoice.status} />
       </div>
-      {invoice.description !== '' && <p class="invoice-description">{invoice.description}</p>}
+      {invoice.description !== '' && (
+        <Markdown source={invoice.description} class="prose-compact invoice-description" />
+      )}
       <p class="small muted">
         From {invoice.payee.name}, {ago(invoice.createdAt)}. Settles to{' '}
         <code class="mono">{invoice.walletAddress}</code>.
@@ -269,8 +271,8 @@ const MessageItem: FC<{
     {message.kind === 'invoice' && invoice !== undefined ? (
       <InvoiceCard invoice={invoice} threadId={threadId} viewerId={viewerId} />
     ) : (
-      // Text, rendered as text. Nothing anybody typed becomes markup.
-      <p class="message-body">{message.body}</p>
+      // Plain text or Markdown, and never a tag the sender typed.
+      <Markdown source={message.body} class="prose-compact message-body" />
     )}
   </li>
 );
@@ -325,7 +327,7 @@ export const ThreadPage: FC<{
 
       <Card>
         <form method="post" action={`/inbox/${thread.id}`} class="stack-sm">
-          <Field label="Reply" name="body">
+          <Field label="Reply" name="body" hint={MARKDOWN_HINT}>
             <textarea id="body" name="body" class="textarea" rows={4} maxlength={4000} required>
               {values['body'] ?? ''}
             </textarea>
@@ -399,7 +401,7 @@ export const ThreadPage: FC<{
               <Field
                 label="For"
                 name="description"
-                hint="What this is for. It is the message the other side reads."
+                hint={`What this is for. It is the message the other side reads. ${MARKDOWN_HINT}`}
               >
                 <textarea
                   id="description"

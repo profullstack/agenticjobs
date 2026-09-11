@@ -23,7 +23,15 @@ export type EmploymentType = (typeof EMPLOYMENT_TYPES)[number];
 export const WORKPLACES = ['remote', 'hybrid', 'onsite'] as const;
 export type Workplace = (typeof WORKPLACES)[number];
 
-export const SENIORITIES = ['intern', 'junior', 'mid', 'senior', 'staff', 'principal', 'lead'] as const;
+export const SENIORITIES = [
+  'intern',
+  'junior',
+  'mid',
+  'senior',
+  'staff',
+  'principal',
+  'lead',
+] as const;
 export type Seniority = (typeof SENIORITIES)[number];
 
 export const SALARY_PERIODS = ['hour', 'day', 'week', 'month', 'year'] as const;
@@ -162,14 +170,20 @@ export const DEFAULT_APPLY_SCHEMA: ApplySchema = {
   fields: [
     { name: 'name', label: 'Your name', type: 'text', required: true, maxLength: 120 },
     { name: 'email', label: 'Email', type: 'email', required: true, maxLength: 200 },
-    { name: 'url', label: 'Portfolio, GitHub or LinkedIn', type: 'url', required: false, maxLength: 500 },
+    {
+      name: 'url',
+      label: 'Portfolio, GitHub or LinkedIn',
+      type: 'url',
+      required: false,
+      maxLength: 500,
+    },
     {
       name: 'cover',
       label: 'Why you',
       type: 'textarea',
       required: true,
       maxLength: 5000,
-      help: 'Plain text. Short is fine.',
+      help: 'Short is fine.',
     },
   ],
 };

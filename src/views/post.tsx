@@ -24,7 +24,7 @@ import {
   payToText,
 } from '../schema/pay.ts';
 import { ago } from '../schema/text.ts';
-import { Alert, Badge, Card, Empty, Field, Prose } from './layout.tsx';
+import { Alert, Badge, Card, Empty, Field, MARKDOWN_HINT, Markdown, Prose } from './layout.tsx';
 
 export const PostJobPage: FC<{
   orgs: Organisation[];
@@ -38,9 +38,7 @@ export const PostJobPage: FC<{
   <div class="grid-2">
     <div class="stack">
       <h1>Post a job</h1>
-      <p class="lede">
-        It stays a draft until you publish it, so nothing goes live by accident.
-      </p>
+      <p class="lede">It stays a draft until you publish it, so nothing goes live by accident.</p>
       {error !== undefined && <Alert variant="error">{error}</Alert>}
 
       {orgs.length === 0 ? (
@@ -49,148 +47,168 @@ export const PostJobPage: FC<{
         </Alert>
       ) : (
         <>
-        {canDraft && (
-          <form class="stack-sm" method="post" action="/post/draft">
-            <Field
-              label="Write it with an agent"
-              name="brief"
-              hint="A sentence or two is enough. It fills the form in below and posts nothing: you read and edit every field, and it still stays a draft after that."
-            >
-              <textarea
-                class="textarea"
-                id="brief"
+          {canDraft && (
+            <form class="stack-sm" method="post" action="/post/draft">
+              <Field
+                label="Write it with an agent"
                 name="brief"
-                rows={3}
-                placeholder="Senior Go engineer, remote in European timezones, to own our payments service."
+                hint="A sentence or two is enough. It fills the form in below and posts nothing: you read and edit every field, and it still stays a draft after that."
               >
-                {brief}
+                <textarea
+                  class="textarea"
+                  id="brief"
+                  name="brief"
+                  rows={3}
+                  placeholder="Senior Go engineer, remote in European timezones, to own our payments service."
+                >
+                  {brief}
+                </textarea>
+              </Field>
+              <div class="row">
+                <button class="btn btn-secondary" type="submit">
+                  Draft it
+                </button>
+                <span class="small muted">
+                  It will not invent a salary. Pay comes from what you write here, or stays empty.
+                </span>
+              </div>
+            </form>
+          )}
+
+          <form class="stack" method="post" action="/post">
+            <Field label="Employer" name="org">
+              <select class="select" id="org" name="org" required>
+                {orgs.map((org) => (
+                  <option value={org.slug} selected={values['org'] === org.slug}>
+                    {org.name}
+                  </option>
+                ))}
+              </select>
+            </Field>
+
+            <Field label="Title" name="title">
+              <input
+                class="input"
+                type="text"
+                id="title"
+                name="title"
+                value={values['title'] ?? ''}
+                required
+                maxlength={140}
+              />
+            </Field>
+
+            <Field
+              label="Description"
+              name="description"
+              hint={`${MARKDOWN_HINT} Headings, lists, links and tables all work.`}
+            >
+              <textarea class="textarea" id="description" name="description" required>
+                {values['description'] ?? ''}
               </textarea>
             </Field>
+
             <div class="row">
-              <button class="btn btn-secondary" type="submit">
-                Draft it
-              </button>
-              <span class="small muted">
-                It will not invent a salary. Pay comes from what you write here, or stays empty.
-              </span>
+              <Field label="Type" name="employmentType">
+                <select class="select" id="employmentType" name="employmentType">
+                  {EMPLOYMENT_TYPES.map((type) => (
+                    <option value={type} selected={values['employmentType'] === type}>
+                      {type}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              <Field label="Where" name="workplace">
+                <select class="select" id="workplace" name="workplace">
+                  {WORKPLACES.map((place) => (
+                    <option value={place} selected={values['workplace'] === place}>
+                      {place}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              <Field label="Level" name="seniority">
+                <select class="select" id="seniority" name="seniority">
+                  <option value="">unspecified</option>
+                  {SENIORITIES.map((level) => (
+                    <option value={level} selected={values['seniority'] === level}>
+                      {level}
+                    </option>
+                  ))}
+                </select>
+              </Field>
             </div>
-          </form>
-        )}
 
-        <form class="stack" method="post" action="/post">
-          <Field label="Employer" name="org">
-            <select class="select" id="org" name="org" required>
-              {orgs.map((org) => (
-                <option value={org.slug} selected={values['org'] === org.slug}>
-                  {org.name}
-                </option>
+            <Field label="Location" name="location" hint='Free text: "Berlin", "US timezones".'>
+              <input
+                class="input"
+                type="text"
+                id="location"
+                name="location"
+                value={values['location'] ?? ''}
+              />
+            </Field>
+
+            <PayFields values={values} />
+
+            <Field label="Stack" name="stack" hint="Comma separated. Also what people search on.">
+              <input
+                class="input"
+                type="text"
+                id="stack"
+                name="stack"
+                value={values['stack'] ?? ''}
+                placeholder="typescript, postgres, hono"
+              />
+            </Field>
+
+            <Field label="Tags" name="tags" hint="Comma separated.">
+              <input
+                class="input"
+                type="text"
+                id="tags"
+                name="tags"
+                value={values['tags'] ?? ''}
+                placeholder="backend, remote-first"
+              />
+            </Field>
+
+            <fieldset>
+              <legend>Agent policy</legend>
+              <p class="hint" style="margin-top:0">
+                Required. Candidates increasingly use an agent to write applications; this says
+                where you stand, instead of them finding out by being rejected without a reason.
+              </p>
+              {AGENT_POLICIES.map((policy) => (
+                <label class="row" style="align-items:flex-start;margin-top:.5rem">
+                  <input
+                    type="radio"
+                    name="agentPolicy"
+                    value={policy}
+                    checked={(values['agentPolicy'] ?? 'disclose') === policy}
+                    style="margin-top:.35rem"
+                  />
+                  <span>
+                    <strong>{POLICY_LABEL[policy]}</strong>
+                    <br />
+                    <span class="hint">{POLICY_HELP[policy]}</span>
+                  </span>
+                </label>
               ))}
-            </select>
-          </Field>
+            </fieldset>
 
-          <Field label="Title" name="title">
-            <input
-              class="input"
-              type="text"
-              id="title"
-              name="title"
-              value={values['title'] ?? ''}
-              required
-              maxlength={140}
-            />
-          </Field>
+            <fieldset>
+              <legend>How to apply</legend>
+              <p class="small muted">
+                Applications are taken on this board, so an agent can complete one without a browser
+                and you get every application in one place. There is no offsite link.
+              </p>
+            </fieldset>
 
-          <Field
-            label="Description"
-            name="description"
-            hint="Markdown. Headings, lists, links and tables all work."
-          >
-            <textarea class="textarea" id="description" name="description" required>
-              {values['description'] ?? ''}
-            </textarea>
-          </Field>
-
-          <div class="row">
-            <Field label="Type" name="employmentType">
-              <select class="select" id="employmentType" name="employmentType">
-                {EMPLOYMENT_TYPES.map((type) => (
-                  <option value={type} selected={values['employmentType'] === type}>
-                    {type}
-                  </option>
-                ))}
-              </select>
-            </Field>
-            <Field label="Where" name="workplace">
-              <select class="select" id="workplace" name="workplace">
-                {WORKPLACES.map((place) => (
-                  <option value={place} selected={values['workplace'] === place}>
-                    {place}
-                  </option>
-                ))}
-              </select>
-            </Field>
-            <Field label="Level" name="seniority">
-              <select class="select" id="seniority" name="seniority">
-                <option value="">unspecified</option>
-                {SENIORITIES.map((level) => (
-                  <option value={level} selected={values['seniority'] === level}>
-                    {level}
-                  </option>
-                ))}
-              </select>
-            </Field>
-          </div>
-
-          <Field label="Location" name="location" hint='Free text: "Berlin", "US timezones".'>
-            <input class="input" type="text" id="location" name="location" value={values['location'] ?? ''} />
-          </Field>
-
-          <PayFields values={values} />
-
-          <Field label="Stack" name="stack" hint="Comma separated. Also what people search on.">
-            <input class="input" type="text" id="stack" name="stack" value={values['stack'] ?? ''} placeholder="typescript, postgres, hono" />
-          </Field>
-
-          <Field label="Tags" name="tags" hint="Comma separated.">
-            <input class="input" type="text" id="tags" name="tags" value={values['tags'] ?? ''} placeholder="backend, remote-first" />
-          </Field>
-
-          <fieldset>
-            <legend>Agent policy</legend>
-            <p class="hint" style="margin-top:0">
-              Required. Candidates increasingly use an agent to write applications; this says where
-              you stand, instead of them finding out by being rejected without a reason.
-            </p>
-            {AGENT_POLICIES.map((policy) => (
-              <label class="row" style="align-items:flex-start;margin-top:.5rem">
-                <input
-                  type="radio"
-                  name="agentPolicy"
-                  value={policy}
-                  checked={(values['agentPolicy'] ?? 'disclose') === policy}
-                  style="margin-top:.35rem"
-                />
-                <span>
-                  <strong>{POLICY_LABEL[policy]}</strong>
-                  <br />
-                  <span class="hint">{POLICY_HELP[policy]}</span>
-                </span>
-              </label>
-            ))}
-          </fieldset>
-
-          <fieldset>
-            <legend>How to apply</legend>
-            <p class="small muted">
-              Applications are taken on this board, so an agent can complete one without a
-              browser and you get every application in one place. There is no offsite link.
-            </p>
-          </fieldset>
-
-          <button class="btn btn-block" type="submit">
-            Create draft
-          </button>
-        </form>
+            <button class="btn btn-block" type="submit">
+              Create draft
+            </button>
+          </form>
         </>
       )}
     </div>
@@ -248,158 +266,174 @@ export const ManageJobPage: FC<{
 }> = ({ job, html, applications, publicUrl, error }) => {
   const pay = payOfJob(job);
   return (
-  <div class="stack">
-    <div class="spread">
-      <div>
-        <h1>{job.title}</h1>
-        <p class="lede">
-          {job.org.name} - <Badge variant={job.status === 'published' ? 'primary' : 'outline'}>{job.status}</Badge>
-          {formatPay(pay) !== null && (
-            <>
-              {' '}
-              - {formatPay(pay)}
-              {formatMethod(pay.method) !== null && `, ${formatMethod(pay.method)?.toLowerCase()}`}
-            </>
-          )}
-        </p>
-      </div>
-      <div class="row">
-        {job.status !== 'published' ? (
-          <form method="post" action={`/me/jobs/${job.slug}/publish`}>
-            <button class="btn" type="submit">
-              Publish
-            </button>
-          </form>
-        ) : (
-          <>
-            <a class="btn btn-secondary" href={`/jobs/${job.slug}`}>
-              View live
-            </a>
-            <form method="post" action={`/me/jobs/${job.slug}/close`}>
-              <button class="btn btn-secondary" type="submit">
-                Close
+    <div class="stack">
+      <div class="spread">
+        <div>
+          <h1>{job.title}</h1>
+          <p class="lede">
+            {job.org.name} -{' '}
+            <Badge variant={job.status === 'published' ? 'primary' : 'outline'}>{job.status}</Badge>
+            {formatPay(pay) !== null && (
+              <>
+                {' '}
+                - {formatPay(pay)}
+                {formatMethod(pay.method) !== null &&
+                  `, ${formatMethod(pay.method)?.toLowerCase()}`}
+              </>
+            )}
+          </p>
+        </div>
+        <div class="row">
+          {job.status !== 'published' ? (
+            <form method="post" action={`/me/jobs/${job.slug}/publish`}>
+              <button class="btn" type="submit">
+                Publish
               </button>
             </form>
-          </>
-        )}
-      </div>
-    </div>
-
-    {error !== undefined && <Alert variant="error">{error}</Alert>}
-
-    {job.status === 'draft' && (
-      <Alert variant="info">
-        This is a draft. It is not in the list, not in the feed, not in the API and not visible to
-        any other instance until you publish it.
-      </Alert>
-    )}
-
-    {!payStated(pay) && (
-      <Alert variant="warning">
-        <strong>This listing does not say what it pays.</strong>{' '}
-        {job.status === 'published'
-          ? 'It is live, but pay is now required, so say it below.'
-          : 'It cannot be published until it does.'}
-      </Alert>
-    )}
-
-    <Card id="pay">
-      <div class="card-header">
-        <h2 class="card-title">Pay</h2>
-        <p class="card-description">
-          Required to publish. Change it here without rewriting the rest of the listing.
-        </p>
-      </div>
-      <form class="stack-sm" method="post" action={`/me/jobs/${job.slug}/pay`}>
-        <PayFields
-          values={{
-            pay: payToText(pay),
-            payMethod: pay.method ?? '',
-            payEquity: pay.equity ?? '',
-            salaryUnpaid: pay.unpaid ? 'on' : '',
-          }}
-          bare
-        />
-        <div class="row">
-          <button class="btn btn-secondary btn-sm" type="submit">
-            Save pay
-          </button>
+          ) : (
+            <>
+              <a class="btn btn-secondary" href={`/jobs/${job.slug}`}>
+                View live
+              </a>
+              <form method="post" action={`/me/jobs/${job.slug}/close`}>
+                <button class="btn btn-secondary" type="submit">
+                  Close
+                </button>
+              </form>
+            </>
+          )}
         </div>
-      </form>
-    </Card>
+      </div>
 
-    <section class="stack">
-      <h2>
-        {applications.length} {applications.length === 1 ? 'application' : 'applications'}
-      </h2>
-      {applications.length === 0 ? (
-        <Empty>Nobody yet.</Empty>
-      ) : (
-        applications.map((application) => (
-          <Card>
-            <div class="spread">
-              <h3 class="card-title">
-                {application.answers['name'] ?? 'Someone'}{' '}
-                {application.answers['email'] !== undefined && (
-                  <a class="small" href={`mailto:${application.answers['email']}`}>
-                    {application.answers['email']}
-                  </a>
-                )}
-              </h3>
-              <span class="row">
-                {application.agent !== null && (
-                  <Badge variant="disclose">
-                    agent: {application.agent.name}
-                    {application.agent.supervised ? ', supervised' : ''}
-                  </Badge>
-                )}
-                <Badge variant={application.status === 'hired' ? 'primary' : 'outline'}>
-                  {application.status}
-                </Badge>
-                <Badge variant="outline">{ago(application.createdAt)}</Badge>
-              </span>
-            </div>
-            {Object.entries(application.answers)
-              .filter(([key]) => !['name', 'email'].includes(key))
-              .map(([key, value]) => (
-                <p class="small">
-                  <strong>{key}:</strong> {value}
-                </p>
-              ))}
-            {application.resume !== null && (
-              <details>
-                <summary class="small">Resume</summary>
-                <Prose html={application.resume} />
-              </details>
-            )}
-            <div class="row">
-              {APPLICATION_DECISIONS.filter((decision) => decision !== application.status).map(
-                (decision) => (
-                  <form
-                    method="post"
-                    action={`/me/jobs/${job.slug}/applications/${application.id}/decision`}
-                  >
-                    <input type="hidden" name="status" value={decision} />
-                    <button class="btn btn-secondary btn-sm" type="submit">
-                      {DECISION_VERBS[decision]}
-                    </button>
-                  </form>
-                ),
-              )}
-            </div>
-          </Card>
-        ))
+      {error !== undefined && <Alert variant="error">{error}</Alert>}
+
+      {job.status === 'draft' && (
+        <Alert variant="info">
+          This is a draft. It is not in the list, not in the feed, not in the API and not visible to
+          any other instance until you publish it.
+        </Alert>
       )}
-    </section>
 
-    <details>
-      <summary>The listing as it stands</summary>
-      <Prose html={html} />
-      <p class="small muted">
-        Machine readable at <code>{publicUrl}/api/v1/jobs/{job.slug}</code>
-      </p>
-    </details>
-  </div>
+      {!payStated(pay) && (
+        <Alert variant="warning">
+          <strong>This listing does not say what it pays.</strong>{' '}
+          {job.status === 'published'
+            ? 'It is live, but pay is now required, so say it below.'
+            : 'It cannot be published until it does.'}
+        </Alert>
+      )}
+
+      <Card id="pay">
+        <div class="card-header">
+          <h2 class="card-title">Pay</h2>
+          <p class="card-description">
+            Required to publish. Change it here without rewriting the rest of the listing.
+          </p>
+        </div>
+        <form class="stack-sm" method="post" action={`/me/jobs/${job.slug}/pay`}>
+          <PayFields
+            values={{
+              pay: payToText(pay),
+              payMethod: pay.method ?? '',
+              payEquity: pay.equity ?? '',
+              salaryUnpaid: pay.unpaid ? 'on' : '',
+            }}
+            bare
+          />
+          <div class="row">
+            <button class="btn btn-secondary btn-sm" type="submit">
+              Save pay
+            </button>
+          </div>
+        </form>
+      </Card>
+
+      <section class="stack">
+        <h2>
+          {applications.length} {applications.length === 1 ? 'application' : 'applications'}
+        </h2>
+        {applications.length === 0 ? (
+          <Empty>Nobody yet.</Empty>
+        ) : (
+          applications.map((application) => (
+            <Card>
+              <div class="spread">
+                <h3 class="card-title">
+                  {application.answers['name'] ?? 'Someone'}{' '}
+                  {application.answers['email'] !== undefined && (
+                    <a class="small" href={`mailto:${application.answers['email']}`}>
+                      {application.answers['email']}
+                    </a>
+                  )}
+                </h3>
+                <span class="row">
+                  {application.agent !== null && (
+                    <Badge variant="disclose">
+                      agent: {application.agent.name}
+                      {application.agent.supervised ? ', supervised' : ''}
+                    </Badge>
+                  )}
+                  <Badge variant={application.status === 'hired' ? 'primary' : 'outline'}>
+                    {application.status}
+                  </Badge>
+                  <Badge variant="outline">{ago(application.createdAt)}</Badge>
+                </span>
+              </div>
+              {Object.entries(application.answers)
+                .filter(([key]) => !['name', 'email'].includes(key))
+                .map(([key, value]) =>
+                  // A box the applicant could write prose in is shown as prose. A
+                  // one-line answer stays on its line.
+                  job.apply.schema.fields.some(
+                    (field) => field.name === key && field.type === 'textarea',
+                  ) ? (
+                    <div class="small">
+                      <strong>{key}:</strong>
+                      <Markdown source={value} class="prose-compact answer-body" />
+                    </div>
+                  ) : (
+                    <p class="small">
+                      <strong>{key}:</strong> {value}
+                    </p>
+                  ),
+                )}
+              {application.resume !== null && (
+                <details>
+                  <summary class="small">Resume</summary>
+                  <Prose html={application.resume} />
+                </details>
+              )}
+              <div class="row">
+                {APPLICATION_DECISIONS.filter((decision) => decision !== application.status).map(
+                  (decision) => (
+                    <form
+                      method="post"
+                      action={`/me/jobs/${job.slug}/applications/${application.id}/decision`}
+                    >
+                      <input type="hidden" name="status" value={decision} />
+                      <button class="btn btn-secondary btn-sm" type="submit">
+                        {DECISION_VERBS[decision]}
+                      </button>
+                    </form>
+                  ),
+                )}
+              </div>
+            </Card>
+          ))
+        )}
+      </section>
+
+      <details>
+        <summary>The listing as it stands</summary>
+        <Prose html={html} />
+        <p class="small muted">
+          Machine readable at{' '}
+          <code>
+            {publicUrl}/api/v1/jobs/{job.slug}
+          </code>
+        </p>
+      </details>
+    </div>
   );
 };
 
@@ -420,16 +454,13 @@ export const PayFields: FC<{
   bare?: boolean;
 }> = ({ values, bare = false }) => {
   const folded = normalisePay(values);
-  const text =
-    values['pay'] ??
-    (typeof folded === 'string' ? '' : payToText(folded));
+  const text = values['pay'] ?? (typeof folded === 'string' ? '' : payToText(folded));
   const body = (
     <>
       {!bare && (
         <p class="hint" style="margin-top:0">
           Required before the listing can be published. A listing that does not say what it pays
-          gets fewer and worse applications, and an agent reading it cannot tell whether to
-          bother.
+          gets fewer and worse applications, and an agent reading it cannot tell whether to bother.
         </p>
       )}
       <Field
@@ -437,7 +468,13 @@ export const PayFields: FC<{
         name="pay"
         hint={`One price per line, the way you would say it: ${PAY_LINE_EXAMPLES}. Several lines are fine: "$0.25 per task" and "$0.25 per PR that fixes a bug" are two.`}
       >
-        <textarea class="textarea" id="pay" name="pay" rows={3} placeholder={'$120k - $150k a year\n$0.25 per task'}>
+        <textarea
+          class="textarea"
+          id="pay"
+          name="pay"
+          rows={3}
+          placeholder={'$120k - $150k a year\n$0.25 per task'}
+        >
           {text}
         </textarea>
       </Field>
@@ -514,7 +551,7 @@ export const NewEmployerPage: FC<{ error?: string }> = ({ error }) => (
           <Field label="Website" name="website">
             <input class="input" type="url" id="website" name="website" placeholder="https://" />
           </Field>
-          <Field label="About" name="description" hint="Markdown.">
+          <Field label="About" name="description" hint={MARKDOWN_HINT}>
             <textarea class="textarea" id="description" name="description"></textarea>
           </Field>
           <button class="btn btn-block" type="submit">
