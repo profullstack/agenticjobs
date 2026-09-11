@@ -121,7 +121,7 @@ export function validateApplication(
   // the HTML form and the API alike. `human-only` is a request, not a
   // technical control, and saying so plainly is more honest than pretending
   // the board can tell.
-  if (policy === 'disclose' && agent === null && input['agent'] !== undefined) {
+  if (policy === 'disclose' && agent === null) {
     problems.push({
       field: 'agent',
       message: 'This employer asks applications written with an agent to say so.',
