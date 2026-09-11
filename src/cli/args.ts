@@ -144,6 +144,6 @@ export function flagList(args: Args, ...names: string[]): string[] {
 export function flagNumber(args: Args, ...names: string[]): number | undefined {
   const raw = flagString(args, ...names);
   if (raw === undefined) return undefined;
-  const parsed = Number.parseInt(raw, 10);
+  const parsed = Number(raw);
   return Number.isFinite(parsed) ? parsed : undefined;
 }
