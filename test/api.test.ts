@@ -2423,6 +2423,37 @@ describe('the API', { skip: reason === '' ? false : `no database: ${reason}` }, 
       assert.match(candidates.headers.get('content-type') ?? '', /text\/markdown/);
     });
 
+    test('jobs.json de-duplicates overlapping tags and stack values', async () => {
+      assert.ok(pool, 'database pool unavailable');
+      const seeded = (await pool.query(
+        `select slug, tags, stack from jobs where status = 'published' order by created_at limit 1`,
+      )) as unknown as { rows: { slug: string; tags: string[]; stack: string[] }[] };
+      const job = seeded.rows[0];
+      assert.ok(job, 'the seed produced no published job');
+
+      try {
+        await pool.query(`update jobs set tags = $1::text[], stack = $2::text[] where slug = $3`, [
+          ['typescript', 'remote-friendly'],
+          ['typescript', 'node.js'],
+          job.slug,
+        ]);
+
+        const feed = (await (await get('/jobs.json')).json()) as {
+          items: { url: string; tags: string[] }[];
+        };
+        const item = feed.items.find((candidate) => candidate.url.endsWith(`/jobs/${job.slug}`));
+        assert.ok(item, 'updated job missing from JSON feed');
+        assert.equal(item.tags.filter((tag) => tag === 'typescript').length, 1);
+        assert.equal(new Set(item.tags).size, item.tags.length, 'JSON Feed tags must be unique');
+      } finally {
+        await pool.query(`update jobs set tags = $1::text[], stack = $2::text[] where slug = $3`, [
+          job.tags,
+          job.stack,
+          job.slug,
+        ]);
+      }
+    });
+
     test('the feed, sitemap and llms.txt all answer', async () => {
       for (const path of [
         '/jobs.json',
