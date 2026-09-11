@@ -97,10 +97,39 @@ export function publishable(raw: string): URL | null {
   if (/^172\.(1[6-9]|2\d|3[01])\./.test(host)) return null;
   // Unique local addresses, fc00::/7.
   if (/^f[cd][0-9a-f]{2}:/.test(host)) return null;
+  // URL canonicalises dotted IPv4 tails to hexadecimal, for example
+  // ::ffff:127.0.0.1 becomes ::ffff:7f00:1. Check both mapped and the older
+  // compatible form so IPv6 spelling cannot bypass the IPv4 private-range
+  // guards above.
+  const embedded = embeddedIpv4(host);
+  if (embedded !== null && privateIpv4(embedded)) return null;
+  // Unspecified and link-local IPv6 addresses are no more publishable than
+  // 0.0.0.0 and 169.254/16.
+  if (host === '::' || /^fe[89ab][0-9a-f]:/.test(host)) return null;
 
   // Only the origin is ever kept. A path, a query or credentials in the URL
   // would all end up concatenated onto endpoint paths later.
   return new URL(url.origin);
+}
+
+function embeddedIpv4(host: string): [number, number, number, number] | null {
+  if (!host.startsWith('::ffff:') && !host.startsWith('::')) return null;
+  const match = /(?:^|:)([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(host);
+  if (match === null) return null;
+  const high = Number.parseInt(match[1] ?? '', 16);
+  const low = Number.parseInt(match[2] ?? '', 16);
+  return [high >>> 8, high & 0xff, low >>> 8, low & 0xff];
+}
+
+function privateIpv4([a, b]: [number, number, number, number]): boolean {
+  return (
+    a === 0 ||
+    a === 10 ||
+    a === 127 ||
+    (a === 169 && b === 254) ||
+    (a === 172 && b >= 16 && b <= 31) ||
+    (a === 192 && b === 168)
+  );
 }
 
 const MAX_NAME = 80;
