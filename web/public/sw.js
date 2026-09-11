@@ -66,7 +66,11 @@ self.addEventListener('fetch', (event) => {
               return response;
             })
             .catch(() => hit);
-          return hit || fresh;
+          if (hit) {
+            event.waitUntil(fresh);
+            return hit;
+          }
+          return fresh;
         }),
       ),
     );

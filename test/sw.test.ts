@@ -52,6 +52,15 @@ test('a cached shell asset is refreshed rather than served forever', () => {
   assert.match(handler, /cache\.put\(/, 'shell assets must be revalidated into the cache');
 });
 
+test('cached shell revalidation is kept alive until the cache write finishes', () => {
+  const handler = /if \(ASSETS\.includes\(url\.pathname\)\) \{[\s\S]*?\n  \}/.exec(swSource)?.[0] ?? '';
+  assert.match(
+    handler,
+    /if \(hit\) \{[\s\S]*event\.waitUntil\(fresh\);[\s\S]*return hit;/,
+    'cache hits must extend the fetch event until background revalidation settles',
+  );
+});
+
 test('the shell is cached from the network, not from the HTTP cache', () => {
   // The assets are served with max-age=3600, and both addAll and a plain
   // revalidating fetch go through the HTTP cache by default. Without
