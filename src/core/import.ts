@@ -251,11 +251,19 @@ function runsToText(paragraph: string): string {
       out += text;
       continue;
     }
-    if (/<w:b\/>|<w:b\s[^>]*w:val="(?:1|true|on)"/.test(run)) text = `**${text}**`;
-    if (/<w:i\/>|<w:i\s[^>]*w:val="(?:1|true|on)"/.test(run)) text = `*${text}*`;
+    if (runPropertyEnabled(run, 'b')) text = `**${text}**`;
+    if (runPropertyEnabled(run, 'i')) text = `*${text}*`;
     out += text;
   }
   return out;
+}
+
+function runPropertyEnabled(run: string, name: 'b' | 'i'): boolean {
+  const properties = /<w:rPr\b[^>]*>([\s\S]*?)<\/w:rPr>/.exec(run)?.[1] ?? '';
+  const tag = new RegExp(`<w:${name}(?=[\\s/>])[^>]*>`).exec(properties)?.[0];
+  if (tag === undefined) return false;
+  const value = /\bw:val\s*=\s*["']([^"']*)["']/.exec(tag)?.[1];
+  return value === undefined || ['1', 'true', 'on'].includes(value);
 }
 
 function stripMarks(value: string): string {
