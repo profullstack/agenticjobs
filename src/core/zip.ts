@@ -17,6 +17,8 @@ import { inflateRawSync } from 'node:zlib';
 
 const EOCD_SIGNATURE = 0x06054b50;
 const CENTRAL_SIGNATURE = 0x02014b50;
+// The upload limit bounds compressed bytes, not the XML we allocate here.
+const MAX_ENTRY_BYTES = 16 * 1024 * 1024;
 
 export class ZipProblem extends Error {}
 
@@ -24,6 +26,7 @@ interface Entry {
   name: string;
   method: number;
   compressedSize: number;
+  uncompressedSize: number;
   localHeaderOffset: number;
 }
 
@@ -47,12 +50,13 @@ function readEntries(buffer: Buffer): Entry[] {
     if (buffer.readUInt32LE(offset) !== CENTRAL_SIGNATURE) break;
     const method = buffer.readUInt16LE(offset + 10);
     const compressedSize = buffer.readUInt32LE(offset + 20);
+    const uncompressedSize = buffer.readUInt32LE(offset + 24);
     const nameLength = buffer.readUInt16LE(offset + 28);
     const extraLength = buffer.readUInt16LE(offset + 30);
     const commentLength = buffer.readUInt16LE(offset + 32);
     const localHeaderOffset = buffer.readUInt32LE(offset + 42);
     const name = buffer.toString('utf8', offset + 46, offset + 46 + nameLength);
-    entries.push({ name, method, compressedSize, localHeaderOffset });
+    entries.push({ name, method, compressedSize, uncompressedSize, localHeaderOffset });
     offset += 46 + nameLength + extraLength + commentLength;
   }
   return entries;
@@ -61,6 +65,9 @@ function readEntries(buffer: Buffer): Entry[] {
 export function readZipEntry(buffer: Buffer, wanted: string): Buffer | null {
   const entry = readEntries(buffer).find((item) => item.name === wanted);
   if (entry === undefined) return null;
+  if (entry.uncompressedSize > MAX_ENTRY_BYTES) {
+    throw new ZipProblem(`${wanted} exceeds the 16MB uncompressed limit.`);
+  }
 
   const local = entry.localHeaderOffset;
   if (local + 30 > buffer.length) throw new ZipProblem('Truncated archive.');
@@ -72,10 +79,15 @@ export function readZipEntry(buffer: Buffer, wanted: string): Buffer | null {
   const start = local + 30 + nameLength + extraLength;
   const data = buffer.subarray(start, start + entry.compressedSize);
 
-  if (entry.method === 0) return Buffer.from(data);
+  if (entry.method === 0) {
+    if (data.length > MAX_ENTRY_BYTES) {
+      throw new ZipProblem(`${wanted} exceeds the 16MB uncompressed limit.`);
+    }
+    return Buffer.from(data);
+  }
   if (entry.method === 8) {
     try {
-      return inflateRawSync(data);
+      return inflateRawSync(data, { maxOutputLength: MAX_ENTRY_BYTES });
     } catch (error) {
       throw new ZipProblem(
         `Could not decompress ${wanted}: ${error instanceof Error ? error.message : String(error)}`,
