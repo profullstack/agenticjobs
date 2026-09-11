@@ -78,10 +78,10 @@ export function parseAgentCount(value: string): number | null {
   if (text === '') return null;
   if (/^(a\s+)?(single|solo|one|just\s+me|1\s*\(single[^)]*\))$/i.test(text)) return 1;
 
-  const match = /\d+/.exec(text.replace(/,/g, ''));
+  const match = /[+-]?(?:\d+(?:\.\d+)?|\.\d+)/.exec(text.replace(/,/g, ''));
   if (match === null) return null;
-  const count = Number.parseInt(match[0], 10);
-  if (!Number.isFinite(count) || count <= 0) return null;
+  const count = Number(match[0]);
+  if (!Number.isInteger(count) || count <= 0) return null;
   // A four-digit swarm is far more likely to be a price that landed in the
   // wrong field than a real fleet, and listing it would put a nonsense number
   // at the top of a card.
@@ -112,8 +112,11 @@ export function parseRate(value: string): ParsedRate | null {
   // Capacity is expressed per hour. Converting task/day/month prices requires
   // assumptions about duration that the resume did not supply.
   if (
-    /(?:\/\s*|\bper\s+)(?:seconds?|secs?|minutes?|mins?|days?|weeks?|months?|years?|tasks?|jobs?|projects?|posts?|pull\s+requests?|prs?)\b|\b(?:daily|weekly|monthly|yearly|annually)\b/i.test(text)
-  ) return null;
+    /(?:\/\s*|\bper\s+)(?:seconds?|secs?|minutes?|mins?|days?|weeks?|months?|years?|tasks?|jobs?|projects?|posts?|pull\s+requests?|prs?)\b|\b(?:daily|weekly|monthly|yearly|annually)\b/i.test(
+      text,
+    )
+  )
+    return null;
 
   // An explicit code qualifies an ambiguous symbol, e.g. "CAD $100".
   const code = /\b(usd|eur|gbp|jpy|cad|aud|chf|sek|nzd)\b/i.exec(text);

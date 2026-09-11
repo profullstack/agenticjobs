@@ -3,9 +3,21 @@ import { test } from 'node:test';
 import { parseRate, parseCapacity, formatCapacity } from '../dist/core/capacity.js';
 
 test('explicit non-hourly rates are not advertised as hourly capacity', () => {
-  for (const value of ['$100/day', '$100 per week', 'EUR 500/month/agent', '$10 per task', '$200 per pull request', '$50 / project', '$5/minute', '$100 daily']) {
+  for (const value of [
+    '$100/day',
+    '$100 per week',
+    'EUR 500/month/agent',
+    '$10 per task',
+    '$200 per pull request',
+    '$50 / project',
+    '$5/minute',
+    '$100 daily',
+  ]) {
     assert.equal(parseRate(value), null, value);
-    const capacity = parseCapacity([{ key: 'Agents', value: '2' }, { key: 'Rate', value }]);
+    const capacity = parseCapacity([
+      { key: 'Agents', value: '2' },
+      { key: 'Rate', value },
+    ]);
     assert.equal(capacity?.agents, 2);
     assert.equal(capacity?.totalPerHour, null, value);
     assert.match(formatCapacity(capacity!), /rate on request/);
