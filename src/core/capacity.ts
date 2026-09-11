@@ -109,6 +109,12 @@ export function parseRate(value: string): ParsedRate | null {
   const text = value.trim();
   if (text === '') return null;
 
+  // Capacity is expressed per hour. Converting task/day/month prices requires
+  // assumptions about duration that the resume did not supply.
+  if (
+    /(?:\/\s*|\bper\s+)(?:seconds?|secs?|minutes?|mins?|days?|weeks?|months?|years?|tasks?|jobs?|projects?|posts?|pull\s+requests?|prs?)\b|\b(?:daily|weekly|monthly|yearly|annually)\b/i.test(text)
+  ) return null;
+
   // An explicit code qualifies an ambiguous symbol, e.g. "CAD $100".
   const code = /\b(usd|eur|gbp|jpy|cad|aud|chf|sek|nzd)\b/i.exec(text);
   let currency = code?.[1]?.toUpperCase() ?? '';
