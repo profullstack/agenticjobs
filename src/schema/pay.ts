@@ -583,7 +583,6 @@ export function normaliseMethod(value: unknown): string | null {
 }
 
 function lineFromObject(value: Record<string, unknown>): PayLine | string {
-  if (typeof value['text'] === 'string') return parsePayLine(value['text']);
   const type = value['type'];
   if (!isPayType(type)) {
     return `A pay line needs a type from ${PAY_TYPES.join(', ')}, or a "text" such as "$0.25 per task".`;
@@ -655,7 +654,15 @@ export function normalisePay(input: Record<string, unknown>): Pay | string {
       continue;
     }
     if (typeof item === 'object' && item !== null) {
-      const line = lineFromObject(item as Record<string, unknown>);
+      const object = item as Record<string, unknown>;
+      if (typeof object['text'] === 'string') {
+        const read = readPayLine(object['text']);
+        if (typeof read === 'string') return read;
+        lines.push(read.line);
+        if (read.method !== null) namedMethod ??= read.method;
+        continue;
+      }
+      const line = lineFromObject(object);
       if (typeof line === 'string') return line;
       lines.push(line);
       continue;
