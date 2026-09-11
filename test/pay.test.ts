@@ -86,6 +86,29 @@ test('every shape a person writes a salary in', () => {
   }
 });
 
+test('scale suffixes do not consume currency codes or monthly periods', () => {
+  for (const currency of ['MATIC', 'MXN', 'KWD']) {
+    const parsed = line(`100 ${currency} per task`);
+    assert.equal(parsed.currency, currency);
+    assert.equal(parsed.min, 100);
+    assert.equal(parsed.max, 100);
+    assert.equal(parsed.type, 'per_task');
+  }
+
+  const monthly = line('$100 monthly');
+  assert.equal(monthly.type, 'monthly');
+  assert.equal(monthly.min, 100);
+  assert.equal(monthly.currency, 'USD');
+
+  for (const [text, amount] of [
+    ['$10k monthly', 10_000],
+    ['2 M USD per year', 2_000_000],
+    ['1.5m MATIC per task', 1_500_000],
+  ] as const) {
+    assert.equal(line(text).min, amount, text);
+  }
+});
+
 test('flat fees, bounties, revenue shares and coins', () => {
   assert.equal(line('$5000 fixed').type, 'fixed');
   assert.equal(line('$5,000 flat').type, 'fixed');
