@@ -55,6 +55,7 @@ import {
   updateResume,
 } from '../../core/resumes.ts';
 import { importDocument, ImportProblem } from '../../core/import.ts';
+import { BrowseProblem, pageToMarkdown } from '../../core/browse.ts';
 import { deliverMagicLink } from '../../core/mail.ts';
 import { listInstances, listTopics } from '../../directory/registry.ts';
 import { federatedSearch, targetsFromDescriptors } from '../../directory/federate.ts';
@@ -1103,14 +1104,16 @@ export function pageRoutes(): Hono<AppEnv> {
   });
 
   pages.post('/me/resumes/import', async (c) => {
-    const { pool } = c.get('deps');
+    const { pool, config } = c.get('deps');
     const viewer = requireViewer(c);
     if (viewer instanceof Response) return viewer;
 
     let file: File | null = null;
+    let url = '';
     try {
       const body = await c.req.parseBody();
       if (body['file'] instanceof File) file = body['file'];
+      if (typeof body['url'] === 'string') url = body['url'].trim();
     } catch {
       file = null;
     }
@@ -1121,7 +1124,21 @@ export function pageRoutes(): Hono<AppEnv> {
         </Layout>,
         400,
       );
-    if (file === null) return fail('Choose a file first.');
+    if (file === null && url !== '') {
+      try {
+        const page = await pageToMarkdown(url, { obscuraMcpUrl: config.obscuraMcpUrl });
+        const resume = await createResume(pool, viewer.id, {
+          markdown: page.markdown,
+          ...(page.title ? { title: page.title.slice(0, 120) } : {}),
+          source: { name: url, mime: 'text/markdown', bytes: Buffer.from(page.markdown, 'utf8') },
+        });
+        return c.redirect(`/me/resumes/${resume.slug}?imported=${page.via}`, 303);
+      } catch (error) {
+        if (error instanceof BrowseProblem) return fail(error.message);
+        throw error;
+      }
+    }
+    if (file === null) return fail('Choose a file, or paste the address of a page.');
 
     const bytes = Buffer.from(await file.arrayBuffer());
     try {

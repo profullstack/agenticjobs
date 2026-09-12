@@ -14,25 +14,27 @@ import type { Following, Update } from '../core/updates.ts';
 import type { Recommendation } from '../core/recommendations.ts';
 import { RecommendationsSection } from './recommendations.tsx';
 
-export const MePage: FC<PropsWithChildren<{
-  viewer: Viewer;
-  orgs: Organisation[];
-  jobs: Job[];
-  resumes: Resume[];
-  applications: { jobTitle: string; jobSlug: string; status: string; createdAt: string }[];
-  /** Your own updates, and who you follow. */
-  updates: Update[];
-  following: Following[];
-  /**
-   * The page your updates would appear on, or null if you have not published
-   * a resume. Posting requires one: an update whose author has no page is an
-   * anonymous post, which is the thing this feature must not become.
-   */
-  candidateSlug: string | null;
-  updateMax: number;
-  /** About you and your employers, and what you wrote about others. */
-  recommendations?: { received: Recommendation[]; given: Recommendation[]; error?: string };
-}>> = ({
+export const MePage: FC<
+  PropsWithChildren<{
+    viewer: Viewer;
+    orgs: Organisation[];
+    jobs: Job[];
+    resumes: Resume[];
+    applications: { jobTitle: string; jobSlug: string; status: string; createdAt: string }[];
+    /** Your own updates, and who you follow. */
+    updates: Update[];
+    following: Following[];
+    /**
+     * The page your updates would appear on, or null if you have not published
+     * a resume. Posting requires one: an update whose author has no page is an
+     * anonymous post, which is the thing this feature must not become.
+     */
+    candidateSlug: string | null;
+    updateMax: number;
+    /** About you and your employers, and what you wrote about others. */
+    recommendations?: { received: Recommendation[]; given: Recommendation[]; error?: string };
+  }>
+> = ({
   viewer,
   orgs,
   jobs,
@@ -90,16 +92,12 @@ export const MePage: FC<PropsWithChildren<{
       <h2>Updates</h2>
       {candidateSlug === null ? (
         <p class="small muted">
-          Publish a resume and you can post updates as yourself: what you shipped, when you are
-          free next. They appear on your candidate page and in the board's feed.
+          Publish a resume and you can post updates as yourself: what you shipped, when you are free
+          next. They appear on your candidate page and in the board's feed.
         </p>
       ) : (
         <>
-          <UpdateComposer
-            action="/me/updates"
-            as={viewer.name ?? viewer.email}
-            max={updateMax}
-          />
+          <UpdateComposer action="/me/updates" as={viewer.name ?? viewer.email} max={updateMax} />
           {updates.length > 0 && <UpdateList updates={updates} showAuthor={false} />}
         </>
       )}
@@ -143,9 +141,7 @@ export const MePage: FC<PropsWithChildren<{
         </a>
       </div>
       {orgs.length === 0 ? (
-        <Empty>
-          You cannot post a job until you add the employer it is for.
-        </Empty>
+        <Empty>You cannot post a job until you add the employer it is for.</Empty>
       ) : (
         <div class="row">
           {orgs.map((org) => (
@@ -253,114 +249,142 @@ export const ResumeEditor: FC<{
   <div class="stack">
     <div class="grid-2">
       <div class="stack">
-      <h1>{resume === null ? 'New resume' : resume.title}</h1>
-      {error !== undefined && <Alert variant="error">{error}</Alert>}
-      {saved === true && <Alert variant="success">Saved.</Alert>}
+        <h1>{resume === null ? 'New resume' : resume.title}</h1>
+        {error !== undefined && <Alert variant="error">{error}</Alert>}
+        {saved === true && <Alert variant="success">Saved.</Alert>}
 
-      {resume === null && (
-        <Card>
-          <div class="card-header">
-            <h2 class="card-title">Start from a file</h2>
-            <p class="card-description">
-              PDF, Word, plain text or Markdown. It is converted to Markdown you can then edit - the
-              Markdown is what gets kept and what employers read.
-            </p>
-          </div>
-          <form method="post" action="/me/resumes/import" enctype="multipart/form-data" class="stack">
+        {resume === null && (
+          <Card>
+            <div class="card-header">
+              <h2 class="card-title">Start from a file</h2>
+              <p class="card-description">
+                PDF, Word, plain text or Markdown. It is converted to Markdown you can then edit -
+                the Markdown is what gets kept and what employers read.
+              </p>
+            </div>
+            <form
+              method="post"
+              action="/me/resumes/import"
+              enctype="multipart/form-data"
+              class="stack"
+            >
+              <input
+                class="input"
+                type="file"
+                name="file"
+                accept=".md,.markdown,.txt,.pdf,.docx,.doc,.odt,.rtf"
+                required
+              />
+              <button class="btn" type="submit">
+                Convert to Markdown
+              </button>
+            </form>
+          </Card>
+        )}
+
+        {resume === null && (
+          <Card>
+            <div class="card-header">
+              <h2 class="card-title">Start from a page</h2>
+              <p class="card-description">
+                A profile, a personal site, an online resume. The page is read with a browser and
+                turned into Markdown you then edit; navigation and footers come along, so check
+                every line before publishing.
+              </p>
+            </div>
+            <form method="post" action="/me/resumes/import" class="stack">
+              <input class="input" type="url" name="url" placeholder="https://" required />
+              <button class="btn btn-secondary" type="submit">
+                Read the page
+              </button>
+            </form>
+          </Card>
+        )}
+
+        <form
+          class="stack"
+          method="post"
+          action={resume === null ? '/me/resumes/new' : `/me/resumes/${resume.slug}`}
+        >
+          <Field
+            label="Title"
+            name="title"
+            hint="Only you see this. Name it after the kind of role."
+          >
             <input
               class="input"
-              type="file"
-              name="file"
-              accept=".md,.markdown,.txt,.pdf,.docx,.doc,.odt,.rtf"
-              required
+              type="text"
+              id="title"
+              name="title"
+              value={resume?.title ?? ''}
+              placeholder="Backend, senior"
             />
+          </Field>
+          <Field
+            label="Resume"
+            name="markdown"
+            hint="OpenResume.md: an h1 with your name, a bullet list of contact details, then ## sections."
+          >
+            <textarea class="textarea code" id="markdown" name="markdown" spellcheck={false}>
+              {resume?.markdown ?? ''}
+            </textarea>
+          </Field>
+          <Field
+            label="Who can see it"
+            name="visibility"
+            hint="Sharing puts your resume, including the contact details in it, on a page anyone can open."
+          >
+            <select class="select" id="visibility" name="visibility">
+              <option value="private" selected={resume?.visibility === 'private'}>
+                Private - only you, and employers you apply to
+              </option>
+              <option value="link" selected={resume?.visibility === 'link'}>
+                Anyone with the link - not listed anywhere
+              </option>
+              <option value="public" selected={resume?.visibility === 'public'}>
+                Public - listed in Candidates
+              </option>
+            </select>
+          </Field>
+          <div class="row">
             <button class="btn" type="submit">
-              Convert to Markdown
+              Save
+            </button>
+            {resume !== null && (
+              <a class="btn btn-secondary" href={`/api/v1/resumes/${resume.slug}`}>
+                As JSON
+              </a>
+            )}
+          </div>
+        </form>
+
+        {resume !== null && (
+          <form method="post" action={`/me/resumes/${resume.slug}/delete`}>
+            <button class="btn btn-destructive btn-sm" type="submit">
+              Delete this resume
             </button>
           </form>
-        </Card>
-      )}
-
-      <form
-        class="stack"
-        method="post"
-        action={resume === null ? '/me/resumes/new' : `/me/resumes/${resume.slug}`}
-      >
-        <Field label="Title" name="title" hint="Only you see this. Name it after the kind of role.">
-          <input
-            class="input"
-            type="text"
-            id="title"
-            name="title"
-            value={resume?.title ?? ''}
-            placeholder="Backend, senior"
-          />
-        </Field>
-        <Field
-          label="Resume"
-          name="markdown"
-          hint="OpenResume.md: an h1 with your name, a bullet list of contact details, then ## sections."
-        >
-          <textarea class="textarea code" id="markdown" name="markdown" spellcheck={false}>
-            {resume?.markdown ?? ''}
-          </textarea>
-        </Field>
-        <Field
-          label="Who can see it"
-          name="visibility"
-          hint="Sharing puts your resume, including the contact details in it, on a page anyone can open."
-        >
-          <select class="select" id="visibility" name="visibility">
-            <option value="private" selected={resume?.visibility === 'private'}>
-              Private - only you, and employers you apply to
-            </option>
-            <option value="link" selected={resume?.visibility === 'link'}>
-              Anyone with the link - not listed anywhere
-            </option>
-            <option value="public" selected={resume?.visibility === 'public'}>
-              Public - listed in Candidates
-            </option>
-          </select>
-        </Field>
-        <div class="row">
-          <button class="btn" type="submit">
-            Save
-          </button>
-          {resume !== null && (
-            <a class="btn btn-secondary" href={`/api/v1/resumes/${resume.slug}`}>
-              As JSON
-            </a>
-          )}
-        </div>
-      </form>
-
-      {resume !== null && (
-        <form method="post" action={`/me/resumes/${resume.slug}/delete`}>
-          <button class="btn btn-destructive btn-sm" type="submit">
-            Delete this resume
-          </button>
-        </form>
-      )}
-    </div>
+        )}
+      </div>
 
       <aside class="stack">
         {resume !== null && resume.visibility !== 'private' && resume.publicSlug !== null && (
-        <Card>
-          <div class="card-header">
-            <h2 class="card-title">
-              {resume.visibility === 'public' ? 'Listed in Candidates' : 'Shared by link'}
-            </h2>
-            <p class="card-description">
-              {resume.visibility === 'public'
-                ? 'Anyone can find this from the candidate directory.'
-                : 'Anyone with this address can read it. It is not listed.'}
+          <Card>
+            <div class="card-header">
+              <h2 class="card-title">
+                {resume.visibility === 'public' ? 'Listed in Candidates' : 'Shared by link'}
+              </h2>
+              <p class="card-description">
+                {resume.visibility === 'public'
+                  ? 'Anyone can find this from the candidate directory.'
+                  : 'Anyone with this address can read it. It is not listed.'}
+              </p>
+            </div>
+            <p class="small">
+              <a href={`/candidates/${resume.publicSlug}`}>/candidates/{resume.publicSlug}</a>
             </p>
-          </div>
-          <p class="small">
-            <a href={`/candidates/${resume.publicSlug}`}>/candidates/{resume.publicSlug}</a>
-          </p>
-        </Card>
-      )}
+          </Card>
+        )}
         {warnings.length > 0 && (
           <Alert variant="warning">
             <strong>Worth a look:</strong>

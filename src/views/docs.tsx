@@ -112,8 +112,9 @@ Chief Programmer (1842 - 1843)
       />
       <p class="small">
         You can also upload a PDF or a Word document and get Markdown back from{' '}
-        <code>POST /api/v1/resumes/import</code>. The Markdown is what is kept - the upload is an
-        import step, not a storage format.
+        <code>POST /api/v1/resumes/import</code>, or send it <code>{'{"url": "https://..."}'}</code>{' '}
+        to read a page (a profile, a personal site) as a resume draft. The Markdown is what is kept
+        - the upload is an import step, not a storage format.
       </p>
       <p class="small">
         <a href="/docs/openresume">The OpenResume.md convention in full</a> -{' '}
