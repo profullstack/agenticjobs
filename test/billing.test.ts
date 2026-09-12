@@ -168,7 +168,13 @@ test('an HTML answer from CoinPay is reported as such, not parsed', async () => 
 test('an amount is dollars and cents, however it was typed', () => {
   assert.equal(parseAmount('1200'), '1200.00');
   assert.equal(parseAmount('$1,200.50'), '1200.50');
+  assert.equal(parseAmount(' $1,200.50 '), '1200.50');
   assert.equal(parseAmount(99.9), '99.90');
+  assert.equal(parseAmount('1,2'), null);
+  assert.equal(parseAmount('1,23'), null);
+  assert.equal(parseAmount('12,34,567'), null);
+  assert.equal(parseAmount('1$2'), null);
+  assert.equal(parseAmount('1 2'), null);
   assert.equal(parseAmount('0'), null);
   assert.equal(parseAmount('-5'), null);
   assert.equal(parseAmount('12.345'), null);
