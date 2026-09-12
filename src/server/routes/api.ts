@@ -915,6 +915,7 @@ export function apiRoutes(): Hono<AppEnv> {
         : {}),
       listed: resume.visibility === 'public',
       url: `${config.publicUrl}/candidates/${resume.publicSlug}`,
+      openprofile: `${config.publicUrl}/candidates/${resume.publicSlug}/openprofile.md`,
       spec: `${config.publicUrl}/docs/openresume`,
     });
   });

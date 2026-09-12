@@ -117,7 +117,8 @@ Chief Programmer (1842 - 1843)
       </p>
       <p class="small">
         <a href="/docs/openresume">The OpenResume.md convention in full</a> -{' '}
-        <a href="/docs/openjob">OpenJob, the listing format</a>
+        <a href="/docs/openjob">OpenJob, the listing format</a> -{' '}
+        <a href="/docs/openprofile">OpenProfile.md, who and where</a>
       </p>
     </Card>
 

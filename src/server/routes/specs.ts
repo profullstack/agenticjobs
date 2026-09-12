@@ -1,5 +1,5 @@
 /**
- * The two conventions this board implements, served from the repository's own
+ * The conventions this board implements, served from the repository's own
  * docs so the page and the file cannot drift apart.
  */
 
@@ -17,6 +17,7 @@ export interface Spec {
 const TITLES: Record<string, string> = {
   openresume: 'OpenResume.md',
   openjob: 'OpenJob',
+  openprofile: 'OpenProfile.md',
 };
 
 function docsDir(): string {

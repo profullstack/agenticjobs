@@ -275,7 +275,14 @@ export const CandidateDetail: FC<{
           <a class="btn btn-secondary btn-sm" href={`/candidates/${candidate.slug}/resume.md`}>
             Markdown
           </a>
+          <a class="btn btn-secondary btn-sm" href={`/candidates/${candidate.slug}/openprofile.md`}>
+            Profile
+          </a>
         </div>
+        <p class="small muted">
+          Profile is an <a href="/docs/openprofile">OpenProfile.md</a>: who and where, derived from
+          the resume, for a directory or a resharing network to read.
+        </p>
       </Card>
 
       <Card>

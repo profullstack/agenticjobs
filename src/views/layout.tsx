@@ -25,6 +25,8 @@ export interface PageProps {
   canonical?: string;
   /** Hidden from search engines: dashboards, editors, one-off flows. */
   noindex?: boolean;
+  /** The OpenProfile.md this page is about, for rel="openprofile" discovery. */
+  openprofile?: string;
   isDirectory?: boolean;
   /** Conversations with something unread, shown beside Inbox. */
   unread?: number;
@@ -41,6 +43,7 @@ export const Layout: FC<PropsWithChildren<PageProps>> = (props) => {
     jsonld,
     canonical,
     noindex,
+    openprofile,
     isDirectory,
     unread = 0,
     children,
@@ -58,6 +61,7 @@ export const Layout: FC<PropsWithChildren<PageProps>> = (props) => {
         {description !== undefined && <meta name="description" content={description} />}
         <link rel="canonical" href={url} />
         {noindex === true && <meta name="robots" content="noindex, nofollow" />}
+        {openprofile !== undefined && <link rel="openprofile" href={openprofile} />}
         <meta property="og:title" content={full} />
         {description !== undefined && <meta property="og:description" content={description} />}
         <meta property="og:url" content={url} />
