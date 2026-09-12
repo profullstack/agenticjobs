@@ -41,6 +41,22 @@ const integer = (description: string): Record<string, unknown> => ({
   description,
 });
 
+/**
+ * The tools that answer with no token at all, for the OpenMCP descriptor's
+ * `auth.open`. Everything else calls signInFirst on a 401. Kept beside the
+ * list rather than derived from it, so a new tool has to say which it is.
+ */
+export const OPEN_TOOLS = [
+  'search_jobs',
+  'get_job',
+  'get_apply_schema',
+  'apply_to_job',
+  'list_employers',
+  'whoami',
+  'search_network',
+  'list_instances',
+] as const;
+
 export const TOOLS: ToolDefinition[] = [
   {
     name: 'search_jobs',
@@ -150,9 +166,15 @@ export const TOOLS: ToolDefinition[] = [
         org: string('The employer slug to post under.'),
         title: string('The role.'),
         description: string('The listing body, as Markdown.'),
-        employmentType: { type: 'string', enum: ['full-time', 'part-time', 'contract', 'internship', 'temporary'] },
+        employmentType: {
+          type: 'string',
+          enum: ['full-time', 'part-time', 'contract', 'internship', 'temporary'],
+        },
         workplace: { type: 'string', enum: ['remote', 'hybrid', 'onsite'] },
-        seniority: { type: 'string', enum: ['intern', 'junior', 'mid', 'senior', 'staff', 'principal', 'lead'] },
+        seniority: {
+          type: 'string',
+          enum: ['intern', 'junior', 'mid', 'senior', 'staff', 'principal', 'lead'],
+        },
         location: string('Free text.'),
         pay: {
           type: 'array',
@@ -160,9 +182,14 @@ export const TOOLS: ToolDefinition[] = [
           description:
             'What it pays, one line per price, the way a person says it: "$120k - $150k a year", "$100 an hour", "$0.25 per task", "$0.25 per PR that fixes a bug you find", "$5000 fixed", "10% revenue share", "0.01 SOL per task". Required before the listing can be published.',
         },
-        payMethod: string('How it is settled: a coin such as SOL, USDC, ETH, USDT or POL, or a rail such as "bank transfer", "PayPal" or "payroll".'),
+        payMethod: string(
+          'How it is settled: a coin such as SOL, USDC, ETH, USDT or POL, or a rail such as "bank transfer", "PayPal" or "payroll".',
+        ),
         payEquity: string('Equity, as text. Optional.'),
-        unpaid: { type: 'boolean', description: 'True only when the role pays nothing and the employer says so.' },
+        unpaid: {
+          type: 'boolean',
+          description: 'True only when the role pays nothing and the employer says so.',
+        },
         salaryMin: integer('Bottom of an annual range. Older form of pay; prefer `pay`.'),
         salaryMax: integer('Top of an annual range. Older form of pay; prefer `pay`.'),
         salaryCurrency: string('ISO code, e.g. USD.'),
@@ -241,7 +268,7 @@ export const TOOLS: ToolDefinition[] = [
     name: 'follow',
     title: 'Follow or unfollow',
     description:
-      'Follow an employer or a candidate so their updates appear in this account\'s feed. Set following to false to stop. Following twice is following once.',
+      "Follow an employer or a candidate so their updates appear in this account's feed. Set following to false to stop. Following twice is following once.",
     inputSchema: object(
       {
         org: string("An employer's slug."),
@@ -423,7 +450,10 @@ export async function callTool(
     }
 
     case 'get_job': {
-      const response = await caller.call('GET', `/api/v1/jobs/${encodeURIComponent(String(args['slug'] ?? ''))}`);
+      const response = await caller.call(
+        'GET',
+        `/api/v1/jobs/${encodeURIComponent(String(args['slug'] ?? ''))}`,
+      );
       if (response.status !== 200) return toolError(message(response.body, 'No such job.'));
       return text(describeJob(response.body), response.body);
     }
@@ -454,8 +484,9 @@ export async function callTool(
         body,
       );
       if (response.status !== 201) {
-        const fields = (response.body as { error?: { fields?: { field: string; message: string }[] } })
-          .error?.fields;
+        const fields = (
+          response.body as { error?: { fields?: { field: string; message: string }[] } }
+        ).error?.fields;
         const detail =
           fields === undefined
             ? ''
@@ -499,23 +530,32 @@ export async function callTool(
           ? await caller.call('PATCH', `/api/v1/resumes/${encodeURIComponent(slug)}`, body)
           : await caller.call('POST', '/api/v1/resumes', body);
       if (response.status === 401) return toolError(signInFirst(caller));
-      if (response.status >= 400) return toolError(message(response.body, 'The resume was not saved.'));
+      if (response.status >= 400)
+        return toolError(message(response.body, 'The resume was not saved.'));
       return text('Saved.', response.body);
     }
 
     case 'post_job': {
       const response = await caller.call('POST', '/api/v1/jobs', args);
       if (response.status === 401) return toolError(signInFirst(caller));
-      if (response.status !== 201) return toolError(message(response.body, 'The job was not created.'));
-      const created = (response.body as {
-        job?: { slug?: string; pay?: { unpaid?: boolean; lines?: { min?: number | null; max?: number | null }[] } };
-      }).job;
+      if (response.status !== 201)
+        return toolError(message(response.body, 'The job was not created.'));
+      const created = (
+        response.body as {
+          job?: {
+            slug?: string;
+            pay?: { unpaid?: boolean; lines?: { min?: number | null; max?: number | null }[] };
+          };
+        }
+      ).job;
       const stated =
         created?.pay?.unpaid === true ||
         (created?.pay?.lines ?? []).some((line) => line.min != null || line.max != null);
       return text(
         `Created as a draft: ${created?.slug ?? 'unknown'}. It is not visible to anyone until publish_job is called.${
-          stated ? '' : ' It does not say what it pays yet, and cannot be published until it does: send pay, one line per price, or unpaid: true.'
+          stated
+            ? ''
+            : ' It does not say what it pays yet, and cannot be published until it does: send pay, one line per price, or unpaid: true.'
         }`,
         response.body,
       );
@@ -527,7 +567,8 @@ export async function callTool(
         `/api/v1/jobs/${encodeURIComponent(String(args['slug'] ?? ''))}/publish`,
       );
       if (response.status === 401) return toolError(signInFirst(caller));
-      if (response.status >= 400) return toolError(message(response.body, 'The job was not published.'));
+      if (response.status >= 400)
+        return toolError(message(response.body, 'The job was not published.'));
       return text('Published.', response.body);
     }
 
@@ -537,7 +578,8 @@ export async function callTool(
         `/api/v1/jobs/${encodeURIComponent(String(args['slug'] ?? ''))}/applications`,
       );
       if (response.status === 401) return toolError(signInFirst(caller));
-      if (response.status >= 400) return toolError(message(response.body, 'Could not read applications.'));
+      if (response.status >= 400)
+        return toolError(message(response.body, 'Could not read applications.'));
       return text(JSON.stringify(response.body, null, 2), response.body);
     }
 
@@ -608,7 +650,8 @@ export async function callTool(
     case 'recommend': {
       const candidate = typeof args['candidate'] === 'string' ? args['candidate'] : '';
       const org = typeof args['org'] === 'string' ? args['org'] : '';
-      if (candidate === '' && org === '') return toolError('Name a candidate with candidate, or an employer with org.');
+      if (candidate === '' && org === '')
+        return toolError('Name a candidate with candidate, or an employer with org.');
       const path =
         candidate !== ''
           ? `/api/v1/candidates/${encodeURIComponent(candidate)}/recommendations`
@@ -619,8 +662,13 @@ export async function callTool(
         ...(typeof args['as'] === 'string' && args['as'] !== '' ? { as: args['as'] } : {}),
       });
       if (response.status === 401) return toolError(signInFirst(caller));
-      if (response.status !== 201) return toolError(message(response.body, 'The recommendation was not written.'));
-      const written = (response.body as { recommendation?: { subject?: { name?: string }; author?: { name?: string } } }).recommendation;
+      if (response.status !== 201)
+        return toolError(message(response.body, 'The recommendation was not written.'));
+      const written = (
+        response.body as {
+          recommendation?: { subject?: { name?: string }; author?: { name?: string } };
+        }
+      ).recommendation;
       return text(
         `Written, from ${written?.author?.name ?? 'you'}. It is pending until ${written?.subject?.name ?? 'they'} approves it, and is not on their page until then.`,
         response.body,
@@ -631,23 +679,36 @@ export async function callTool(
       const response = await caller.call('GET', '/api/v1/me/recommendations');
       if (response.status === 401) return toolError(signInFirst(caller));
       const mine = response.body as {
-        received: { id: string; status: string; author: { name: string }; subject: { name: string }; body: string }[];
+        received: {
+          id: string;
+          status: string;
+          author: { name: string };
+          subject: { name: string };
+          body: string;
+        }[];
         given: { id: string; status: string; subject: { name: string }; body: string }[];
         pending: number;
       };
       const lines = [
         `${mine.pending} waiting for a decision.`,
         '',
-        ...mine.received.map((item) => `- [${item.status}] ${item.author.name} about ${item.subject.name}: ${item.body.slice(0, 100)} [${item.id}]`),
+        ...mine.received.map(
+          (item) =>
+            `- [${item.status}] ${item.author.name} about ${item.subject.name}: ${item.body.slice(0, 100)} [${item.id}]`,
+        ),
         ...(mine.given.length > 0 ? ['', 'You wrote:'] : []),
-        ...mine.given.map((item) => `- [${item.status}] about ${item.subject.name}: ${item.body.slice(0, 100)} [${item.id}]`),
+        ...mine.given.map(
+          (item) =>
+            `- [${item.status}] about ${item.subject.name}: ${item.body.slice(0, 100)} [${item.id}]`,
+        ),
       ];
       return text(lines.join('\n'), response.body);
     }
 
     case 'decide_recommendation': {
       const action = String(args['action'] ?? '');
-      if (!['approve', 'reject', 'withdraw'].includes(action)) return toolError('action is approve, reject or withdraw.');
+      if (!['approve', 'reject', 'withdraw'].includes(action))
+        return toolError('action is approve, reject or withdraw.');
       const response = await caller.call(
         'POST',
         `/api/v1/recommendations/${encodeURIComponent(String(args['id'] ?? ''))}/${action}`,
@@ -655,7 +716,11 @@ export async function callTool(
       if (response.status === 401) return toolError(signInFirst(caller));
       if (response.status !== 200) return toolError(message(response.body, 'Nothing changed.'));
       return text(
-        action === 'approve' ? 'Approved. It is on the page now.' : action === 'reject' ? 'Rejected. It is not shown.' : 'Withdrawn.',
+        action === 'approve'
+          ? 'Approved. It is on the page now.'
+          : action === 'reject'
+            ? 'Rejected. It is not shown.'
+            : 'Withdrawn.',
         response.body,
       );
     }
@@ -666,7 +731,9 @@ export async function callTool(
         `/api/v1/directory/search${query(args, ['q', 'workplace', 'agentPolicy', 'limit'])}`,
       );
       if (response.status === 404) {
-        return toolError(`${caller.server} is a board, not a directory, so it has no network to search.`);
+        return toolError(
+          `${caller.server} is a board, not a directory, so it has no network to search.`,
+        );
       }
       const result = response.body as {
         jobs?: { job: { title: string }; instanceName: string; url: string }[];
@@ -681,7 +748,9 @@ export async function callTool(
           ? ''
           : `\n\n${failed.length} board(s) did not answer, so their listings are missing: ${failed.map((source) => source.name).join(', ')}.`;
       return text(
-        lines.length === 0 ? `Nothing matched on any listed board.${note}` : `${lines.join('\n')}${note}`,
+        lines.length === 0
+          ? `Nothing matched on any listed board.${note}`
+          : `${lines.join('\n')}${note}`,
         response.body,
       );
     }
@@ -700,7 +769,8 @@ export async function callTool(
       const path = thread === '' ? '/api/v1/inbox' : `/api/v1/inbox/${encodeURIComponent(thread)}`;
       const response = await caller.call('GET', path);
       if (response.status === 401) return toolError(signInFirst(caller));
-      if (response.status !== 200) return toolError(message(response.body, 'No such conversation.'));
+      if (response.status !== 200)
+        return toolError(message(response.body, 'No such conversation.'));
       if (thread === '') {
         const page = response.body as { items?: unknown[] };
         if ((page.items ?? []).length === 0) return text('The inbox is empty.', response.body);
@@ -712,9 +782,13 @@ export async function callTool(
       const body = String(args['body'] ?? '');
       const thread = typeof args['thread'] === 'string' ? args['thread'].trim() : '';
       if (thread !== '') {
-        const response = await caller.call('POST', `/api/v1/inbox/${encodeURIComponent(thread)}/messages`, {
-          body,
-        });
+        const response = await caller.call(
+          'POST',
+          `/api/v1/inbox/${encodeURIComponent(thread)}/messages`,
+          {
+            body,
+          },
+        );
         if (response.status === 401) return toolError(signInFirst(caller));
         if (response.status !== 201) return toolError(message(response.body, 'Not sent.'));
         return text('Sent.', response.body);
@@ -740,13 +814,20 @@ export async function callTool(
 
     case 'send_invoice': {
       const thread = String(args['thread'] ?? '').trim();
-      const response = await caller.call('POST', `/api/v1/inbox/${encodeURIComponent(thread)}/invoices`, {
-        amount: String(args['amount'] ?? ''),
-        ...(typeof args['currency'] === 'string' && args['currency'] !== '' ? { currency: args['currency'] } : {}),
-        ...(typeof args['description'] === 'string' ? { description: args['description'] } : {}),
-      });
+      const response = await caller.call(
+        'POST',
+        `/api/v1/inbox/${encodeURIComponent(thread)}/invoices`,
+        {
+          amount: String(args['amount'] ?? ''),
+          ...(typeof args['currency'] === 'string' && args['currency'] !== ''
+            ? { currency: args['currency'] }
+            : {}),
+          ...(typeof args['description'] === 'string' ? { description: args['description'] } : {}),
+        },
+      );
       if (response.status === 401) return toolError(signInFirst(caller));
-      if (response.status !== 201) return toolError(message(response.body, 'The invoice was not sent.'));
+      if (response.status !== 201)
+        return toolError(message(response.body, 'The invoice was not sent.'));
       const sent = response.body as { invoice?: { amountUsd?: string; currency?: string } };
       return text(
         `Invoice sent for $${sent.invoice?.amountUsd ?? ''} in ${sent.invoice?.currency ?? ''}. The other side sees Pay in the conversation.`,
@@ -759,14 +840,22 @@ export async function callTool(
       if (invoice === '') {
         const response = await caller.call('GET', '/api/v1/invoices');
         if (response.status === 401) return toolError(signInFirst(caller));
-        if (response.status !== 200) return toolError(message(response.body, 'Could not list invoices.'));
+        if (response.status !== 200)
+          return toolError(message(response.body, 'Could not list invoices.'));
         return text(JSON.stringify(response.body, null, 2), response.body);
       }
-      const response = await caller.call('POST', `/api/v1/invoices/${encodeURIComponent(invoice)}/pay`);
+      const response = await caller.call(
+        'POST',
+        `/api/v1/invoices/${encodeURIComponent(invoice)}/pay`,
+      );
       if (response.status === 401) return toolError(signInFirst(caller));
       if (response.status !== 200) return toolError(message(response.body, 'No quote.'));
       const result = response.body as {
-        invoice?: { status?: string; payment?: { url?: string; address?: string; amountCrypto?: string } | null; currency?: string };
+        invoice?: {
+          status?: string;
+          payment?: { url?: string; address?: string; amountCrypto?: string } | null;
+          currency?: string;
+        };
       };
       const inv = result.invoice;
       if (inv?.status === 'paid') return text('That invoice is already paid.', response.body);
@@ -782,18 +871,26 @@ export async function callTool(
     case 'check_billing': {
       const response = await caller.call('GET', '/api/v1/coinpay');
       if (response.status === 401) return toolError(signInFirst(caller));
-      if (response.status !== 200) return toolError(message(response.body, 'Could not read billing.'));
+      if (response.status !== 200)
+        return toolError(message(response.body, 'Could not read billing.'));
       const state = response.body as {
         configured?: boolean;
         account?: { usable?: boolean; wallets?: { chain: string; address: string }[] } | null;
         connectUrl?: string;
       };
-      if (state.configured !== true) return text('This board has no billing configured.', response.body);
+      if (state.configured !== true)
+        return text('This board has no billing configured.', response.body);
       if (state.account === null || state.account === undefined) {
-        return text(`No CoinPay account connected. Connect one in a browser: ${state.connectUrl ?? ''}`, response.body);
+        return text(
+          `No CoinPay account connected. Connect one in a browser: ${state.connectUrl ?? ''}`,
+          response.body,
+        );
       }
       if (state.account.usable !== true) {
-        return text(`The CoinPay connection has lapsed. Reconnect in a browser: ${state.connectUrl ?? ''}`, response.body);
+        return text(
+          `The CoinPay connection has lapsed. Reconnect in a browser: ${state.connectUrl ?? ''}`,
+          response.body,
+        );
       }
       const wallets = state.account.wallets ?? [];
       return text(
