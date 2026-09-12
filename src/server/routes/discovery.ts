@@ -546,6 +546,7 @@ export function discoveryRoutes(): Hono<AppEnv> {
         '/docs',
         '/docs/openresume',
         '/docs/openjob',
+        '/docs/openprofile',
       ];
       if (c.get('deps').config.isDirectory) paths.push('/network');
       return c.body(urlset(paths.map((path) => ({ loc: `${config.publicUrl}${path}` }))), 200, {
@@ -774,6 +775,10 @@ export function discoveryRoutes(): Hono<AppEnv> {
         '',
         'Resumes are Markdown in the OpenResume.md convention:',
         `${config.publicUrl}/docs/openresume`,
+        '',
+        'Every public candidate also has an OpenProfile.md (who and where, derived from the',
+        `resume) at ${config.publicUrl}/candidates/{slug}/openprofile.md, in the convention at`,
+        `${config.publicUrl}/docs/openprofile`,
         '',
         '## Being listed as a candidate',
         '',

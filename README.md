@@ -117,8 +117,10 @@ and what employers read is the Markdown, and you edit it before it goes anywhere
 conversion nobody checks is a conversion nobody should trust.
 
 The convention is [OpenResume.md](docs/openresume.md). The listing format is
-[OpenJob](docs/openjob.md). Both are conventions anyone can implement, and neither
-requires this software.
+[OpenJob](docs/openjob.md). Every public candidate also gets an
+[OpenProfile.md](docs/openprofile.md) at `/candidates/<slug>/openprofile.md`, who and
+where derived from the resume, next to the `resume.md`, `.pdf` and `.docx` downloads.
+All three are conventions anyone can implement, and none requires this software.
 
 The same rule holds for every other box on the board. A listing description, an
 employer profile, a cover letter, a message, an invoice description, an update and a

@@ -63,6 +63,7 @@ import { jobPostingJsonLd } from '../../schema/jsonld.ts';
 import { toPlainText } from '../../markup/markdown.ts';
 import { renderMarkdown } from '../../markup/markdown.ts';
 import { parseResume, resumeTemplate } from '../../markup/resume.ts';
+import { openProfileFromResume } from '../../markup/openprofile.ts';
 import { Layout, type PageProps } from '../../views/layout.tsx';
 import { EmployerDetail, EmployerList, JobDetail, JobList } from '../../views/jobs.tsx';
 import { DevicePage, LoginPage } from '../../views/auth.tsx';
@@ -466,6 +467,9 @@ export function pageRoutes(): Hono<AppEnv> {
         // A resume reachable only by its link stays out of search results, or
         // "anyone with the link" quietly becomes "anyone".
         noindex={resume.visibility !== 'public'}
+        // The profile page points at the person's OpenProfile.md, so a reader
+        // that only knows this URL still finds the file.
+        openprofile={`${config.publicUrl}/candidates/${slug}/openprofile.md`}
       >
         <CandidateDetail
           candidate={summary}
@@ -584,6 +588,31 @@ export function pageRoutes(): Hono<AppEnv> {
   pages.get('/candidates/:slug/resume.html', (c) => resumeFile(c, 'html'));
   pages.get('/candidates/:slug/resume.pdf', (c) => resumeFile(c, 'pdf'));
   pages.get('/candidates/:slug/resume.docx', (c) => resumeFile(c, 'docx'));
+
+  /**
+   * The candidate as an OpenProfile.md file: who and where, derived from the
+   * resume on request. Same redaction gate as the resume, because the identity
+   * block is the contact block under another heading, and an address withheld
+   * from one download must not turn up in the other.
+   */
+  pages.get('/candidates/:slug/openprofile.md', async (c) => {
+    const { pool, config } = c.get('deps');
+    const slug = c.req.param('slug') ?? '';
+    const resume = await getPublicResume(pool, slug);
+    if (resume === null) return c.notFound();
+    const summary = toCandidateSummary(resume);
+    const shown = resumeForViewer(resume, c.get('viewer') !== null);
+    const markdown = openProfileFromResume({
+      name: summary.name,
+      parsed: shown.parsed,
+      topics: summary.skills,
+      resumeUrl: `${config.publicUrl}/candidates/${slug}/resume.md`,
+    });
+    return c.body(markdown, 200, {
+      'content-type': 'text/markdown; charset=utf-8',
+      'content-disposition': `attachment; filename="${filename(summary.name, 'html').replace(/\.html$/, '.openprofile.md')}"`,
+    });
+  });
 
   pages.get('/employers', async (c) => {
     const { pool } = c.get('deps');
@@ -1464,7 +1493,7 @@ export function pageRoutes(): Hono<AppEnv> {
     );
   });
 
-  pages.get('/docs/:name{openresume|openjob}', async (c) => {
+  pages.get('/docs/:name{openresume|openjob|openprofile}', async (c) => {
     const name = c.req.param('name');
     const spec = await readSpec(name);
     if (spec === null) return c.notFound();
