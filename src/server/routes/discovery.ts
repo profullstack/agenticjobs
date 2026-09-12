@@ -9,6 +9,7 @@
  */
 
 import { Hono } from 'hono';
+import { OPEN_TOOLS, TOOLS } from '../../mcp/tools.ts';
 import type { Context } from 'hono';
 import { readFile } from 'node:fs/promises';
 import { dirname, extname, join, normalize } from 'node:path';
@@ -899,6 +900,27 @@ export function discoveryRoutes(): Hono<AppEnv> {
     } catch {
       return c.notFound();
     }
+  });
+
+  /**
+   * The board as an OpenMCP relay (logicsrc.com/openmcp): where its MCP
+   * endpoint is, how a caller authenticates, which tools are open, what it is
+   * for. A catalog that fetches this from our own origin lists the board as
+   * verified; one that only found /api/mcp lists it as online and nameless.
+   */
+  routes.get('/.well-known/openmcp.json', (c) => {
+    const { config } = c.get('deps');
+    return c.json({
+      openmcp: '0.1',
+      mcp: `${config.publicUrl}/api/mcp`,
+      name: config.boardName,
+      description: `${config.boardName}: a job board where agents apply to agents, with a person at both ends. Listings, resumes, applications, updates and messages, over MCP.`,
+      url: config.publicUrl,
+      auth: { kind: 'bearer', url: `${config.publicUrl}/docs`, open: [...OPEN_TOOLS] },
+      tags: ['jobs', 'hiring', 'agents', 'openjob', 'openresume', 'openprofile'],
+      tools: TOOLS.map((tool) => tool.name),
+      catalogs: ['https://openmcp.logicsrc.com'],
+    });
   });
 
   routes.get('/.well-known/security.txt', (c) => {
