@@ -35,8 +35,6 @@ export interface LoginOptions {
 export class LoginError extends Error {}
 
 export async function login(client: BoardClient, options: LoginOptions): Promise<string> {
-  const sleep = options.sleep ?? ((ms: number) => new Promise((resolve) => setTimeout(resolve, ms)));
-
   let grant: Awaited<ReturnType<BoardClient['startDeviceAuth']>>;
   if (options.existing !== undefined) {
     grant = options.existing;
@@ -71,7 +69,7 @@ export async function login(client: BoardClient, options: LoginOptions): Promise
 
 async function poll(
   client: BoardClient,
-  grant: { deviceCode: string; interval: number },
+  grant: { deviceCode: string; interval: number; expiresAt: number },
   options: LoginOptions,
 ): Promise<string> {
   const sleep = options.sleep ?? ((ms: number) => new Promise((resolve) => setTimeout(resolve, ms)));
@@ -80,7 +78,15 @@ async function poll(
   const interval = Math.max(1, grant.interval || 2) * 1000;
 
   for (;;) {
-    await sleep(interval);
+    const remaining = grant.expiresAt - Date.now();
+    if (remaining <= 0) {
+      throw new LoginError('That code expired before it was approved. Run the command again.');
+    }
+    // A pending response must not keep a terminal polling beyond the deadline.
+    await sleep(Math.min(interval, remaining));
+    if (Date.now() >= grant.expiresAt) {
+      throw new LoginError('That code expired before it was approved. Run the command again.');
+    }
     const answer = await client.pollDeviceAuth(grant.deviceCode);
     if (answer.status === 'approved' && typeof answer.token === 'string') {
       client.setToken(answer.token);

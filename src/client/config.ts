@@ -68,9 +68,11 @@ export function saveConfig(config: Config): void {
 
 export function normaliseServer(input: string): string {
   const trimmed = input.trim().replace(/\/+$/, '');
-  if (/^https?:\/\//.test(trimmed)) return trimmed;
+  if (/^https?:\/\//i.test(trimmed)) {
+    return trimmed.replace(/^https?:/i, (scheme) => scheme.toLowerCase());
+  }
   // A bare hostname is almost always meant as https; localhost almost never is.
-  const local = /^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/.test(trimmed);
+  const local = /^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/i.test(trimmed);
   return `${local ? 'http' : 'https'}://${trimmed}`;
 }
 

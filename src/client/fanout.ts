@@ -68,14 +68,23 @@ export async function searchEverywhere(
           ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
         });
         const page = await client.search(query);
-        for (const job of page.items) {
-          jobs.push({
+        if (!Array.isArray(page?.items) || !Number.isSafeInteger(page.total) || page.total < 0) {
+          throw new Error('The board returned an invalid search page.');
+        }
+        // Prepare the whole page first: a failed board must not contribute
+        // partial hits while being excluded from the successful source totals.
+        const hits = page.items.map((job) => {
+          if (job === null || typeof job !== 'object' || typeof job.slug !== 'string') {
+            throw new Error('The board returned an invalid search item.');
+          }
+          return {
             job,
             server: board.server,
             boardName: source.name,
             url: `${board.server}/jobs/${job.slug}`,
-          });
-        }
+          };
+        });
+        jobs.push(...hits);
         source.count = page.items.length;
         source.total = page.total;
         source.ok = true;
