@@ -236,8 +236,24 @@ const REVENUE = /\b(rev(?:enue)?(?:\s+share)?|profit\s+share|of\s+(?:the\s+)?rev
 
 function parseRevenueShare(text: string): PayLine | string | null {
   if (!REVENUE.test(text) || !/%|percent/i.test(text)) return null;
-  const numbers = [...text.matchAll(/(\d+(?:\.\d+)?)\s*(?:%|percent)?/g)].map((m) => Number(m[1]));
-  if (numbers.length === 0) return 'A revenue share needs a percentage: "10% revenue share".';
+  const matches = [...text.matchAll(/\d+(?:\.\d+)?/g)];
+  if (matches.length === 0) return 'A revenue share needs a percentage: "10% revenue share".';
+  const firstMatch = matches[0]!;
+  const secondMatch = matches[1];
+  // A number in surrounding prose is not a range endpoint, and a minus
+  // before the first number must not silently turn a negative share positive.
+  const prefix = text.slice(0, firstMatch.index).trim();
+  const separator = secondMatch === undefined
+    ? null
+    : text.slice(firstMatch.index! + firstMatch[0].length, secondMatch.index);
+  if (
+    matches.length > 2 ||
+    /[-\u2212]$/.test(prefix) ||
+    (separator !== null && !/^\s*(?:%|percent)?\s*(?:-|\u2013|\u2014|to)\s*$/i.test(separator))
+  ) {
+    return 'Write one non-negative revenue percentage or a range, such as "5-10% revenue share".';
+  }
+  const numbers = matches.map((match) => Number(match[0]));
   const upTo = /^\s*(up\s*to|max(?:imum)?)\b/i.test(text);
   const from = /^\s*(from|at\s+least|min(?:imum)?)\b/i.test(text) || /\+\s*%?/.test(text);
   const [first, second] = numbers;
