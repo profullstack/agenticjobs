@@ -63,7 +63,7 @@ function one(params: URLSearchParams, key: string): string | null {
 }
 
 function integer(value: string | null, fallback: number, min: number, max: number): number {
-  if (value === null) return fallback;
+  if (value === null || !/^[+-]?\d+$/.test(value)) return fallback;
   const parsed = Number.parseInt(value, 10);
   if (!Number.isFinite(parsed)) return fallback;
   return Math.min(max, Math.max(min, parsed));
