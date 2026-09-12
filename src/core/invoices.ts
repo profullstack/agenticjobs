@@ -100,9 +100,9 @@ function toInvoice(row: InvoiceRow, coinpay: CoinPayClient | null): Invoice {
 /** A dollar amount as typed: "120", "120.50", "$1,200". Null when it is not one. */
 export function parseAmount(value: unknown): string | null {
   if (typeof value !== 'string' && typeof value !== 'number') return null;
-  const raw = String(value).replace(/[$,\s]/g, '');
-  if (!/^\d+(\.\d{1,2})?$/.test(raw)) return null;
-  const amount = Number(raw);
+  const raw = String(value).trim();
+  if (!/^\$?(?:\d+|\d{1,3}(?:,\d{3})+)(?:\.\d{1,2})?$/.test(raw)) return null;
+  const amount = Number(raw.replace(/[$,]/g, ''));
   if (!(amount > 0) || amount > 1_000_000) return null;
   return amount.toFixed(2);
 }
