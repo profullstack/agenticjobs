@@ -114,6 +114,7 @@ import type { Job } from '../../schema/job.ts';
 import { APPLICATION_DECISIONS, isApplicationDecision } from '../../schema/job.ts';
 import { jobPostingJsonLd } from '../../schema/jsonld.ts';
 import { parseResume } from '../../markup/resume.ts';
+import { BrowseProblem, pageToMarkdown } from '../../core/browse.ts';
 import { renderMarkdown } from '../../markup/markdown.ts';
 import {
   counterpartyFrom,
@@ -831,19 +832,44 @@ export function apiRoutes(): Hono<AppEnv> {
    * conversion nobody checks is a conversion nobody trusts.
    */
   api.post('/resumes/import', async (c) => {
-    const { pool } = c.get('deps');
+    const { pool, config } = c.get('deps');
     const viewer = viewerOf(c);
     if (viewer === null) return fail(c, 401, 'unauthenticated', 'Sign in first.');
 
     let file: File | null = null;
-    try {
-      const form = await c.req.parseBody();
-      const candidate = form['file'];
-      if (candidate instanceof File) file = candidate;
-    } catch {
-      file = null;
+    let url = '';
+    const contentType = c.req.header('content-type') ?? '';
+    if (contentType.includes('application/json')) {
+      const body = (await c.req.json().catch(() => ({}))) as { url?: unknown };
+      url = typeof body.url === 'string' ? body.url.trim() : '';
+    } else {
+      try {
+        const form = await c.req.parseBody();
+        const candidate = form['file'];
+        if (candidate instanceof File) file = candidate;
+        if (typeof form['url'] === 'string') url = form['url'].trim();
+      } catch {
+        file = null;
+      }
     }
-    if (file === null) return fail(c, 400, 'no_file', 'Attach the document as a "file" field.');
+
+    // A page rather than a file: read it (with the browser service when there
+    // is one) and keep the Markdown that came out, with the URL as the source.
+    if (file === null && url !== '') {
+      try {
+        const page = await pageToMarkdown(url, { obscuraMcpUrl: config.obscuraMcpUrl });
+        const resume = await createResume(pool, viewer.id, {
+          markdown: page.markdown,
+          ...(page.title ? { title: page.title.slice(0, 120) } : {}),
+          source: { name: url, mime: 'text/markdown', bytes: Buffer.from(page.markdown, 'utf8') },
+        });
+        return c.json({ resume, via: page.via, url, warnings: ['Read from a page. Check every line before publishing; a page carries navigation and footers a resume does not.'] }, 201);
+      } catch (error) {
+        if (error instanceof BrowseProblem) return fail(c, 400, 'unreadable_page', error.message);
+        throw error;
+      }
+    }
+    if (file === null) return fail(c, 400, 'no_file', 'Attach the document as a "file" field, or send {"url": "https://..."} to read a page.');
     if (file.size > MAX_UPLOAD_BYTES) {
       return fail(c, 413, 'too_large', `The limit is ${MAX_UPLOAD_BYTES / 1024 / 1024}MB.`);
     }

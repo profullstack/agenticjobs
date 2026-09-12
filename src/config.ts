@@ -24,6 +24,8 @@ export interface Config {
   isDirectory: boolean;
   /** Resend API key, or null to print sign-in links instead of sending them. */
   resendApiKey: string | null;
+  /** An Obscura MCP endpoint for reading pages with a real browser, or null for plain fetch. Private network only. */
+  obscuraMcpUrl: string | null;
   mailFrom: string;
   /**
    * Model keys for agent-assisted drafting on the post form.
@@ -174,6 +176,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     announce: flag(env['ANNOUNCE']),
     isDirectory: flag(env['DIRECTORY']),
     resendApiKey: env['RESEND_API_KEY']?.trim() || null,
+    obscuraMcpUrl: env['OBSCURA_MCP_URL']?.trim() || null,
     mailFrom: env['MAIL_FROM']?.trim() || defaultMailFrom(publicUrl, boardName),
     anthropicApiKey: env['ANTHROPIC_API_KEY']?.trim() || null,
     openaiApiKey: env['OPENAI_API_KEY']?.trim() || null,
