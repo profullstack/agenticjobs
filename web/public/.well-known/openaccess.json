@@ -1,0 +1,29 @@
+{
+  "openaccess": "0.1",
+  "name": "Agentic Jobs",
+  "url": "https://agenticjobs.work",
+  "operator": "https://logicsrc.com/.well-known/openprofile.md",
+  "redirect_uris": [
+    "https://agenticjobs.work/api/v1/openaccess/callback"
+  ],
+  "jwks": {
+    "keys": [
+      {
+        "kty": "OKP",
+        "crv": "Ed25519",
+        "kid": "XYuIFsMnDfb8",
+        "x": "sRHZFJQ8_s7YvzlgK4GpoK4uDXnA6wJ09e9WG2xsWMk",
+        "alg": "EdDSA",
+        "use": "sig"
+      }
+    ]
+  },
+  "scopes": {},
+  "honours": [
+    "profullstack.com/all-access"
+  ],
+  "webhooks": "https://agenticjobs.work/api/v1/openaccess/events",
+  "hubs": [
+    "https://openaccess.logicsrc.com"
+  ]
+}
