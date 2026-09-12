@@ -923,6 +923,23 @@ export function discoveryRoutes(): Hono<AppEnv> {
     });
   });
 
+  /**
+   * The OpenAccess descriptor (logicsrc.com/openaccess): how a client links
+   * this board over OAuth 2.1 + PKCE. A static file, so it is served from
+   * web/public like the installer rather than built per request.
+   */
+  routes.get('/.well-known/openaccess.json', async (c) => {
+    try {
+      const body = await readFile(join(publicDir(), '.well-known', 'openaccess.json'), 'utf8');
+      return c.body(body, 200, {
+        'content-type': 'application/json',
+        'cache-control': 'public, max-age=300',
+      });
+    } catch {
+      return c.notFound();
+    }
+  });
+
   routes.get('/.well-known/security.txt', (c) => {
     const { config } = c.get('deps');
     const expires = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString();
