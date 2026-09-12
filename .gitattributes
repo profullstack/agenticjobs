@@ -1,0 +1,4 @@
+# The service-worker VERSION hashes shell assets byte-for-byte. Keep those
+# bytes identical when contributors check out with core.autocrlf=true.
+web/public/*.css text eol=lf
+web/public/*.svg text eol=lf
