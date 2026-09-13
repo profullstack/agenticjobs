@@ -111,6 +111,28 @@ const costReport = {
     { id: 'unpriced', engine: 'claude', cost: null, costSource: null, cwd: '/PRIVATE_PATH' },
   ],
 };
+test('repeated engine snapshots count once and conflicting amounts remain unknown', () => {
+  const original = costReport.sessions[0]!.runs[0]!;
+  const later = { ...original, end: original.end + 1000 };
+  const report = (runs: unknown[]) => ({
+    sessions: [{ engine: 'codex', runs }],
+    unattributed: [],
+  });
+  const clean = moshcodeCosts(report([original, later, original]));
+  assert.equal(clean.length, 1);
+  assert.equal(clean[0]?.amount, original.cost);
+  assert.equal(clean[0]?.at, new Date(later.end).toISOString());
+  assert.deepEqual(moshcodeCosts(report([later, original])), clean);
+  assert.equal(summarize(fleet, clean).categories.cost.amount, original.cost);
+  const conflicting = { ...later, cost: 22 };
+  const uncertain = moshcodeCosts(report([original, conflicting, later]));
+  assert.equal(uncertain[0]?.amount, null);
+  assert.equal(uncertain[0]?.partial, true);
+  assert.deepEqual(moshcodeCosts(report([later, conflicting, original])), uncertain);
+  const unpriced = { ...original, cost: null, costSource: null };
+  assert.equal(moshcodeCosts(report([unpriced, { ...unpriced, end: later.end }])).length, 1);
+  assert.throws(() => moshcodeCosts(report([{ ...original, cost: -1 }, later])));
+});
 test('Moshcode sanitizer preserves cost provenance and stable identity without sensitive metadata or invented hours', () => {
   const clean = moshcodeCosts(costReport);
   assert.equal(clean[0]?.amount, 12.345678);

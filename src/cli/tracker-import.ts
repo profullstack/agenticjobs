@@ -54,10 +54,26 @@ export function moshcodeCosts(raw: unknown): TrackerEvent[] {
           : 'reported') as TrackerEvent['provenance'],
       partial: partial || amount === null || source == null,
     };
+    // Resumed Codex rollouts can repeat the same session ID. Validate every
+    // observation before combining it; never sum potentially cumulative copies.
+    const checked = parseEvents([event], 'USD')[0]!;
     const prior = events.get(id);
-    if (prior && JSON.stringify(prior) !== JSON.stringify(event))
-      throw new TrackerProblem('Conflicting copies of one engine run.');
-    events.set(id, event);
+    if (!prior) {
+      events.set(id, checked);
+      return;
+    }
+    const conflicting = prior.amount !== checked.amount || prior.provenance !== checked.provenance;
+    events.set(id, {
+      ...prior,
+      at:
+        [prior.at, checked.at]
+          .filter((at): at is string => at !== null)
+          .sort()
+          .at(-1) ?? null,
+      amount: prior.amount === checked.amount ? prior.amount : null,
+      provenance: prior.provenance === checked.provenance ? prior.provenance : 'reported',
+      partial: prior.partial || checked.partial || conflicting,
+    });
   };
   for (const rawSession of report['sessions']) {
     const session = record(rawSession);

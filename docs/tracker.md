@@ -13,7 +13,7 @@ Defaults are USD 400 per agent-hour, a retained profit target of USD 50 per agen
 
 ## Explicit, private imports
 
-Nothing runs in the background or uploads automatically. `tracker sync` explicitly runs `moshcode cost --all --json --since 30d`, sanitizes it locally, and imports accounting fields. Use `--since 7d` to select another collection window. Engine session costs are cumulative, not a precise allocation to that window. The dashboard summarizes all retained imports; compare reports with matching accounting periods before interpreting margin.
+Nothing runs in the background or uploads automatically. `tracker sync` explicitly runs `moshcode cost --all --json --since 30d`, sanitizes it locally, and imports accounting fields. Use `--since 7d` to select another collection window. Some engines report cumulative sessions; others report usage within the selected window. Keep the window consistent: importing a report replaces matching session observations. The dashboard summarizes all retained imports; compare reports with matching accounting periods before interpreting margin.
 
 The CLI removes session names, prompts, transcripts, working directories, file paths, model details, pull request links, client names, notes and tokens. Source IDs default to a hash of the machine hostname. Engine and timer IDs are hashed locally. Only stable IDs, event category, numeric amounts, currency, time, duration, agent count, billable status and provenance reach the API. `--dry-run` prints exactly that sanitized payload without uploading it.
 
@@ -22,6 +22,8 @@ IDs are stable across repeated imports: the `(fleet, source, event ID)` key is u
 ```sh
 agenticjobs tracker forget --fleet profullstack --source SOURCE --yes
 ```
+
+Resumed engine logs can repeat a session ID within one report. These observations are combined into one event with the latest timestamp, never summed. Conflicting amounts become unknown and conflicting provenance or incomplete copies mark the event partial. This preserves uncertainty instead of guessing which cumulative observation is complete.
 
 ## Tracked work and billing exports
 
