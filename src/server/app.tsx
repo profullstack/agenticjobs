@@ -11,6 +11,7 @@ import { Hono } from 'hono';
 import type pg from 'pg';
 import type { Config } from '../config.ts';
 import { apiRoutes } from './routes/api.ts';
+import { settingsRoutes } from './routes/settings.ts';
 import { pageRoutes } from './routes/pages.tsx';
 import { inboxRoutes } from './routes/inbox.tsx';
 import { discoveryRoutes } from './routes/discovery.ts';
@@ -46,6 +47,8 @@ export function createApp(
   app.use('/api/*', apiCors());
 
   app.route('/api/v1', apiRoutes());
+  // Settings sync (@profullstack/synconfig): the boards a member uses, on every machine.
+  app.route('/api/v1/settings', settingsRoutes());
   // The MCP tools call this same app, so the getter is resolved lazily: the
   // app does not exist yet at the point the routes are mounted on it.
   app.route(

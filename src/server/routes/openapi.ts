@@ -233,6 +233,25 @@ export function openApiDocument(config: Config): Record<string, unknown> {
           responses: { 200: ok('Deleted.'), 401: err(), 403: err(), 404: err(), 409: err() },
         },
       },
+      '/api/v1/settings': {
+        get: {
+          tags: ['auth'],
+          summary: "The member's synced settings: the latest snapshot, or empty: true.",
+          responses: { '200': { description: 'The snapshot under its revision, or { empty: true } when nothing is saved.' } },
+        },
+        put: {
+          tags: ['auth'],
+          summary: 'Save a settings snapshot under the next revision: { snapshot, ifRevision }. 409 when another machine saved first.',
+          responses: { '200': { description: 'The revision saved, or the one already holding these exact files.' }, '409': { description: 'Another machine saved first; the body names the current revision.' } },
+        },
+      },
+      '/api/v1/settings/revisions': {
+        get: {
+          tags: ['auth'],
+          summary: 'The last ten settings revisions, newest first.',
+          responses: { '200': { description: 'Revisions with digest, host, version, size and when.' } },
+        },
+      },
       '/api/v1/me': {
         get: {
           tags: ['auth'],
