@@ -51,6 +51,7 @@ const USAGE = `agenticjobs ${VERSION} - an agent-friendly job board you can self
     boards                    every board you are signed in to
     use <server>              make one of them the default
     whoami                    who you are on the current board
+    sync [save|load|status]   the boards you use, on every machine (--force, --dry-run)
 
   Finding work
     search <words>            search the current board
@@ -299,6 +300,70 @@ async function run(args: Args): Promise<number> {
       return commandBoards(args);
     case 'use':
       return commandUse(args);
+    case 'sync': {
+      const sync = await import('../client/sync.ts');
+      const sub = args.positional[1] ?? 'status';
+      const server = flagString(args, 'server', 's');
+      const options = { ...(server !== undefined ? { server } : {}), userAgent: userAgent() };
+      const force = Boolean(args.flags['force']);
+      const dryRun = Boolean(args.flags['dry-run'] ?? args.flags['dryRun']);
+      const when = (iso?: string) => (iso ? iso.slice(0, 16).replace('T', ' ') : 'never');
+      switch (sub) {
+        case 'status': {
+          const state = await sync.syncStatus(options);
+          process.stdout.write(`here   ${state.marker ? `revision ${state.marker.revision}, synced ${when(state.marker.at)}` : 'never synced'}\n`);
+          process.stdout.write(`board  ${state.serverRevision !== undefined ? `revision ${state.serverRevision}${state.serverHost ? ` from ${state.serverHost}` : ''}` : 'nothing yet'}\n`);
+          if (state.drifted.length) process.stdout.write(`changed here: ${state.drifted.join(', ')}  (agenticjobs sync save)\n`);
+          if (state.behind) process.stdout.write('the board is newer  (agenticjobs sync load)\n');
+          if (state.marker && !state.drifted.length && !state.behind) process.stdout.write('in sync.\n');
+          return 0;
+        }
+        case 'save': {
+          const result = await sync.syncSave({ ...options, force });
+          if (result.status === 'saved') process.stdout.write(`Saved revision ${result.revision}: the boards you use.\n`);
+          else if (result.status === 'unchanged') process.stdout.write(`Nothing changed since revision ${result.revision}.\n`);
+          else if (result.status === 'empty') process.stdout.write('Nothing to save yet.\n');
+          else {
+            process.stderr.write(`Not saved: another machine saved revision ${result.serverRevision} first. \`agenticjobs sync load\` to take theirs, or \`agenticjobs sync save --force\`.\n`);
+            return 1;
+          }
+          return 0;
+        }
+        case 'load': {
+          const result = await sync.syncLoad({ ...options, force, dryRun });
+          switch (result.status) {
+            case 'empty':
+              process.stdout.write('Nothing saved on the board yet. `agenticjobs sync save` on the machine whose boards you want.\n');
+              return 0;
+            case 'same':
+              process.stdout.write(`Already at revision ${result.revision}.\n`);
+              return 0;
+            case 'planned':
+              for (const entry of result.plan) process.stdout.write(`${entry.status.padEnd(8)} ${entry.path}\n`);
+              process.stdout.write(`Would take revision ${result.revision}; nothing written.\n`);
+              return 0;
+            case 'newer':
+              process.stderr.write('The board holds settings saved by a newer agenticjobs. Upgrade first.\n');
+              return 1;
+            case 'local_changes':
+              process.stderr.write(`Not loaded: ${result.drifted.join(', ')} changed here since the last sync. \`agenticjobs sync save\` to keep yours, \`agenticjobs sync load --force\` to replace them.\n`);
+              return 1;
+            case 'loaded':
+              process.stdout.write(`Loaded revision ${result.revision}.${result.added.length ? ` Added ${result.added.join(', ')}; \`agenticjobs login\` each to get a token.` : ''}${result.directoriesAdded.length ? ` Directories: ${result.directoriesAdded.join(', ')}.` : ''}\n`);
+              return 0;
+          }
+          return 0;
+        }
+        case 'revisions': {
+          const revisions = await sync.syncContext(options).client.revisions();
+          if (!revisions.length) process.stdout.write('Nothing saved yet.\n');
+          for (const entry of revisions) process.stdout.write(`${String(entry.revision).padStart(4)}  ${when(entry.savedAt)}  ${entry.host ?? ''}  ${entry.size} bytes\n`);
+          return 0;
+        }
+        default:
+          throw new Error(`Unknown: agenticjobs sync ${sub}. Try status, save, load or revisions.`);
+      }
+    }
     case 'whoami':
       return commandWhoami(args);
 

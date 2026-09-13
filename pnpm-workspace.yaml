@@ -12,3 +12,4 @@ packages:
 # pnpm 11 refuses packages younger than a day unless they are listed here.
 minimumReleaseAgeExclude:
   - '@profullstack/hqtui'
+  - '@profullstack/synconfig@0.1.2'

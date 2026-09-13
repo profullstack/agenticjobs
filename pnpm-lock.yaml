@@ -17,6 +17,9 @@ importers:
       '@profullstack/hqtui':
         specifier: ^0.5.0
         version: 0.5.0
+      '@profullstack/synconfig':
+        specifier: ^0.1.2
+        version: 0.1.2
       '@simplewebauthn/server':
         specifier: ^14.0.1
         version: 14.0.1
@@ -126,6 +129,10 @@ packages:
     resolution: {integrity: sha512-jDwILBmdQx8pQA0ao/tzzty8u5nFNS4XhvU9xXhZvdIaMeiF3HBJIVtP6cS6kigS4lXmHR7sztbb9QJpaWwhig==}
     engines: {bun: '>=1.1', node: '>=22.6'}
     hasBin: true
+
+  '@profullstack/synconfig@0.1.2':
+    resolution: {integrity: sha512-t1Pdms+k/+A7tgFCAcNx8Dry0kwboPEue9Pw2pbn/chXSMfp1dxrcFz672zWkDgvcB7YBmYpIjnvW4NkNkE4Rg==}
+    engines: {node: '>=22'}
 
   '@simplewebauthn/server@14.0.1':
     resolution: {integrity: sha512-kjWgcm9NdSv+Tobo4Swxd1WnEawsBogpYFMjg9pKsVLPN3FdCmR6BipkL+DcPDgmQ7UKbbBZqRqn3E3YaA7NBw==}
@@ -365,6 +372,8 @@ snapshots:
   '@profullstack/emailer@1.0.3': {}
 
   '@profullstack/hqtui@0.5.0': {}
+
+  '@profullstack/synconfig@0.1.2': {}
 
   '@simplewebauthn/server@14.0.1':
     dependencies:
