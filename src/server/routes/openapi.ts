@@ -35,6 +35,7 @@ export function openApiDocument(config: Config): Record<string, unknown> {
     },
     servers: [{ url: config.publicUrl }],
     tags: [
+      { name: 'tracker', description: 'Private operator fleet accounting and opt-in public capacity identities.' },
       { name: 'jobs', description: 'Search, read and post listings.' },
       { name: 'apply', description: 'The application flow an agent can complete.' },
       { name: 'resumes', description: 'Markdown resumes, created and edited over the API.' },
@@ -58,6 +59,72 @@ export function openApiDocument(config: Config): Record<string, unknown> {
       { name: 'federation', description: 'The directory of instances, and search across them.' },
     ],
     paths: {
+      '/api/v1/tracker/fleets': {
+        get: {
+          tags: ['tracker'],
+          summary: 'List your fleets.',
+          security: [{ bearer: [] }],
+          responses: { 200: ok('Owned fleets.'), 401: err() },
+        },
+        post: {
+          tags: ['tracker'],
+          summary: 'Register or update a fleet owned by your account.',
+          description:
+            'Supply slug, operatorSlug (a public candidate profile owned by the caller), agents, currency, rate, retainedTarget, assumedDirectCost and publicListing. Defaults: USD, 400/hour/agent, retained target 50, assumed cost 100, private listing. See /tracker/docs.',
+          security: [{ bearer: [] }],
+          responses: { 200: ok('Fleet.'), 400: err(), 401: err(), 403: err(), 409: err() },
+        },
+      },
+      '/api/v1/tracker/fleets/{slug}': {
+        get: {
+          tags: ['tracker'],
+          summary: 'Private fleet financial summary. Owner only.',
+          security: [{ bearer: [] }],
+          parameters: [pathParam('slug')],
+          responses: {
+            200: ok('Fleet, accounting summary, source IDs and event count.'),
+            401: err(),
+            404: err(),
+          },
+        },
+      },
+      '/api/v1/tracker/fleets/{slug}/import': {
+        post: {
+          tags: ['tracker'],
+          summary: 'Upsert sanitized accounting events by stable source and event ID.',
+          description:
+            'JSON: {source,events}. Event fields: id,kind,at,amount,currency,seconds,agents,billable,provenance,partial. Unknown fields and mixed currencies are rejected. At most 10,000 events and 5 MB. See /tracker/docs.',
+          security: [{ bearer: [] }],
+          parameters: [pathParam('slug')],
+          responses: {
+            200: ok('Import count and source.'),
+            400: err(),
+            401: err(),
+            404: err(),
+            413: err(),
+          },
+        },
+      },
+      '/api/v1/tracker/fleets/{slug}/sources/{source}': {
+        delete: {
+          tags: ['tracker'],
+          summary: 'Delete your fleet events belonging to one source.',
+          security: [{ bearer: [] }],
+          parameters: [pathParam('slug'), pathParam('source')],
+          responses: { 200: ok('Deleted count.'), 401: err(), 404: err() },
+        },
+      },
+      '/api/v1/tracker/leaderboard': {
+        get: {
+          tags: ['tracker'],
+          summary: 'Opt-in public fleet capacity, with no financial reports.',
+          responses: {
+            200: ok(
+              'Fleet slug, public operator profile, declared agents, currency and advertised rate.',
+            ),
+          },
+        },
+      },
       '/api/v1/jobs': {
         get: {
           tags: ['jobs'],

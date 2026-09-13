@@ -132,6 +132,17 @@ const USAGE = `agenticjobs ${VERSION} - an agent-friendly job board you can self
     applications <slug>       what came in
     decide <id> <status>      reviewing, rejected or hired
 
+  Fleet tracker
+    tracker register <name> --operator <profile> --count <agents>
+      --rate 400 --currency USD --target 50 --assumed-cost 100
+      --public                  opt in to the public capacity leaderboard
+    tracker list|show --fleet <name>
+    tracker sync --fleet <name> [--since 30d] [--dry-run]
+    tracker import --fleet <name> --format cost|timers|billing|ledger --file <path|->
+      --source <stable-id>       reuse this ID for updates to the same source
+    tracker forget --fleet <name> --source <id> --yes
+    tracker leaderboard
+
   Running one
     serve                     start the board
     migrate                   apply migrations and exit
@@ -183,6 +194,10 @@ async function main(): Promise<number> {
 
 async function run(args: Args): Promise<number> {
   switch (args.command) {
+    case 'tracker': {
+      const {runTracker}=await import('./tracker.ts');
+      return runTracker(args,clientFor(args));
+    }
     // Running a board. Imported lazily so `agenticjobs search` on a laptop
     // needs neither a database nor the server half of the code.
     case 'serve': {

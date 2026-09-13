@@ -13,7 +13,7 @@
  * drifted, which is the only version of this rule that survives contact.
  */
 
-const VERSION = 'bb197f9b';
+const VERSION = '61271df2';
 const SHELL = `shell-${VERSION}`;
 const ASSETS = ['/assets/app.css', '/assets/tokens.css', '/assets/icon.svg'];
 
@@ -49,7 +49,7 @@ self.addEventListener('fetch', (event) => {
   if (url.origin !== self.location.origin) return;
   // Never cache anything under /api or /me: one is live data, the other is a
   // signed-in person's own pages.
-  if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/me')) return;
+  if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/me') || url.pathname.startsWith('/tracker') || url.pathname.startsWith('/fleets/')) return;
 
   if (ASSETS.includes(url.pathname)) {
     // Answer from the cache, then refresh it in the background. A stale asset
