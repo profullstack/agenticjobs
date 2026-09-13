@@ -12,6 +12,7 @@ import type pg from 'pg';
 import type { Config } from '../config.ts';
 import { apiRoutes } from './routes/api.ts';
 import { settingsRoutes } from './routes/settings.ts';
+import { trackerRoutes } from './routes/tracker.tsx';
 import { pageRoutes } from './routes/pages.tsx';
 import { inboxRoutes } from './routes/inbox.tsx';
 import { discoveryRoutes } from './routes/discovery.ts';
@@ -50,6 +51,7 @@ export function createApp(
   // every machine. Mounted before the API router, whose catch-all answers
   // 404 for any /api/v1 path it does not know, this one included.
   app.route('/api/v1/settings', settingsRoutes());
+  app.route('/', trackerRoutes());
   app.route('/api/v1', apiRoutes());
   // The MCP tools call this same app, so the getter is resolved lazily: the
   // app does not exist yet at the point the routes are mounted on it.

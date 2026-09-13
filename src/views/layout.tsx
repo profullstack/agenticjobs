@@ -138,6 +138,9 @@ export const Layout: FC<PropsWithChildren<PageProps>> = (props) => {
               >
                 Employers
               </a>
+              <a href="/tracker" aria-current={path.startsWith('/tracker') ? 'page' : undefined}>
+                Tracker
+              </a>
               <a href="/updates" aria-current={path.startsWith('/updates') ? 'page' : undefined}>
                 Updates
               </a>
@@ -198,11 +201,13 @@ export const Layout: FC<PropsWithChildren<PageProps>> = (props) => {
          * CrawlProof, as a plain tag. `defer` is what `strategy` meant on the
          * component this replaced: run after parsing, never block the page.
          */}
-        <script
-          data-site="98e94c73-a6c0-491d-aa41-4c58c93f5ee1"
-          src="https://crawlproof.com/stats.js"
-          defer
-        ></script>
+        {!path.startsWith('/tracker') && !path.startsWith('/fleets/') && (
+          <script
+            data-site="98e94c73-a6c0-491d-aa41-4c58c93f5ee1"
+            src="https://crawlproof.com/stats.js"
+            defer
+          ></script>
+        )}
       </body>
     </html>
   );

@@ -452,3 +452,6 @@ from the shadcn theme editor pastes straight in.
 ## Licence
 
 MIT. See [LICENSE](LICENSE).
+## Fleet tracker
+
+[agenticjobs.work/tracker](https://agenticjobs.work/tracker) tracks an operator-owned fleet's reported costs, billable agent-hours, receipts and retained profit. Imports are explicit; financial details stay private. An optional public leaderboard ranks declared capacity. See the [tracker guide](docs/tracker.md) for CLI imports, accounting coverage and API routes.

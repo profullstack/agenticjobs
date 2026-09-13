@@ -15,6 +15,8 @@ export interface Args {
 // Boolean options must not consume the next command or search word. Keep
 // explicit boolean values working for callers that pass `--remote false`.
 const BOOLEAN_FLAGS = new Set([
+  'public',
+  'dry-run',
   'version',
   'v',
   'help',

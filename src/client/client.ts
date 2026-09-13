@@ -54,6 +54,43 @@ export interface RecommendationLike {
 }
 
 export class BoardClient {
+  async trackerFleets() {
+    return this.request<{ fleets: import('../core/tracker.ts').Fleet[] }>(
+      'GET',
+      '/api/v1/tracker/fleets',
+    );
+  }
+  async trackerSave(input: unknown) {
+    return this.request<{ fleet: import('../core/tracker.ts').Fleet }>(
+      'POST',
+      '/api/v1/tracker/fleets',
+      input,
+    );
+  }
+  async trackerReport(slug: string) {
+    return this.request<Awaited<ReturnType<typeof import('../core/tracker.ts').fleetReport>>>(
+      'GET',
+      `/api/v1/tracker/fleets/${encodeURIComponent(slug)}`,
+    );
+  }
+  async trackerImport(slug: string, input: unknown) {
+    return this.request<{ imported: number; source: string }>(
+      'POST',
+      `/api/v1/tracker/fleets/${encodeURIComponent(slug)}/import`,
+      input,
+    );
+  }
+  async trackerForget(slug: string, source: string) {
+    return this.request<{ deleted: number }>(
+      'DELETE',
+      `/api/v1/tracker/fleets/${encodeURIComponent(slug)}/sources/${encodeURIComponent(source)}`,
+    );
+  }
+  async trackerLeaderboard() {
+    return this.request<{
+      fleets: Awaited<ReturnType<typeof import('../core/tracker.ts').leaderboard>>;
+    }>('GET', '/api/v1/tracker/leaderboard');
+  }
   readonly server: string;
   private token: string | null;
   private readonly doFetch: typeof fetch;
