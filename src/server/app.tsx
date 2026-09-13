@@ -46,9 +46,11 @@ export function createApp(
   );
   app.use('/api/*', apiCors());
 
-  app.route('/api/v1', apiRoutes());
-  // Settings sync (@profullstack/synconfig): the boards a member uses, on every machine.
+  // Settings sync (@profullstack/synconfig): the boards a member uses, on
+  // every machine. Mounted before the API router, whose catch-all answers
+  // 404 for any /api/v1 path it does not know, this one included.
   app.route('/api/v1/settings', settingsRoutes());
+  app.route('/api/v1', apiRoutes());
   // The MCP tools call this same app, so the getter is resolved lazily: the
   // app does not exist yet at the point the routes are mounted on it.
   app.route(
