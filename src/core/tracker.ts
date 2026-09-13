@@ -60,7 +60,8 @@ function count(
   max = 2147483647,
 ): number | null {
   const n = numeric(value, label, nullable, max);
-  if (n !== null && (!Number.isInteger(n) || n < min))
+  // Money rounding must not turn a fractional input into a valid count.
+  if (n !== null && (!Number.isInteger(value) || n < min))
     throw new TrackerProblem(`${label} must be an integer between ${min} and ${max}.`);
   return n;
 }
