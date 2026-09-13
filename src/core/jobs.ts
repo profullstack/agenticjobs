@@ -326,7 +326,7 @@ export async function getJobBySlug(
   const visible =
     options.includeUnpublished === true
       ? ''
-      : `and j.status = 'published' and j.published_at is not null and j.published_at <= now()`;
+      : `and j.status = 'published' and j.published_at is not null and j.published_at <= now() and (j.expires_at is null or j.expires_at > now())`;
   const result = await pool.query<JobRow>(`${SELECT} where j.slug = $1 ${visible} limit 1`, [slug]);
   const row = result.rows[0];
   return row === undefined ? null : toJob(row);

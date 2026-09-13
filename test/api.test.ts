@@ -653,6 +653,76 @@ describe('the API', { skip: reason === '' ? false : `no database: ${reason}` }, 
       return { org, stamp, auth: { authorization: `Bearer ${token}` } };
     };
 
+    test('expired jobs are hidden from public access while live jobs and employer access remain available', async () => {
+      if (pool === null) return;
+      const { org, stamp, auth } = await employer('Expiry Co');
+      const createPublished = async (title: string, expiresAt: string) => {
+        const response = await post(
+          '/api/v1/jobs',
+          {
+            org: org.slug,
+            title,
+            description: 'A paid listing used to verify expiry handling.',
+            agentPolicy: 'welcome',
+            pay: ['$1 per task'],
+            payMethod: 'SOL',
+            expiresAt,
+            publish: true,
+          },
+          auth,
+        );
+        const body = await response.text();
+        assert.equal(response.status, 201, body);
+        return (JSON.parse(body) as { job: { id: string; slug: string } }).job;
+      };
+
+      const expired = await createPublished(`Expired ${stamp}`, '2000-01-01T00:00:00.000Z');
+      const live = await createPublished(`Live ${stamp}`, '2099-01-01T00:00:00.000Z');
+
+      const search = (await (await get(`/api/v1/jobs?org=${org.slug}&limit=100`)).json()) as {
+        items: { slug: string }[];
+      };
+      assert.ok(!search.items.some((job) => job.slug === expired.slug));
+      assert.ok(search.items.some((job) => job.slug === live.slug));
+
+      assert.equal(
+        (
+          await post(`/api/v1/jobs/${expired.slug}/apply`, {
+            name: 'Expiry Test',
+            email: `expiry+${stamp}@example.com`,
+            cover: 'I am applying to verify the expiry guard.',
+          })
+        ).status,
+        404,
+      );
+      assert.equal((await get(`/api/v1/jobs/${expired.slug}`)).status, 404);
+      assert.equal((await get(`/api/v1/jobs/${expired.slug}/apply-schema`)).status, 404);
+
+      const expiredApplications = await pool.query(
+        `select count(*)::text as count from applications where job_id = $1`,
+        [expired.id],
+      );
+      assert.equal(expiredApplications.rows[0]?.['count'], '0');
+
+      // Management reads use includeUnpublished, so an employer can still see
+      // applications and manage an expired listing.
+      assert.equal((await get(`/api/v1/jobs/${expired.slug}/applications`, auth)).status, 200);
+
+      assert.equal((await get(`/api/v1/jobs/${live.slug}`)).status, 200);
+      assert.equal((await get(`/api/v1/jobs/${live.slug}/apply-schema`)).status, 200);
+      const applied = await post(`/api/v1/jobs/${live.slug}/apply`, {
+        name: 'Expiry Test',
+        email: `live+${stamp}@example.com`,
+        cover: 'I am applying to verify that a live listing remains usable.',
+      });
+      assert.equal(applied.status, 201, await applied.text());
+      const liveApplications = await pool.query(
+        `select count(*)::text as count from applications where job_id = $1`,
+        [live.id],
+      );
+      assert.equal(liveApplications.rows[0]?.['count'], '1');
+    });
+
     test('a listing cannot be published until it says what it pays', async () => {
       if (pool === null) return;
       const { org, stamp, auth } = await employer('Silent Co');
