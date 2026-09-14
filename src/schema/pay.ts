@@ -502,9 +502,10 @@ export function formatPay(pay: Pay): string | null {
 /** The first line only, for a badge with one line of room. */
 export function formatPayShort(pay: Pay): string | null {
   if (pay.unpaid) return 'Unpaid';
-  const first = pay.lines.find((line) => line.min !== null || line.max !== null);
+  const lines = pay.lines.filter((line) => line.min !== null || line.max !== null);
+  const first = lines[0];
   if (first === undefined) return null;
-  const more = pay.lines.length - 1;
+  const more = lines.length - 1;
   return more > 0 ? `${formatPayLine(first)} +${more}` : formatPayLine(first);
 }
 
