@@ -16,7 +16,7 @@ export const USER_AGENT = `${SOFTWARE_NAME}/${VERSION} (+https://agenticjobs.wor
 
 /** Big enough for a page of jobs, small enough that nobody can wedge a peer. */
 const MAX_BYTES = 2 * 1024 * 1024;
-const TIMEOUT_MS = 8000;
+export const DEFAULT_TIMEOUT_MS = 8000;
 
 export class FetchProblem extends Error {}
 
@@ -62,7 +62,7 @@ async function fetchRaw(url: string, accept: string, options: FetchOptions): Pro
   if (origin === null) throw new FetchProblem(`${url} is not an address we will fetch`);
 
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), options.timeoutMs ?? TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), options.timeoutMs ?? DEFAULT_TIMEOUT_MS);
   const abort = (): void => controller.abort();
   options.signal?.addEventListener('abort', abort, { once: true });
 

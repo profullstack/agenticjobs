@@ -20,7 +20,7 @@ import type { Job, JobQuery } from '../schema/index.ts';
 import { queryToParams } from '../schema/query.ts';
 import { annualisedTopSalary } from '../schema/salary.ts';
 import type { InstanceDescriptor } from '../schema/instance.ts';
-import { fetchJson, FetchProblem } from './fetch.ts';
+import { DEFAULT_TIMEOUT_MS, fetchJson, FetchProblem } from './fetch.ts';
 
 export interface FederatedJob {
   job: Job;
@@ -92,11 +92,15 @@ export async function federatedSearch(
   options: FederateOptions = {},
 ): Promise<FederatedSearch> {
   // Each board must supply the window before the merged offset is applied.
-  // Fetching only `limit` can leave later pages empty or skip newer jobs.
-  const perInstance = Math.min(100, Math.max(1, options.perInstance ?? query.offset + query.limit));
+  // Fetching only one capped page can leave later pages empty or skip newer jobs.
+  // An explicit cap retains its original meaning: a maximum cumulative number
+  // of raw rows fetched from each source.
+  const perInstance =
+    options.perInstance === undefined
+      ? Math.max(1, query.offset + query.limit)
+      : Math.min(100, Math.max(1, options.perInstance));
   const concurrency = Math.min(24, Math.max(1, options.concurrency ?? 8));
 
-  const params = queryToParams({ ...query, limit: perInstance, offset: 0 });
   const sources: SourceResult[] = targets.map((target) => ({
     instance: target.url,
     name: target.name,
@@ -119,28 +123,66 @@ export async function federatedSearch(
 
       const started = Date.now();
       try {
-        const payload = await fetchJson(`${target.search}?${params.toString()}`, {
-          ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
-          ...(options.signal === undefined ? {} : { signal: options.signal }),
-        });
-        const page = payload as { items?: unknown; total?: unknown };
-        const items = Array.isArray(page.items) ? page.items : [];
-        for (const item of items.slice(0, perInstance)) {
-          const job = item as Job;
-          // A malformed row from one instance drops that row, not the answer.
-          if (typeof job?.slug !== 'string' || typeof job?.title !== 'string') continue;
-          collected.push({
-            job,
-            instance: target.url,
-            instanceName: target.name,
-            url: `${target.url}/jobs/${job.slug}`,
+        const staged: FederatedJob[] = [];
+        let rawFetched = 0;
+        let sourceOffset = 0;
+        let sourceTotal = 0;
+        let hasReportedTotal = false;
+        const budgetMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+
+        while (rawFetched < perInstance) {
+          if (options.signal?.aborted)
+            throw new FetchProblem(`${target.url} request was cancelled`);
+          const remainingMs = budgetMs - (Date.now() - started);
+          if (remainingMs <= 0) throw new FetchProblem(`${target.url} timed out`);
+
+          const pageLimit = Math.min(100, perInstance - rawFetched);
+          const params = queryToParams({ ...query, limit: pageLimit, offset: sourceOffset });
+          const payload = await fetchJson(`${target.search}?${params.toString()}`, {
+            timeoutMs: remainingMs,
+            ...(options.signal === undefined ? {} : { signal: options.signal }),
           });
-          source.count += 1;
+          if (Date.now() - started >= budgetMs) throw new FetchProblem(`${target.url} timed out`);
+          const page = payload as { items?: unknown; total?: unknown };
+          const items = Array.isArray(page.items) ? page.items : [];
+          const rawForWindow = items.slice(0, perInstance - rawFetched);
+          for (const item of rawForWindow) {
+            const job = item as Job;
+            // A malformed row from one instance drops that row, not the answer.
+            if (typeof job?.slug !== 'string' || typeof job?.title !== 'string') continue;
+            staged.push({
+              job,
+              instance: target.url,
+              instanceName: target.name,
+              url: `${target.url}/jobs/${job.slug}`,
+            });
+          }
+
+          // Page offsets describe raw rows, including malformed rows that were
+          // omitted from the user-visible result.
+          rawFetched += items.length;
+          sourceOffset += items.length;
+          const reportedTotal = Number(page.total);
+          const totalWasPresent =
+            typeof page.total === 'number' ||
+            (typeof page.total === 'string' && page.total.trim().length > 0);
+          if (totalWasPresent && Number.isFinite(reportedTotal) && reportedTotal >= sourceOffset) {
+            sourceTotal = reportedTotal;
+            hasReportedTotal = true;
+          }
+
+          if (items.length === 0 || (hasReportedTotal && sourceOffset >= sourceTotal)) break;
         }
-        source.total = Number(page.total) || source.count;
+
+        if (options.signal?.aborted) throw new FetchProblem(`${target.url} request was cancelled`);
+        source.count = staged.length;
+        source.total = Math.max(hasReportedTotal ? sourceTotal : 0, sourceOffset);
+        for (const job of staged) collected.push(job);
         source.ok = true;
       } catch (error) {
         source.error = error instanceof FetchProblem ? error.message : String(error);
+        source.count = 0;
+        source.total = 0;
       } finally {
         source.ms = Date.now() - started;
       }
