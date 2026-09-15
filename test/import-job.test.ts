@@ -128,6 +128,41 @@ test('a page with no JobPosting is read off the page, and says so', () => {
   );
 });
 
+for (const scenario of [
+  {
+    label: 'apostrophes in double-quoted attributes',
+    quote: '"',
+    title: "Director of Children's Services",
+    description: "Build children's tools &amp; services.",
+    expectedDescription: "Build children's tools & services.",
+  },
+  {
+    label: 'double quotes in single-quoted attributes',
+    quote: "'",
+    title: 'Engineer for "Platform"',
+    description: 'Build "Platform" tools &amp; services.',
+    expectedDescription: 'Build "Platform" tools & services.',
+  },
+]) {
+  for (const contentFirst of [false, true]) {
+    test(`a page import preserves ${scenario.label} with content ${contentFirst ? 'first' : 'last'}`, () => {
+      const meta = (attribute: string, key: string, value: string) => {
+        const name = `${attribute}=${scenario.quote}${key}${scenario.quote}`;
+        const content = `content=${scenario.quote}${value}${scenario.quote}`;
+        return `<meta ${contentFirst ? `${content} ${name}` : `${name} ${content}`}>`;
+      };
+      const html = `<html><head>
+        ${meta('property', 'og:title', scenario.title)}
+        ${meta('name', 'og:description', scenario.description)}
+        </head><body><main></main></body></html>`;
+      const job = extractJob(html, 'https://example.com/jobs/engineer');
+      assert.equal(job.via, 'page');
+      assert.equal(job.title, scenario.title);
+      assert.equal(job.description, scenario.expectedDescription);
+    });
+  }
+}
+
 test('scripts and styles never become the description', () => {
   const html = `<body><main><h1>Role</h1>
     <script>window.x = "do not read me";</script>

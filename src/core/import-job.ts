@@ -96,12 +96,15 @@ function tidy(text: string): string {
 
 function metaContent(html: string, key: string): string | null {
   // Attribute order varies, so both orders are tried rather than assumed.
+  // Only the opening delimiter closes content; the other quote is plain text.
+  const content = `content=(?:"([^"]*)"|'([^']*)')`;
   const patterns = [
-    new RegExp(`<meta[^>]+(?:property|name)=["']${key}["'][^>]+content=["']([^"']*)["']`, 'i'),
-    new RegExp(`<meta[^>]+content=["']([^"']*)["'][^>]+(?:property|name)=["']${key}["']`, 'i'),
+    new RegExp(`<meta[^>]+(?:property|name)=["']${key}["'][^>]+${content}`, 'i'),
+    new RegExp(`<meta[^>]+${content}[^>]+(?:property|name)=["']${key}["']`, 'i'),
   ];
   for (const pattern of patterns) {
-    const found = pattern.exec(html)?.[1];
+    const match = pattern.exec(html);
+    const found = match?.[1] ?? match?.[2];
     if (found !== undefined && found.trim() !== '') return decode(found.trim());
   }
   return null;
