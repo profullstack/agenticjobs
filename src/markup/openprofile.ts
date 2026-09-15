@@ -108,7 +108,9 @@ function accountLines(parsed: OpenResume): string[] {
   const seen = new Set<string>();
   const lines: string[] = [];
   const add = (label: string, href: string): void => {
-    const key = href.replace(/\/+$/, '').toLowerCase();
+    // URL parsing normalises the scheme and host, preserving case in the
+    // path, query and fragment where it can identify a different page.
+    const key = (URL.parse(href)?.href ?? href).replace(/\/+$/, '');
     if (seen.has(key)) return;
     seen.add(key);
     lines.push(`- [${label.replace(/[[\]]/g, '')}](${href})`);

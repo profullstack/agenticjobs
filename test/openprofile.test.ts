@@ -151,3 +151,49 @@ test('an email address never becomes the headline', () => {
   );
   assert.ok(!md.includes('Reach me at'));
 });
+
+test('accounts with case-sensitive paths remain distinct', () => {
+  const md = openProfileFromResume(
+    source(`# Ada Lovelace
+
+- [Portfolio](https://portfolio.example/Work)
+- [Project notes](https://portfolio.example/work)
+`),
+  );
+  assert.deepEqual(md.split('\n').filter((line) => line.startsWith('- [')), [
+    '- [Portfolio](https://portfolio.example/Work)',
+    '- [Project notes](https://portfolio.example/work)',
+  ]);
+});
+
+test('Links accounts with case-sensitive query values remain distinct', () => {
+  const md = openProfileFromResume(
+    source(`# Ada Lovelace
+
+## Links
+
+- [Writing](https://writing.example/profile?id=Ada)
+- [Research](https://writing.example/profile?id=ada)
+`),
+  );
+  assert.deepEqual(md.split('\n').filter((line) => line.startsWith('- [')), [
+    '- [Writing](https://writing.example/profile?id=Ada)',
+    '- [Research](https://writing.example/profile?id=ada)',
+  ]);
+});
+
+test('scheme and host casing still deduplicate accounts across contact and Links', () => {
+  const md = openProfileFromResume(
+    source(`# Ada Lovelace
+
+- [Portfolio](HTTPS://PORTFOLIO.EXAMPLE/Work)
+
+## Links
+
+- [Same portfolio](https://portfolio.example/Work/)
+`),
+  );
+  assert.deepEqual(md.split('\n').filter((line) => line.startsWith('- [')), [
+    '- [Portfolio](HTTPS://PORTFOLIO.EXAMPLE/Work)',
+  ]);
+});
