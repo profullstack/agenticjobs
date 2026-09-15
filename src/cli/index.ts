@@ -317,7 +317,7 @@ async function run(args: Args): Promise<number> {
       return commandUse(args);
     case 'sync': {
       const sync = await import('../client/sync.ts');
-      const sub = args.positional[1] ?? 'status';
+      const sub = args.positional[0] ?? 'status';
       const server = flagString(args, 'server', 's');
       const options = { ...(server !== undefined ? { server } : {}), userAgent: userAgent() };
       const force = Boolean(args.flags['force']);
