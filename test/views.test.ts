@@ -8,7 +8,7 @@
 
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { ResumeEditor } from '../dist/views/me.js';
+import { MePage, ResumeEditor } from '../dist/views/me.js';
 import { PostJobPage } from '../dist/views/post.js';
 import { DocsPage } from '../dist/views/docs.js';
 
@@ -25,6 +25,66 @@ const resume = {
   createdAt: '',
   updatedAt: '',
 };
+
+const renderApplications = (applications: Parameters<typeof MePage>[0]['applications']) =>
+  String(
+    MePage({
+      viewer: {
+        id: 'candidate',
+        email: 'candidate@example.test',
+        name: 'Candidate',
+        isAdmin: false,
+        viaToken: false,
+      },
+      orgs: [],
+      jobs: [],
+      resumes: [],
+      applications,
+      updates: [],
+      following: [],
+      candidateSlug: null,
+      updateMax: 500,
+    }),
+  );
+
+test('an unsent application is visibly a private draft on the candidate page', (t) => {
+  t.mock.method(Date, 'now', () => Date.parse('2026-09-16T12:00:00Z'));
+  const html = renderApplications([
+    {
+      jobTitle: 'Draft role',
+      jobSlug: 'draft-role',
+      status: 'draft',
+      createdAt: '2026-09-14T12:00:00Z',
+      submittedAt: null,
+    },
+  ]);
+
+  assert.match(html, /<h2>Your applications<\/h2>/);
+  const card = /<a[^>]+href="\/jobs\/draft-role"[\s\S]*?<\/a>/.exec(html)?.[0];
+  assert.ok(card, 'the candidate must still be able to see their draft');
+  assert.match(card, /Draft prepared 2 days ago/);
+  assert.match(card, /Not sent to the employer/);
+  assert.doesNotMatch(card, />Sent /);
+});
+
+test('a sent application shows its submission time, even when drafted earlier', (t) => {
+  t.mock.method(Date, 'now', () => Date.parse('2026-09-16T12:00:00Z'));
+  const html = renderApplications([
+    {
+      jobTitle: 'Sent role',
+      jobSlug: 'sent-role',
+      status: 'reviewing',
+      createdAt: '2026-09-14T12:00:00Z',
+      submittedAt: '2026-09-16T10:00:00Z',
+    },
+  ]);
+
+  const card = /<a[^>]+href="\/jobs\/sent-role"[\s\S]*?<\/a>/.exec(html)?.[0];
+  assert.ok(card);
+  assert.match(card, />reviewing</);
+  assert.match(card, />Sent 2 hours ago</);
+  assert.doesNotMatch(card, /Sent 2 days ago|Not sent to the employer/);
+});
 
 test('the resume preview is below the editor, not squeezed into the sidebar', () => {
   // The sidebar is 20rem. A resume rendered into 20rem is a column of two-word

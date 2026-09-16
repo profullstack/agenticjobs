@@ -1,6 +1,6 @@
 /**
  * Your side of the board: employers you can post under, jobs you have posted,
- * applications you have sent, and your resumes.
+ * applications you have prepared or sent, and your resumes.
  */
 
 import type { FC, PropsWithChildren } from 'hono/jsx';
@@ -20,7 +20,13 @@ export const MePage: FC<
     orgs: Organisation[];
     jobs: Job[];
     resumes: Resume[];
-    applications: { jobTitle: string; jobSlug: string; status: string; createdAt: string }[];
+    applications: {
+      jobTitle: string;
+      jobSlug: string;
+      status: string;
+      createdAt: string;
+      submittedAt: string | null;
+    }[];
     /** Your own updates, and who you follow. */
     updates: Update[];
     following: Following[];
@@ -186,7 +192,7 @@ export const MePage: FC<
     </section>
 
     <section class="stack">
-      <h2>Applications you have sent</h2>
+      <h2>Your applications</h2>
       {applications.length === 0 ? (
         <Empty>None yet.</Empty>
       ) : (
@@ -198,7 +204,13 @@ export const MePage: FC<
                   <h3 class="card-title">{application.jobTitle}</h3>
                   <Badge variant="outline">{application.status}</Badge>
                 </div>
-                <p class="small muted">Sent {ago(application.createdAt)}</p>
+                {application.submittedAt === null ? (
+                  <p class="small muted">
+                    Draft prepared {ago(application.createdAt)}. Not sent to the employer.
+                  </p>
+                ) : (
+                  <p class="small muted">Sent {ago(application.submittedAt)}</p>
+                )}
               </a>
             </li>
           ))}

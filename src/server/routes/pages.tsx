@@ -998,8 +998,9 @@ export function pageRoutes(): Hono<AppEnv> {
       job_slug: string;
       status: string;
       created_at: string;
+      submitted_at: string | null;
     }>(
-      `select j.title as job_title, j.slug as job_slug, a.status, a.created_at
+      `select j.title as job_title, j.slug as job_slug, a.status, a.created_at, a.submitted_at
          from applications a join jobs j on j.id = a.job_id
         where a.user_id = $1 order by a.created_at desc limit 50`,
       [viewer.id],
@@ -1029,6 +1030,7 @@ export function pageRoutes(): Hono<AppEnv> {
             jobSlug: row.job_slug,
             status: row.status,
             createdAt: row.created_at,
+            submittedAt: row.submitted_at,
           }))}
           updates={updates}
           following={following}

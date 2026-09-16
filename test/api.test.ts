@@ -1082,6 +1082,54 @@ describe('the API', { skip: reason === '' ? false : `no database: ${reason}` }, 
       assert.equal(response.status, 404);
     });
 
+    test('the candidate page distinguishes a draft from its later submission', async () => {
+      if (pool === null) return;
+      const { auth, slug } = await pipeline('Candidate history');
+      const { createSession, ensureUser } = await import('../dist/core/auth.js');
+      const stamp = `${Date.now()}${Math.random().toString(36).slice(2, 7)}`;
+      const email = `history+${stamp}@example.com`;
+      const candidate = await ensureUser(pool as never, email, 'Candidate');
+      const token = await createSession(pool as never, candidate.id, { label: 'web' });
+      const candidateAuth = { authorization: `Bearer ${token}` };
+      const browser = { accept: 'text/html', cookie: `aj_session=${token}` };
+
+      const response = await post(
+        `/api/v1/jobs/${slug}/apply`,
+        { name: 'Candidate', email, cover: 'Please hold this.', submit: false },
+        candidateAuth,
+      );
+      assert.equal(response.status, 201);
+      const draft = (await response.json()) as { applicationId: string };
+      await pool.query(
+        `update applications set created_at = now() - interval '2 days' where id = $1`,
+        [draft.applicationId],
+      );
+
+      const held = await (await get('/me', browser)).text();
+      assert.match(held, /<h2>Your applications<\/h2>/);
+      assert.match(held, /Draft prepared 2 days ago/);
+      assert.match(held, /Not sent to the employer/);
+      assert.doesNotMatch(held, /Sent 2 days ago/);
+      const inbox = (await (await get(`/api/v1/jobs/${slug}/applications`, auth)).json()) as {
+        items: { id: string }[];
+      };
+      assert.ok(!inbox.items.some((entry) => entry.id === draft.applicationId));
+
+      const sent = await post(
+        `/api/v1/applications/${draft.applicationId}/submit`,
+        {},
+        candidateAuth,
+      );
+      assert.equal(sent.status, 200);
+      await pool.query(
+        `update applications set submitted_at = now() - interval '2 hours' where id = $1`,
+        [draft.applicationId],
+      );
+      const submitted = await (await get('/me', browser)).text();
+      assert.match(submitted, /Sent 2 hours ago/);
+      assert.doesNotMatch(submitted, /Sent 2 days ago|Not sent to the employer/);
+    });
+
     test('a draft nobody sent cannot be decided on', async () => {
       // An employer cannot see a draft, so an employer cannot reject one out
       // from under the candidate who has not released it yet.
