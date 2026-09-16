@@ -15,7 +15,8 @@ export interface JobDocument extends Record<string, unknown> {
 }
 
 export function parseJobDocument(source: string): JobDocument {
-  const text = source.replace(/\r\n?/g, '\n');
+  // UTF-8 readers retain the leading byte-order marker; it is not document content.
+  const text = source.replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n');
   const match = /^---\n([\s\S]*?)\n---\n?/.exec(text);
 
   if (match === null) {

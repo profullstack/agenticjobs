@@ -54,11 +54,17 @@ test('plain entries, apostrophes, empty entries and CRLF retain their meaning', 
   });
 });
 
-test('CLI post and edit send each quoted requirement as one entry', async (t) => {
+test('a UTF-8 BOM does not hide the title of a plain Markdown job', () => {
+  assert.deepEqual(parseJobDocument('\uFEFF# Engineer\r\n\r\nRole details'), {
+    title: 'Engineer',
+    description: '# Engineer\n\nRole details',
+  });
+});
+
+test('CLI post and edit preserve job metadata with or without a UTF-8 BOM', async (t) => {
   const directory = await mkdtemp(join(tmpdir(), 'agenticjobs-jobfile-test-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const path = join(directory, 'job.md');
-  await writeFile(path, jobFile);
   const requests: { method: string | undefined; url: string | undefined; body: unknown }[] = [];
   const result = { job: { slug: 'example', status: 'draft' } };
   const server = createServer(async (request, response) => {
@@ -82,18 +88,23 @@ test('CLI post and edit send each quoted requirement as one entry', async (t) =>
   const address = server.address();
   assert.ok(address !== null && typeof address === 'object');
 
-  for (const command of [['post', path], ['edit', 'example', path]]) {
-    const { stdout } = await promisify(execFile)(process.execPath, [
-      fileURLToPath(new URL('../dist/cli/index.js', import.meta.url)),
-      ...command, '--server', `http://127.0.0.1:${address.port}`, '--json',
-    ], {
-      env: { ...process.env, AGENTICJOBS_CONFIG_DIR: directory },
-      timeout: 10_000,
-    });
-    assert.deepEqual(JSON.parse(stdout), result);
+  for (const source of [jobFile, '\uFEFF' + jobFile.replace(/\n/g, '\r\n')]) {
+    await writeFile(path, source);
+    for (const command of [['post', path], ['edit', 'example', path]]) {
+      const { stdout } = await promisify(execFile)(process.execPath, [
+        fileURLToPath(new URL('../dist/cli/index.js', import.meta.url)),
+        ...command, '--server', `http://127.0.0.1:${address.port}`, '--json',
+      ], {
+        env: { ...process.env, AGENTICJOBS_CONFIG_DIR: directory },
+        timeout: 10_000,
+      });
+      assert.deepEqual(JSON.parse(stdout), result);
+    }
   }
   const body = { org: 'example-works', title: 'Engineer', requirements, description: 'Role details' };
   assert.deepEqual(requests, [
+    { method: 'POST', url: '/api/v1/jobs', body },
+    { method: 'PATCH', url: '/api/v1/jobs/example', body },
     { method: 'POST', url: '/api/v1/jobs', body },
     { method: 'PATCH', url: '/api/v1/jobs/example', body },
   ]);
