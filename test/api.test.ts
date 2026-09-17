@@ -1696,6 +1696,28 @@ describe('the API', { skip: reason === '' ? false : `no database: ${reason}` }, 
         assert.equal(thread.thread.messages.at(-1)?.body, 'Sprint 3, as agreed');
         assert.equal(thread.invoices[0]?.id, invoice.id);
 
+        // The flat spelling: POST /invoices with the thread in the body, and the
+        // field names the invoice object itself uses. An invoice always belongs
+        // to a conversation, so no threadId is a 400, not a 404.
+        const noThread = await send('POST', '/api/v1/invoices', { amountUsd: '0.50', currency: 'BTC' }, grace.auth);
+        assert.equal(noThread.status, 400);
+        assert.match(((await noThread.json()) as { error: { message: string } }).error.message, /threadId/);
+        const notMine = await send('POST', '/api/v1/invoices', { threadId: started.threadId, amountUsd: '0.50', walletAddress: 'bc1somebodyelse' }, grace.auth);
+        assert.equal(notMine.status, 400);
+        assert.match(((await notMine.json()) as { error: { message: string } }).error.message, /not on your CoinPay account/);
+        const mismatch = await send('POST', '/api/v1/invoices', { threadId: started.threadId, amountUsd: '0.50', currency: 'BTC', walletAddress: '0xGRACE' }, grace.auth);
+        assert.equal(mismatch.status, 400);
+        assert.match(((await mismatch.json()) as { error: { message: string } }).error.message, /on USDC_POL, not BTC/);
+        const flat = await send('POST', '/api/v1/invoices', { threadId: started.threadId, amountUsd: '0.50', walletAddress: '0xGRACE', description: 'register + promote' }, grace.auth);
+        const small = (await asJson<{ invoice: { id: string; threadId: string; amountUsd: string; currency: string; walletAddress: string; status: string } }>(flat, 201)).invoice;
+        assert.equal(small.threadId, started.threadId);
+        assert.equal(small.amountUsd, '0.50');
+        assert.equal(small.currency, 'USDC_POL', 'the wallet address picks the chain');
+        assert.equal(small.walletAddress, '0xGRACE');
+        assert.equal(small.status, 'sent');
+        const unknownThread = await send('POST', '/api/v1/invoices', { threadId: '00000000-0000-4000-8000-000000000000', amount: '1', currency: 'BTC' }, grace.auth);
+        assert.equal(unknownThread.status, 404);
+
         // The payee cannot pay themselves; the payer gets a quote.
         const self = await send('POST', `/api/v1/invoices/${invoice.id}/pay`, undefined, grace.auth);
         assert.equal(self.status, 400);

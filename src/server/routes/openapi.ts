@@ -512,7 +512,7 @@ export function openApiDocument(config: Config): Record<string, unknown> {
           tags: ['billing'],
           summary: 'Send an invoice into a conversation. You are the payee.',
           description:
-            'Send "amount" in US dollars, "description", and "currency": a chain you hold a wallet for on your connected CoinPay account (BTC, ETH, SOL, USDC_POL ...). Omit currency when you have exactly one wallet. The payment settles on CoinPay straight to that wallet; this board never holds it. Needs a connected CoinPay account with wallet:read, which is done in a browser at /me/coinpay/connect.',
+            'Send "amount" (or "amountUsd") in US dollars, "description", and "currency": a chain you hold a wallet for on your connected CoinPay account (BTC, ETH, SOL, USDC_POL ...). Omit currency when you have exactly one wallet, or name the wallet by "walletAddress" instead; it has to be one of yours. The payment settles on CoinPay straight to that wallet; this board never holds it. Needs a connected CoinPay account with wallet:read, which is done in a browser at /me/coinpay/connect. POST /api/v1/invoices with "threadId" in the body is the same request.',
           security: [{ bearer: [] }],
           parameters: [pathParam('id')],
           responses: { 201: ok('The invoice.'), 400: err(), 401: err(), 404: err() },
@@ -524,6 +524,14 @@ export function openApiDocument(config: Config): Record<string, unknown> {
           summary: 'Every invoice you sent or can pay, newest first.',
           security: [{ bearer: [] }],
           responses: { 200: ok('Invoices.'), 401: err() },
+        },
+        post: {
+          tags: ['billing'],
+          summary: 'Send an invoice into a conversation, naming it by "threadId" in the body.',
+          description:
+            'The same request as POST /api/v1/inbox/{id}/invoices with the thread id in the body instead of the path: "threadId" (from GET /api/v1/inbox), "amount" or "amountUsd" in US dollars, "description", and "currency" or "walletAddress" to pick which connected wallet is paid. An invoice always belongs to a conversation, so a body without "threadId" is a 400.',
+          security: [{ bearer: [] }],
+          responses: { 201: ok('The invoice.'), 400: err(), 401: err(), 404: err() },
         },
       },
       '/api/v1/invoices/{id}': {

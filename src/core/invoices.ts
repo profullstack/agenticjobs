@@ -124,6 +124,13 @@ export async function sendInvoice(
     amount: unknown;
     currency: unknown;
     description: unknown;
+    /**
+     * Optional. The payee never chooses an arbitrary address: the money goes
+     * to a wallet on their connected CoinPay account. When given it has to be
+     * one of those, and it picks the wallet (and so the chain) when `currency`
+     * is absent.
+     */
+    walletAddress?: unknown;
   },
 ): Promise<Invoice | string> {
   if (coinpay === null) return 'This board has no payment rail configured.';
@@ -141,12 +148,21 @@ export async function sendInvoice(
   }
 
   const wanted = clean(input.currency, 20).toUpperCase();
+  const address = clean(input.walletAddress, 200);
+  const held = address === '' ? undefined : account.wallets.find((w) => w.address === address);
+  if (address !== '' && held === undefined) {
+    return `That wallet is not on your CoinPay account. You can be paid at: ${account.wallets.map((w) => `${w.address} (${w.chain})`).join(', ')}.`;
+  }
+  if (held !== undefined && wanted !== '' && held.chain !== wanted) {
+    return `That wallet is on ${held.chain}, not ${wanted}. Send one or the other.`;
+  }
   const wallet =
-    wanted === ''
+    held ??
+    (wanted === ''
       ? account.wallets.length === 1
         ? account.wallets[0]
         : undefined
-      : account.wallets.find((w) => w.chain === wanted);
+      : account.wallets.find((w) => w.chain === wanted));
   if (wallet === undefined) {
     return wanted === ''
       ? `Say which coin to be paid in: ${account.wallets.map((w) => w.chain).join(', ')}.`

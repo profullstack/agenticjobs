@@ -1428,20 +1428,26 @@ export function apiRoutes(): Hono<AppEnv> {
    * Send an invoice into a conversation. The caller is the payee; the money
    * settles to the wallet on their connected CoinPay account, in `currency`
    * (a chain they have a wallet on). Omit `currency` when there is one wallet.
+   *
+   * Two spellings of the same request: `POST /inbox/:id/invoices`, and
+   * `POST /invoices` with `threadId` in the body, which is the shape a caller
+   * guesses from `GET /invoices`. The body also takes `amountUsd` for `amount`
+   * and an optional `walletAddress`, which has to be one of the payee's
+   * connected wallets: the invoice object echoes both names back, so callers
+   * send them back in.
    */
-  api.post('/inbox/:id/invoices', async (c) => {
+  const sendInvoiceInto = async (c: Ctx, threadId: string, body: Record<string, unknown>) => {
     const { pool, config, mailer, coinpay } = c.get('deps');
     const viewer = viewerOf(c);
     if (viewer === null) return fail(c, 401, 'unauthenticated', 'Sign in to send an invoice.');
-    const id = c.req.param('id');
-    if (!isUuid(id)) return fail(c, 404, 'not_found', 'No such conversation.');
-    const body = await readBody(c);
+    if (!isUuid(threadId)) return fail(c, 404, 'not_found', 'No such conversation.');
     const invoice = await sendInvoice(pool, coinpay, {
-      threadId: id,
+      threadId,
       payeeId: viewer.id,
-      amount: body['amount'],
+      amount: body['amount'] ?? body['amountUsd'],
       currency: body['currency'],
       description: body['description'],
+      walletAddress: body['walletAddress'],
     });
     if (typeof invoice === 'string') {
       return fail(c, invoice.includes('not in that') ? 404 : 400, 'rejected', invoice);
@@ -1450,11 +1456,29 @@ export function apiRoutes(): Hono<AppEnv> {
       mailer,
       boardName: config.boardName,
       publicUrl: config.publicUrl,
-      threadId: id,
+      threadId,
       senderId: viewer.id,
       kind: 'invoice',
     });
     return c.json({ invoice }, 201);
+  };
+
+  api.post('/inbox/:id/invoices', async (c) =>
+    sendInvoiceInto(c, c.req.param('id'), await readBody(c)),
+  );
+
+  api.post('/invoices', async (c) => {
+    const body = await readBody(c);
+    const threadId = typeof body['threadId'] === 'string' ? body['threadId'].trim() : '';
+    if (threadId === '') {
+      return fail(
+        c,
+        400,
+        'invalid',
+        'Say which conversation the invoice goes into: "threadId", from GET /api/v1/inbox.',
+      );
+    }
+    return sendInvoiceInto(c, threadId, body);
   });
 
   /** Every invoice the caller sent or can pay, newest first. */

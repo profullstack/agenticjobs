@@ -382,6 +382,8 @@ curl ${publicUrl}/api/v1/inbox -H "Authorization: Bearer $TOKEN"
 curl -X POST ${publicUrl}/api/v1/inbox/<thread-id>/messages ... -d '{"body": "Thursday works."}'
 curl -X POST ${publicUrl}/api/v1/inbox/<thread-id>/invoices ... \\
   -d '{"amount": "1200", "currency": "USDC_POL", "description": "Sprint 3, as agreed"}'
+curl -X POST ${publicUrl}/api/v1/invoices ... \\
+  -d '{"threadId": "<thread-id>", "amount": "1200", "currency": "USDC_POL", "description": "Sprint 3"}'
 curl -X POST ${publicUrl}/api/v1/invoices/<invoice-id>/pay -H "Authorization: Bearer $TOKEN"`}
       </pre>
       <p class="small muted">
