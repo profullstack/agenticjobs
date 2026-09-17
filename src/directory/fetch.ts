@@ -101,7 +101,9 @@ async function fetchRaw(url: string, accept: string, options: FetchOptions): Pro
       if (Number.isFinite(declared) && declared > cap) {
         throw new FetchProblem(`${target} declared ${declared} bytes`);
       }
-      return readCapped(response, cap);
+      // Keep the timeout and caller's abort listener until the body is read.
+      // Returning the promise directly runs finally as soon as headers arrive.
+      return await readCapped(response, cap);
     }
     throw new FetchProblem(`${url} redirected too many times`);
   } catch (error) {
