@@ -236,7 +236,9 @@ const REVENUE = /\b(rev(?:enue)?(?:\s+share)?|profit\s+share|of\s+(?:the\s+)?rev
 
 function parseRevenueShare(text: string): PayLine | string | null {
   if (!REVENUE.test(text) || !/%|percent/i.test(text)) return null;
-  const matches = [...text.matchAll(/\d+(?:\.\d+)?/g)];
+  // A leading decimal point is part of the number: .5% is 0.5%, not 5%.
+  // Keeping it in the match also exposes the minus in -.5 to the sign check.
+  const matches = [...text.matchAll(/(?:\d+(?:\.\d+)?|\.\d+)/g)];
   if (matches.length === 0) return 'A revenue share needs a percentage: "10% revenue share".';
   const firstMatch = matches[0]!;
   const secondMatch = matches[1];
