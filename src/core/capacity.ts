@@ -132,10 +132,13 @@ export function parseRate(value: string): ParsedRate | null {
 
   // Strip any currency code before looking for digits, or "USD 100" would be
   // fine but a stray code containing digits would not.
-  const numeric = text.replace(/\b[a-z]{3}\b/gi, ' ').replace(/,/g, '');
-  const match = /(?:\d+(?:\.\d+)?|\.\d+)/.exec(numeric);
+  // Keep a price's sign even when it precedes the symbol or currency code.
+  // Dropping it turns an invalid "-$100/hr" into an advertised $100/hr.
+  const numeric = text.replace(/\b[a-z]{3}\b/gi, ' ').replace(/[,\$€£¥]/g, '');
+  const match = /([+\-−]?)\s*(\d+(?:\.\d+)?|\.\d+)/.exec(numeric);
   if (match === null) return null;
-  const amount = Number.parseFloat(match[0]);
+  if (match[1] === '-' || match[1] === '−') return null;
+  const amount = Number.parseFloat(match[2] ?? '');
   if (!Number.isFinite(amount) || amount <= 0) return null;
 
   const perAgent = /(\/|\bper\s+)agent\b|\beach\b|\ban?\s+agent\b|\bper\s+bot\b/i.test(text);
