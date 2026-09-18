@@ -210,7 +210,14 @@ function trimSiteName(title: string): string {
 export function extractJob(html: string, sourceUrl: string): ImportedJob {
   const warnings: string[] = [];
 
-  const posting = jsonLdNodes(html).find((node) => typeOf(node).includes('JobPosting'));
+  // @type may use the vocabulary term or its full schema.org IRI.
+  const posting = jsonLdNodes(html).find((node) =>
+    typeOf(node).some((type) =>
+      ['JobPosting', 'http://schema.org/JobPosting', 'https://schema.org/JobPosting'].includes(
+        type,
+      ),
+    ),
+  );
   if (posting !== undefined) {
     const title = typeof posting['title'] === 'string' ? posting['title'].trim() : '';
     const rawDescription =
