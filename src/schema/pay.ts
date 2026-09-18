@@ -213,15 +213,23 @@ function readMoney(text: string, at: number): Money | null {
   let end = at + match[0].length;
   let currency: string | null = null;
   if (symbolBefore !== undefined) currency = SYMBOL_TO_CODE[symbolBefore] ?? null;
-  if (currency === null && codeBefore !== undefined) {
-    currency = codeFrom(codeBefore);
+  if (codeBefore !== undefined) {
+    const code = codeFrom(codeBefore);
     // A leading word that is not a code is not part of the amount at all.
-    if (currency === null) return null;
+    if (code === null || (currency !== null && currency !== code)) return null;
+    currency ??= code;
   }
-  if (currency === null && symbolAfter !== undefined) currency = SYMBOL_TO_CODE[symbolAfter] ?? null;
+  if (symbolAfter !== undefined) {
+    const code = SYMBOL_TO_CODE[symbolAfter] ?? null;
+    if (currency !== null && currency !== code) return null;
+    currency ??= code;
+  }
   if (codeAfter !== undefined) {
     const code = codeFrom(codeAfter);
     if (code !== null) {
+      // Every symbol or code attached to one amount must agree.
+      // Otherwise "USD 100 EUR" or "$100 EUR" silently loses a currency.
+      if (currency !== null && currency !== code) return null;
       currency ??= code;
     } else {
       // "per", "an", "fixed": give the word back to the rest of the line.
