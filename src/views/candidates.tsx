@@ -17,6 +17,7 @@ import { AuthorSocial, type SocialProps } from './updates.tsx';
 import { RecommendationList, RecommendForm, type RecommendFormProps } from './recommendations.tsx';
 import type { Recommendation } from '../core/recommendations.ts';
 import type { OpenResume } from '../markup/resume.ts';
+import { safeUrl } from '../markup/escape.ts';
 import { formatCapacity, type SwarmCapacity } from '../core/capacity.ts';
 
 /** Where a tag badge points. Multiple tags narrow, so they accumulate. */
@@ -234,18 +235,21 @@ export const CandidateDetail: FC<{
             <h2 class="card-title">Contact</h2>
           </div>
           <ul class="stack-sm" style="list-style:none;margin:0;padding:0">
-            {parsed.contact.map((item) => (
-              <li class="small">
-                <span class="muted">{item.key}: </span>
-                {item.href === null ? (
-                  item.value
-                ) : (
-                  <a href={item.href} rel="nofollow">
-                    {item.value}
-                  </a>
-                )}
-              </li>
-            ))}
+            {parsed.contact.map((item) => {
+              const href = item.href === null ? null : safeUrl(item.href);
+              return (
+                <li class="small">
+                  <span class="muted">{item.key}: </span>
+                  {href === null ? (
+                    item.value
+                  ) : (
+                    <a href={href} rel="nofollow">
+                      {item.value}
+                    </a>
+                  )}
+                </li>
+              );
+            })}
           </ul>
           {contactRedacted && (
             <p class="small muted">

@@ -23,7 +23,7 @@ export function escapeHtml(input: string): string {
 }
 
 /** Only these schemes ever reach an href or a src. Everything else is dropped. */
-const SAFE_SCHEME = /^(https?:|mailto:|\/|#)/i;
+const SAFE_SCHEME = /^(https?:|mailto:|tel:|\/|#)/i;
 
 export function safeUrl(input: string): string | null {
   const trimmed = input.trim();

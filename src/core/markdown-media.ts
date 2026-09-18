@@ -19,7 +19,7 @@
 
 import { spawn } from 'node:child_process';
 import type { OpenResume } from '../markup/resume.ts';
-import { escapeHtml } from '../markup/escape.ts';
+import { escapeHtml, safeUrl } from '../markup/escape.ts';
 import { renderMarkdown } from '../markup/markdown.ts';
 
 export type MediaFormat = 'html' | 'pdf' | 'docx';
@@ -110,11 +110,12 @@ export function resumeHtml(options: {
     contact.length === 0
       ? ''
       : `<div class="contact">${contact
-          .map((item) =>
-            item.href === null
+          .map((item) => {
+            const href = item.href === null ? null : safeUrl(item.href);
+            return href === null
               ? `<span>${escapeHtml(item.value)}</span>`
-              : `<span><a href="${escapeHtml(item.href)}">${escapeHtml(item.value)}</a></span>`,
-          )
+              : `<span><a href="${escapeHtml(href)}">${escapeHtml(item.value)}</a></span>`;
+          })
           .join('')}</div>`,
     '</header>',
     renderMarkdown(body, { noImages: true }),
