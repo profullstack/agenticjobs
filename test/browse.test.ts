@@ -138,3 +138,33 @@ test('a page with almost no text is a problem, not a resume', async () => {
     /almost no text/,
   );
 });
+
+test('decimal character references preserve valid text and replace invalid code points', () => {
+  assert.equal(
+    htmlToMarkdown('<p>&#65; &#233; &#128512; &#1114111;</p>'),
+    'A \u00e9 \u{1f600} \u{10ffff}',
+  );
+  for (const code of ['0', '55296', '57343', '1114112', '9'.repeat(400)]) {
+    assert.equal(htmlToMarkdown(`<p>Before &#${code}; after.</p>`), 'Before \ufffd after.');
+  }
+});
+
+for (const location of ['body', 'title']) {
+  test(`an invalid decimal entity in the ${location} does not abandon a resume import`, async () => {
+    const title = location === 'title' ? 'Ada &#1114112; Lovelace' : 'Ada Lovelace';
+    const text = `Mathematician and analyst with experience building analytical engines.${
+      location === 'body' ? ' Reference: &#1114112;.' : ''
+    }`;
+    const result = await pageToMarkdown('https://ada.example/resume', {
+      obscuraMcpUrl: null,
+      allowPrivate: true,
+      fetch: (async () =>
+        new Response(`<html><head><title>${title}</title></head><body><p>${text}</p></body></html>`, {
+          headers: { 'content-type': 'text/html' },
+        })) as typeof fetch,
+    });
+    assert.equal(result.via, 'fetch');
+    assert.equal(result.title, location === 'title' ? 'Ada \ufffd Lovelace' : title);
+    assert.equal(result.markdown, text.replace('&#1114112;', '\ufffd'));
+  });
+}
