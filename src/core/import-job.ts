@@ -72,12 +72,15 @@ function decode(text: string): string {
       };
       const key = body.toLowerCase();
       if (named[key] !== undefined) return named[key];
-      if (body.startsWith('#x') || body.startsWith('#X')) {
-        const code = Number.parseInt(body.slice(2), 16);
-        return Number.isFinite(code) ? String.fromCodePoint(code) : whole;
-      }
       if (body.startsWith('#')) {
-        const code = Number.parseInt(body.slice(1), 10);
+        const hex = key.startsWith('#x');
+        const code = Number.parseInt(body.slice(hex ? 2 : 1), hex ? 16 : 10);
+        // HTML replaces null, surrogates and values outside Unicode with
+        // U+FFFD. In particular, an external page must not make fromCodePoint
+        // throw and prevent an otherwise readable draft from being imported.
+        if (code === 0 || code > 0x10ffff || (code >= 0xd800 && code <= 0xdfff)) {
+          return '\uFFFD';
+        }
         return Number.isFinite(code) ? String.fromCodePoint(code) : whole;
       }
       return whole;
