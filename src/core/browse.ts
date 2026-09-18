@@ -282,5 +282,10 @@ function decode(text: string): string {
     .replace(/&gt;/g, '>')
     .replace(/&quot;/g, '"')
     .replace(/&#39;|&apos;/g, "'")
-    .replace(/&#(\d+);/g, (_, code: string) => String.fromCodePoint(Number(code)));
+    .replace(/&#(\d+);/g, (_, code: string) => {
+      const point = Number(code);
+      if (point === 0 || point > 0x10ffff || (point >= 0xd800 && point <= 0xdfff))
+        return '\ufffd';
+      return String.fromCodePoint(point);
+    });
 }
