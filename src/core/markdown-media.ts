@@ -18,7 +18,7 @@
  */
 
 import { spawn } from 'node:child_process';
-import type { OpenResume } from '../markup/resume.ts';
+import { resumeBodyMarkdown, type OpenResume } from '../markup/resume.ts';
 import { escapeHtml } from '../markup/escape.ts';
 import { renderMarkdown } from '../markup/markdown.ts';
 
@@ -94,9 +94,9 @@ export function resumeHtml(options: {
   const headline = options.parsed?.headline ?? null;
   const contact = options.parsed?.contact ?? [];
 
-  // The h1 and the contact bullets are rendered as the header, so the body
-  // starts after them rather than repeating them as ordinary Markdown.
-  const body = options.parsed === null ? options.markdown : withoutHeader(options.markdown);
+  // Use the parser's header decisions so headlines and every accepted contact
+  // bullet are lifted exactly once, while unpromoted prose stays in the body.
+  const body = options.parsed === null ? options.markdown : resumeBodyMarkdown(options.markdown);
 
   return [
     '<!doctype html>',
@@ -120,25 +120,6 @@ export function resumeHtml(options: {
     renderMarkdown(body, { noImages: true }),
     '</body></html>',
   ].join('\n');
-}
-
-/** Drop the leading h1 and the contact bullets that follow it. */
-function withoutHeader(markdown: string): string {
-  const lines = markdown.replace(/\r\n?/g, '\n').split('\n');
-  let index = 0;
-  while (index < lines.length && (lines[index] ?? '').trim() === '') index += 1;
-  if (!(lines[index] ?? '').startsWith('# ')) return markdown;
-  index += 1;
-  // Everything up to the first heading or paragraph is the contact block.
-  while (index < lines.length) {
-    const line = (lines[index] ?? '').trim();
-    if (line === '' || line.startsWith('- ') || line.startsWith('* ')) {
-      index += 1;
-      continue;
-    }
-    break;
-  }
-  return lines.slice(index).join('\n');
 }
 
 /**
