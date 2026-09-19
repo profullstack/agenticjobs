@@ -153,11 +153,13 @@ function typeOf(node: Record<string, unknown>): string[] {
   return [];
 }
 
-/** schema.org spells it MONTHLY, PART_TIME and so on. */
+/** Normalize schema.org employment values into the board's local names. */
 function employmentTypeOf(value: unknown): EmploymentType | undefined {
   const raw = Array.isArray(value) ? value[0] : value;
   if (typeof raw !== 'string') return undefined;
   const normalised = raw.toLowerCase().replace(/_/g, '-').trim();
+  if (normalised === 'contractor') return 'contract';
+  if (normalised === 'intern') return 'internship';
   return (EMPLOYMENT_TYPES as readonly string[]).includes(normalised)
     ? (normalised as EmploymentType)
     : undefined;
