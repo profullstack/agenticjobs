@@ -97,10 +97,10 @@ function tidy(text: string): string {
 function metaContent(html: string, key: string): string | null {
   // Attribute order varies, so both orders are tried rather than assumed.
   // Only the opening delimiter closes content; the other quote is plain text.
-  const content = `content=(?:"([^"]*)"|'([^']*)')`;
+  const content = `content\\s*=\\s*(?:"([^"]*)"|'([^']*)')`;
   const patterns = [
-    new RegExp(`<meta[^>]+(?:property|name)=["']${key}["'][^>]+${content}`, 'i'),
-    new RegExp(`<meta[^>]+${content}[^>]+(?:property|name)=["']${key}["']`, 'i'),
+    new RegExp(`<meta[^>]+(?:property|name)\\s*=\\s*["']${key}["'][^>]+${content}`, 'i'),
+    new RegExp(`<meta[^>]+${content}[^>]+(?:property|name)\\s*=\\s*["']${key}["']`, 'i'),
   ];
   for (const pattern of patterns) {
     const match = pattern.exec(html);
@@ -114,7 +114,7 @@ function metaContent(html: string, key: string): string | null {
 function jsonLdNodes(html: string): Record<string, unknown>[] {
   const nodes: Record<string, unknown>[] = [];
   const blocks = html.matchAll(
-    /<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi,
+    /<script[^>]+type\s*=\s*["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi,
   );
   for (const block of blocks) {
     const source = block[1] ?? '';
