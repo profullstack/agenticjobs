@@ -92,6 +92,8 @@ function classify(extension: string, mime: string, bytes: Buffer): Kind {
 }
 
 function looksTextual(bytes: Buffer): boolean {
+  // UTF-16 text contains NUL bytes even when every character is printable.
+  if (utf16Encoding(bytes) !== null) return true;
   const sample = bytes.subarray(0, 4096);
   let control = 0;
   for (const byte of sample) {
@@ -102,9 +104,18 @@ function looksTextual(bytes: Buffer): boolean {
 }
 
 function decodeText(bytes: Buffer): string {
+  const encoding = utf16Encoding(bytes);
+  if (encoding !== null) return new TextDecoder(encoding).decode(bytes);
   // A BOM left in place shows up as a stray character in the first heading.
   const text = bytes.toString('utf8');
   return text.charCodeAt(0) === 0xfeff ? text.slice(1) : text;
+}
+
+/** Word and other desktop editors can save Unicode text in either byte order. */
+function utf16Encoding(bytes: Buffer): 'utf-16le' | 'utf-16be' | null {
+  if (bytes[0] === 0xff && bytes[1] === 0xfe) return 'utf-16le';
+  if (bytes[0] === 0xfe && bytes[1] === 0xff) return 'utf-16be';
+  return null;
 }
 
 /**
