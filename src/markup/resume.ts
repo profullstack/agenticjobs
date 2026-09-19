@@ -138,6 +138,7 @@ export function parseResume(source: string): OpenResume {
   let entry: ResumeEntry | null = null;
   let seenH1 = false;
   let inPreamble = false;
+  let fenceEnd: RegExp | null = null;
 
   const flushEntry = (): void => {
     if (entry !== null && section !== null) {
@@ -156,6 +157,25 @@ export function parseResume(source: string): OpenResume {
   };
 
   for (const line of lines) {
+    // Code examples may contain every resume marker. Keep the block in its
+    // current body without interpreting headings, contacts, roles or bullets.
+    const opening: RegExpExecArray | null = fenceEnd === null ? /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line) : null;
+    const marker: string = opening?.[1] ?? '';
+    const opensFence = opening !== null &&
+      (marker.startsWith('~') || !(opening[2] ?? '').includes('`'));
+    if (fenceEnd !== null || opensFence) {
+      if (fenceEnd !== null) {
+        if (fenceEnd.test(line)) fenceEnd = null;
+      } else {
+        // A shorter marker, a different character, or trailing text belongs
+        // to the example rather than closing it.
+        fenceEnd = new RegExp(`^ {0,3}${marker[0]}{${marker.length},}[ \\t]*$`);
+      }
+      if (entry !== null) entry.markdown += `${line}\n`;
+      else if (section !== null) section.markdown += `${line}\n`;
+      continue;
+    }
+
     const h1 = /^#\s+(.+?)\s*(?:(?<=[ \t])#+)?\s*$/.exec(line);
     if (h1 !== null) {
       if (seenH1) {
