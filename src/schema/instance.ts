@@ -89,12 +89,23 @@ export function publishable(raw: string): URL | null {
   const host = url.hostname.replace(/^\[|\]$/g, '').toLowerCase();
   if (host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local')) return null;
   if (host === '::1' || host === '0.0.0.0') return null;
+  if (/^0\./.test(host)) return null;
   if (/^127\./.test(host)) return null;
   if (/^10\./.test(host)) return null;
   if (/^192\.168\./.test(host)) return null;
   if (/^169\.254\./.test(host)) return null;
   // 172.16.0.0/12 is the one private range that is easy to get wrong by eye.
   if (/^172\.(1[6-9]|2\d|3[01])\./.test(host)) return null;
+  // Carrier-grade NAT, 100.64.0.0/10, sits between the public and the private.
+  if (/^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(host)) return null;
+  // Benchmarking space, 198.18.0.0/15, and the three documentation ranges are
+  // no more reachable from a reader's machine than the private blocks.
+  if (/^198\.(18|19)\./.test(host)) return null;
+  if (/^192\.0\.2\./.test(host)) return null;
+  if (/^198\.51\.100\./.test(host)) return null;
+  if (/^203\.0\.113\./.test(host)) return null;
+  // Multicast, 224.0.0.0/4, and the reserved pool above it, 240.0.0.0/4.
+  if (/^2(2[4-9]|[3-5]\d)\./.test(host)) return null;
   // Unique local addresses, fc00::/7.
   if (/^f[cd][0-9a-f]{2}:/.test(host)) return null;
   // URL canonicalises dotted IPv4 tails to hexadecimal, for example
@@ -103,9 +114,11 @@ export function publishable(raw: string): URL | null {
   // guards above.
   const embedded = embeddedIpv4(host);
   if (embedded !== null && privateIpv4(embedded)) return null;
-  // Unspecified and link-local IPv6 addresses are no more publishable than
-  // 0.0.0.0 and 169.254/16.
-  if (host === '::' || /^fe[89ab][0-9a-f]:/.test(host)) return null;
+  // Unspecified, link-local (fe80::/10) and site-local (fec0::/10) addresses
+  // are no more publishable than 0.0.0.0 and 169.254/16.
+  if (host === '::' || /^fe[89a-f][0-9a-f]:/.test(host)) return null;
+  // 2001:db8::/32 is documentation space, as unreachable as the v4 trio above.
+  if (/^2001:db8:/.test(host)) return null;
 
   // Only the origin is ever kept. A path, a query or credentials in the URL
   // would all end up concatenated onto endpoint paths later.
@@ -121,14 +134,20 @@ function embeddedIpv4(host: string): [number, number, number, number] | null {
   return [high >>> 8, high & 0xff, low >>> 8, low & 0xff];
 }
 
-function privateIpv4([a, b]: [number, number, number, number]): boolean {
+function privateIpv4([a, b, c]: [number, number, number, number]): boolean {
   return (
     a === 0 ||
     a === 10 ||
     a === 127 ||
+    (a === 100 && b >= 64 && b <= 127) ||
     (a === 169 && b === 254) ||
     (a === 172 && b >= 16 && b <= 31) ||
-    (a === 192 && b === 168)
+    (a === 192 && b === 168) ||
+    (a === 192 && b === 0 && c === 2) ||
+    (a === 198 && (b === 18 || b === 19)) ||
+    (a === 198 && b === 51 && c === 100) ||
+    (a === 203 && b === 0 && c === 113) ||
+    a >= 224
   );
 }
 

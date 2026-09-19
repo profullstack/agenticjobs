@@ -64,7 +64,7 @@ export async function assertPublicUrl(raw: string, allowPrivate = false): Promis
 export function isPrivateAddress(address: string): boolean {
   const v4 = /^(\d+)\.(\d+)\.(\d+)\.(\d+)$/.exec(address);
   if (v4 !== null) {
-    const [a, b] = [Number(v4[1]), Number(v4[2])];
+    const [a, b, c] = [Number(v4[1]), Number(v4[2]), Number(v4[3])];
     return (
       a === 10 ||
       a === 127 ||
@@ -72,12 +72,20 @@ export function isPrivateAddress(address: string): boolean {
       (a === 169 && b === 254) ||
       (a === 172 && b >= 16 && b <= 31) ||
       (a === 192 && b === 168) ||
-      (a === 100 && b >= 64 && b <= 127)
+      (a === 100 && b >= 64 && b <= 127) ||
+      (a === 192 && b === 0 && c === 2) ||
+      (a === 198 && (b === 18 || b === 19)) ||
+      (a === 198 && b === 51 && c === 100) ||
+      (a === 203 && b === 0 && c === 113) ||
+      a >= 224
     );
   }
   const lower = address.toLowerCase();
   if (lower === '::1' || lower === '::') return true;
-  if (lower.startsWith('fe80:') || lower.startsWith('fc') || lower.startsWith('fd')) return true;
+  // fe80::/10 link-local and fec0::/10 site-local, then fc00::/7 unique local.
+  if (/^fe[89a-f][0-9a-f]:/.test(lower)) return true;
+  if (lower.startsWith('fc') || lower.startsWith('fd')) return true;
+  if (lower.startsWith('2001:db8:')) return true;
   // An IPv4 address hidden in an IPv6 one.
   const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/.exec(lower);
   return mapped !== null && isPrivateAddress(mapped[1] ?? '');

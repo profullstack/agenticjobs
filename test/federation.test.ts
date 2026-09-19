@@ -22,14 +22,28 @@ test('loopback and private addresses are never listed', () => {
     'http://[::ffff:127.0.0.1]',
     'http://[::ffff:10.0.0.5]',
     'http://[::ffff:169.254.169.254]',
+    'http://[::ffff:100.64.1.5]',
     'http://[::127.0.0.1]',
     'http://10.0.0.5',
     'http://192.168.1.4',
     'http://172.16.0.1',
     'http://172.31.255.255',
     'http://169.254.169.254',
+    'http://0.1.2.3',
+    'http://100.64.1.5',
+    'http://100.127.255.255',
+    'http://198.18.0.1',
+    'http://198.19.255.255',
+    'http://192.0.2.1',
+    'http://198.51.100.7',
+    'http://203.0.113.9',
+    'http://224.0.0.1',
+    'http://240.1.2.3',
+    'http://255.255.255.255',
     'http://board.local',
     'http://fd00::1',
+    'http://[fec0::1]',
+    'http://[2001:db8::1]',
     'ftp://example.com',
     'not a url',
   ]) {
@@ -41,6 +55,20 @@ test('172.32 is public, which is the edge of that range people get wrong', () =>
   assert.notEqual(publishable('http://172.32.0.1'), null);
   assert.notEqual(publishable('https://example.com'), null);
   assert.notEqual(publishable('http://[::ffff:172.32.0.1]'), null);
+});
+
+test('the edges of the unroutable ranges stay listable', () => {
+  for (const url of [
+    'http://100.128.0.1',
+    'http://198.17.0.1',
+    'http://198.20.0.1',
+    'http://192.0.0.9',
+    'http://192.0.3.1',
+    'http://223.255.255.1',
+    'http://[::ffff:100.128.0.1]',
+  ]) {
+    assert.notEqual(publishable(url), null, url);
+  }
 });
 
 test('only the origin survives, so credentials and paths cannot ride along', () => {
