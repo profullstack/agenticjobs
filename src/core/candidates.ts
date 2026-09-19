@@ -71,17 +71,35 @@ function locationOf(resume: Resume): string | null {
 const NAME_MAX = 80;
 
 /**
+ * "Looks like an email address", loosely — the check a public field needs,
+ * not a validator. Used anywhere directory text could carry a channel.
+ */
+const HAS_ADDRESS = /[^\s@]+@[^\s@]+\.[^\s@]+/;
+
+/**
  * The name shown in the directory.
  *
  * A resume with no usable h1 falls back to its title, which its owner wrote
  * and which is at least theirs. It never falls back to an email address:
  * publishing a resume should not mean publishing an address as the headline.
+ * An h1 is free text, so "Jane Doe jane@example.com" is a name the parser
+ * returns without complaint — the address check has to live here, on the
+ * field, the same way it does for the headline.
  */
 export function nameOf(resume: Resume): string {
   const parsed = resume.parsed?.name?.trim();
-  if (parsed !== undefined && parsed !== '' && parsed.length <= NAME_MAX) return parsed;
+  if (
+    parsed !== undefined &&
+    parsed !== '' &&
+    parsed.length <= NAME_MAX &&
+    !HAS_ADDRESS.test(parsed)
+  ) {
+    return parsed;
+  }
   const title = resume.title.trim();
-  return title === '' || title.length > NAME_MAX ? 'Candidate' : title;
+  return title === '' || title.length > NAME_MAX || HAS_ADDRESS.test(title)
+    ? 'Candidate'
+    : title;
 }
 
 /** One resume as a given viewer is allowed to see it. */
@@ -140,7 +158,7 @@ function headlineOf(resume: Resume): string | null {
   if (headline === null || headline === undefined) return null;
   const cleaned = headline.replace(/\*\*|__/g, '').trim();
   if (cleaned === '') return null;
-  return /[^\s@]+@[^\s@]+\.[^\s@]+/.test(cleaned) ? null : cleaned;
+  return HAS_ADDRESS.test(cleaned) ? null : cleaned;
 }
 
 export function toCandidateSummary(resume: Resume): CandidateSummary {

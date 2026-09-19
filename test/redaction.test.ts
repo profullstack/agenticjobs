@@ -10,7 +10,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { CONTACT_WITHHELD, redactContactChannels } from '../dist/markup/resume.js';
-import { toCandidateSummary } from '../dist/core/candidates.js';
+import { nameOf, toCandidateSummary } from '../dist/core/candidates.js';
 
 const ADDRESS = 'bb8654838@example.com';
 
@@ -96,6 +96,75 @@ test('a cached headline holding an address is dropped at render time', () => {
   } as never);
 
   assert.equal(summary.headline, null);
+});
+
+test('an address in the name line is withheld, not passed through as the h1', () => {
+  const source = `# Jane Doe ${ADDRESS}\n\n- **Location**: Berlin\n\n## Summary\nText.\n`;
+  const { markdown, redacted } = redactContactChannels(source);
+
+  assert.equal(redacted, true);
+  assert.ok(!markdown.includes(ADDRESS), 'the h1 must not carry the address');
+  assert.match(markdown, new RegExp(`^# Jane Doe ${CONTACT_WITHHELD}$`, 'm'));
+});
+
+test('an address in a section heading is withheld', () => {
+  const source = `# Jane\n\n- **Location**: Berlin\n\n## Contact me at ${ADDRESS}\nText.\n`;
+  const { markdown, redacted } = redactContactChannels(source);
+
+  assert.equal(redacted, true);
+  assert.ok(!markdown.includes(ADDRESS), 'the h2 must not carry the address');
+});
+
+test('an address in a plain-fact contact bullet is withheld', () => {
+  const source = `# Jane\n\n- **Location**: Berlin\n- **Note**: mail me at ${ADDRESS} anytime\n\n## Summary\nOk.\n`;
+  const { markdown, redacted } = redactContactChannels(source);
+
+  assert.equal(redacted, true);
+  assert.ok(!markdown.includes(ADDRESS), 'a bullet without an href must not carry the address');
+  assert.match(markdown, /- \*\*Note\*\*: mail me at /, 'the fact itself stays');
+});
+
+test('a name holding an address is dropped on the directory card', () => {
+  const summary = toCandidateSummary({
+    id: 'r1',
+    userId: 'u1',
+    slug: 'jane',
+    title: 'Jane Doe',
+    markdown: '# x\n',
+    parsed: {
+      name: `Jane Doe ${ADDRESS}`,
+      headline: null,
+      contact: [],
+      sections: [],
+      markdown: '',
+      warnings: [],
+    },
+    visibility: 'public',
+    publicSlug: 'jane',
+    sourceName: null,
+    createdAt: '2026-09-09T00:00:00.000Z',
+    updatedAt: '2026-09-09T00:00:00.000Z',
+  } as never);
+
+  assert.equal(summary.name, 'Jane Doe');
+});
+
+test('a title holding an address is not the fallback either', () => {
+  const name = nameOf({
+    id: 'r1',
+    userId: 'u1',
+    slug: 'jane',
+    title: `Reach me at ${ADDRESS}`,
+    markdown: '# x\n',
+    parsed: { name: null, headline: null, contact: [], sections: [], markdown: '', warnings: [] },
+    visibility: 'public',
+    publicSlug: 'jane',
+    sourceName: null,
+    createdAt: '2026-09-09T00:00:00.000Z',
+    updatedAt: '2026-09-09T00:00:00.000Z',
+  } as never);
+
+  assert.equal(name, 'Candidate');
 });
 
 test('a cached headline with stray markup is cleaned, not dropped', () => {

@@ -406,22 +406,17 @@ export function redactContactChannels(source: string): { markdown: string; redac
   let redacted = false;
 
   for (const line of markdown.split('\n')) {
+    // Headings only set flags here; the line itself still falls through to the
+    // address check below. Pushing a heading verbatim let a name or a section
+    // title carry an address straight past the redaction.
     if (/^#\s+(.+?)\s*#*\s*$/.test(line)) {
       if (!seenH1) {
         seenH1 = true;
         inPreamble = true;
       }
-      out.push(line);
-      continue;
-    }
-
-    if (/^##\s+(.+?)\s*#*\s*$/.test(line)) {
+    } else if (/^##\s+(.+?)\s*#*\s*$/.test(line)) {
       inPreamble = false;
-      out.push(line);
-      continue;
-    }
-
-    if (inPreamble) {
+    } else if (inPreamble) {
       const bullet = /^\s*[-*+]\s+(.*)$/.exec(line);
       if (bullet !== null) {
         const field = parseContact(bullet[1] ?? '');
@@ -432,10 +427,9 @@ export function redactContactChannels(source: string): { markdown: string; redac
           redacted = true;
           continue;
         }
-        out.push(line);
-        continue;
+        // A bullet with no channel to withhold is still prose: an address in
+        // "Note: mail me at <address>" is scrubbed like any other line.
       }
-
     }
 
     // An address anywhere in the document, not only in the contact block.
