@@ -192,11 +192,11 @@ export async function docxToMarkdown(bytes: Buffer): Promise<ImportResult> {
 
   const document = xml.toString('utf8');
   const out: string[] = [];
-  const paragraphs = document.match(/<w:p[ >][\s\S]*?<\/w:p>|<w:p\/>/g) ?? [];
+  const paragraphs = document.match(/<w:p[\t\r\n >][\s\S]*?<\/w:p>|<w:p\/>/g) ?? [];
 
   for (const paragraph of paragraphs) {
     const style = /<w:pStyle[^>]*w:val="([^"]+)"/.exec(paragraph)?.[1] ?? '';
-    const isList = /<w:numPr[ >]/.test(paragraph);
+    const isList = /<w:numPr[\t\r\n >]/.test(paragraph);
     const text = runsToText(paragraph).trim();
 
     if (text === '') {
@@ -220,7 +220,7 @@ export async function docxToMarkdown(bytes: Buffer): Promise<ImportResult> {
     out.push(text);
   }
 
-  const tables = (document.match(/<w:tbl[ >]/g) ?? []).length;
+  const tables = (document.match(/<w:tbl[\t\r\n >]/g) ?? []).length;
   if (tables > 0) {
     // Word tables are commonly used purely for two-column layout, so turning
     // them into Markdown tables produces something worse than flat text.
@@ -236,7 +236,7 @@ export async function docxToMarkdown(bytes: Buffer): Promise<ImportResult> {
 
 function runsToText(paragraph: string): string {
   let out = '';
-  const runs = paragraph.match(/<w:r[ >][\s\S]*?<\/w:r>/g) ?? [];
+  const runs = paragraph.match(/<w:r[\t\r\n >][\s\S]*?<\/w:r>/g) ?? [];
   for (const run of runs) {
     // Text, tabs and breaks can alternate inside one run. Run boundaries
     // must not change the text that arrives in the resume editor.
