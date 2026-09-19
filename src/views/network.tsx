@@ -7,7 +7,8 @@ import type { FC } from 'hono/jsx';
 import type { InstanceListing } from '../schema/instance.ts';
 import type { FederatedSearch } from '../directory/federate.ts';
 import type { JobQuery } from '../schema/index.ts';
-import { ago, formatSalary } from '../schema/text.ts';
+import { ago } from '../schema/text.ts';
+import { formatPayShort, payOfJob } from '../schema/pay.ts';
 import { AgentPolicyBadge, Alert, Badge, Card, Empty } from './layout.tsx';
 import { Filters } from './jobs.tsx';
 
@@ -140,7 +141,7 @@ export const NetworkSearchPage: FC<{ result: FederatedSearch; query: JobQuery }>
         ) : (
           <ul class="job-list">
             {result.jobs.map((entry) => {
-              const salary = formatSalary(entry.job.salary);
+              const salary = formatPayShort(payOfJob(entry.job));
               return (
                 <li>
                   <a class="card card-link job-card" href={entry.url} rel="noopener">
