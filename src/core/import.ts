@@ -241,12 +241,16 @@ function runsToText(paragraph: string): string {
     // Text, tabs and breaks can alternate inside one run. Run boundaries
     // must not change the text that arrives in the resume editor.
     const pieces = [
-      ...run.matchAll(/<w:t(?:\s[^>]*)?>([\s\S]*?)<\/w:t>|<w:(tab|br|cr)\b[^>]*>/g),
+      ...run.matchAll(/<w:t(?:\s[^>]*)?>([\s\S]*?)<\/w:t>|<w:(tab|br|cr|noBreakHyphen)\b[^>]*>/g),
     ];
     let text = pieces
-      .map((piece) => (piece[1] !== undefined ? decodeXml(piece[1]) : piece[2] === 'tab' ? '  ' : '\n'))
+      .map((piece) => {
+        if (piece[1] !== undefined) return decodeXml(piece[1]);
+        if (piece[2] === 'noBreakHyphen') return '\u2011';
+        return piece[2] === 'tab' ? '  ' : '\n';
+      })
       .join('');
-    if (!pieces.some((piece) => (piece[1] ?? '') !== '')) {
+    if (!pieces.some((piece) => (piece[1] ?? '') !== '' || piece[2] === 'noBreakHyphen')) {
       // Controls alone do not need emphasis markers around them.
       out += text;
       continue;

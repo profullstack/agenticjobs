@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>
+<w:p><w:r><w:t>customer</w:t><w:noBreakHyphen/><w:t>facing</w:t></w:r></w:p>
+<w:p><w:r><w:t>end</w:t></w:r><w:r><w:noBreakHyphen/></w:r><w:r><w:t>to</w:t></w:r><w:r><w:noBreakHyphen/></w:r><w:r><w:t>end</w:t></w:r></w:p>
+<w:p><w:r><w:rPr><w:b/></w:rPr><w:noBreakHyphen/></w:r></w:p>
+<w:p><w:r><w:t>plain-hyphen</w:t><w:tab/><w:t>then</w:t><w:br/><w:t>next line</w:t></w:r></w:p>
+</w:body></w:document>
