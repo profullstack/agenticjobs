@@ -28,11 +28,12 @@ function skillsOf(resume: Resume): string[] {
 
   const fromBullets = section.markdown
     .split('\n')
-    .map((line) => line.replace(/^\s*[-*]\s+/, '').trim())
+    .map((line) => line.replace(/^\s*[-*+]\s+/, '').trim())
     // A skills bullet is very often "**Languages:** JavaScript, Go", and the
     // label is a category rather than a skill. Without dropping it the first
-    // badge on the card reads "**Languages:** JavaScript".
-    .map((line) => line.replace(/^\*{0,2}[^*:]{1,40}:\*{0,2}\s*/, ''))
+    // badge on the card reads "**Languages:** JavaScript". The colon may
+    // also sit outside the emphasis: "**Languages**: JavaScript, Go".
+    .map((line) => line.replace(/^\*{0,2}[^*:]{1,40}\*{0,2}\s*:\*{0,2}\s*/, ''))
     .filter((line) => line !== '' && !line.startsWith('#'));
 
   const flattened = fromBullets.flatMap((line) =>
