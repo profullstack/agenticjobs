@@ -180,7 +180,13 @@ function locationOf(node: Record<string, unknown>): string | undefined {
   if (typeof address === 'string') return address;
   if (typeof address !== 'object' || address === null) return undefined;
   const parts = ['addressLocality', 'addressRegion', 'addressCountry']
-    .map((key) => (address as Record<string, unknown>)[key])
+    .map((key) => {
+      const value = (address as Record<string, unknown>)[key];
+      if (key !== 'addressLocality' && typeof value === 'object' && value !== null && !Array.isArray(value)) {
+        return (value as Record<string, unknown>)['name'];
+      }
+      return value;
+    })
     .filter((part): part is string => typeof part === 'string' && part.trim() !== '');
   return parts.length === 0 ? undefined : parts.join(', ');
 }
