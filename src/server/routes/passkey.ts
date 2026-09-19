@@ -229,6 +229,11 @@ export function passkeyRoutes(): Hono<AppEnv> {
     // from a non-zero value is treated as a problem.
     const newCounter = verification.authenticationInfo.newCounter;
     if (newCounter !== 0 && newCounter < Number(row.counter)) {
+      // The row has to go with the claim: telling the caller the credential
+      // was disabled while leaving it in place would let the copy keep
+      // signing in. The honest authenticator loses it too - a cloned key is
+      // unrecoverable, and the owner registers a fresh one.
+      await pool.query(`delete from passkeys where id = $1`, [row.id]);
       return c.json(
         {
           error: {
