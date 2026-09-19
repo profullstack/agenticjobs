@@ -49,11 +49,15 @@ test('a second directory page includes jobs beyond the first upstream page', asy
       total: all.length,
     }),
   });
-  const result = await federatedSearch(targetsFromUrls(['https://first.example']), {
-    ...EMPTY_QUERY,
-    limit: 2,
-    offset: 2,
-  });
+  const result = await federatedSearch(
+    targetsFromUrls(['https://first.example']),
+    {
+      ...EMPTY_QUERY,
+      limit: 2,
+      offset: 2,
+    },
+    { allowPrivate: true },
+  );
   assert.deepEqual(
     result.jobs.map(({ job }) => job.slug),
     ['job-3', 'job-4'],
@@ -80,6 +84,7 @@ test('directory pagination merges enough jobs when boards have different result 
     const result = await federatedSearch(
       targetsFromUrls(['https://first.example', 'https://second.example']),
       { ...EMPTY_QUERY, limit: 2, offset },
+      { allowPrivate: true },
     );
     slugs.push(...result.jobs.map(({ job }) => job.slug));
     assert.equal(result.total, 6);
@@ -98,7 +103,7 @@ test('an explicit per-instance cap bounds the collected window', async (t) => {
   const result = await federatedSearch(
     targetsFromUrls(['https://first.example']),
     { ...EMPTY_QUERY, limit: 2, offset: 1 },
-    { perInstance: 2 },
+    { allowPrivate: true, perInstance: 2 },
   );
   assert.deepEqual(
     result.jobs.map(({ job }) => job.slug),
@@ -114,11 +119,15 @@ test('a large offset never exceeds the existing 100-row upstream request cap', a
   const requests = installFetch(t, {
     'https://first.example': (url) => ({ items: all, total: all.length }),
   });
-  await federatedSearch(targetsFromUrls(['https://first.example']), {
-    ...EMPTY_QUERY,
-    limit: 75,
-    offset: 50,
-  });
+  await federatedSearch(
+    targetsFromUrls(['https://first.example']),
+    {
+      ...EMPTY_QUERY,
+      limit: 75,
+      offset: 50,
+    },
+    { allowPrivate: true },
+  );
   assert.equal(requests.length, 1);
   assert.equal(requests[0]?.searchParams.get('limit'), '100');
   assert.equal(offsetOf(requests[0]!), 0);
@@ -133,11 +142,15 @@ test('fetches past the first 100 upstream rows for a large directory offset', as
     }),
   });
 
-  const result = await federatedSearch(targetsFromUrls(['https://board.example']), {
-    ...EMPTY_QUERY,
-    limit: 20,
-    offset: 100,
-  });
+  const result = await federatedSearch(
+    targetsFromUrls(['https://board.example']),
+    {
+      ...EMPTY_QUERY,
+      limit: 20,
+      offset: 100,
+    },
+    { allowPrivate: true },
+  );
 
   assert.deepEqual(
     result.jobs.map(({ job }) => job.slug),
@@ -171,6 +184,7 @@ test('advances independent offsets across two very differently sized boards', as
   const result = await federatedSearch(
     targetsFromUrls(['https://large.example', 'https://small.example']),
     { ...EMPTY_QUERY, limit: 50, offset: 100 },
+    { allowPrivate: true },
   );
 
   assert.deepEqual(
@@ -211,7 +225,7 @@ test('an explicit per-instance cap remains cumulative and is still limited to on
   const result = await federatedSearch(
     targetsFromUrls(['https://board.example']),
     { ...EMPTY_QUERY, limit: 20, offset: 0 },
-    { perInstance: 75 },
+    { allowPrivate: true, perInstance: 75 },
   );
 
   assert.equal(result.jobs.length, 20);
@@ -230,11 +244,15 @@ test('a 75-row page crossing the upstream boundary returns rows 75 through 124',
       total: all.length,
     }),
   });
-  const result = await federatedSearch(targetsFromUrls(['https://board.example']), {
-    ...EMPTY_QUERY,
-    limit: 50,
-    offset: 75,
-  });
+  const result = await federatedSearch(
+    targetsFromUrls(['https://board.example']),
+    {
+      ...EMPTY_QUERY,
+      limit: 50,
+      offset: 75,
+    },
+    { allowPrivate: true },
+  );
   assert.deepEqual(
     result.jobs.map(({ job }) => job.slug),
     Array.from({ length: 50 }, (_, index) => `job-${75 + index}`),
@@ -259,7 +277,7 @@ test('an explicit per-instance cap above 100 still stops at 100 rows', async (t)
   const result = await federatedSearch(
     targetsFromUrls(['https://board.example']),
     { ...EMPTY_QUERY, limit: 10, offset: 0 },
-    { perInstance: 200 },
+    { allowPrivate: true, perInstance: 200 },
   );
   assert.equal(result.sources[0]?.count, 100);
   assert.deepEqual(
@@ -277,11 +295,15 @@ test('continues after a short nonterminal page and stops at an empty terminal pa
     }),
   });
 
-  const result = await federatedSearch(targetsFromUrls(['https://board.example']), {
-    ...EMPTY_QUERY,
-    limit: 20,
-    offset: 0,
-  });
+  const result = await federatedSearch(
+    targetsFromUrls(['https://board.example']),
+    {
+      ...EMPTY_QUERY,
+      limit: 20,
+      offset: 0,
+    },
+    { allowPrivate: true },
+  );
 
   assert.equal(requests.length, 2);
   assert.deepEqual(requests.map(offsetOf), [0, 4]);
@@ -296,11 +318,15 @@ test('stops early when the reported source total is reached', async (t) => {
     'https://board.example': (url) => ({ items: all, total: all.length }),
   });
 
-  const result = await federatedSearch(targetsFromUrls(['https://board.example']), {
-    ...EMPTY_QUERY,
-    limit: 20,
-    offset: 0,
-  });
+  const result = await federatedSearch(
+    targetsFromUrls(['https://board.example']),
+    {
+      ...EMPTY_QUERY,
+      limit: 20,
+      offset: 0,
+    },
+    { allowPrivate: true },
+  );
 
   assert.equal(requests.length, 1);
   assert.equal(result.sources[0]?.ok, true);
@@ -315,11 +341,15 @@ test('uses raw item counts to advance offsets even when a row is malformed', asy
         : { items: rows(1, 1), total: 3 },
   });
 
-  const result = await federatedSearch(targetsFromUrls(['https://board.example']), {
-    ...EMPTY_QUERY,
-    limit: 3,
-    offset: 0,
-  });
+  const result = await federatedSearch(
+    targetsFromUrls(['https://board.example']),
+    {
+      ...EMPTY_QUERY,
+      limit: 3,
+      offset: 0,
+    },
+    { allowPrivate: true },
+  );
 
   assert.deepEqual(requests.map(offsetOf), [0, 2]);
   assert.deepEqual(
@@ -344,6 +374,7 @@ test('discards a source that fails on page two but preserves another source', as
   const result = await federatedSearch(
     targetsFromUrls(['https://broken.example', 'https://healthy.example']),
     { ...EMPTY_QUERY, limit: 25, offset: 100 },
+    { allowPrivate: true },
   );
 
   const broken = result.sources.find((source) => source.instance === 'https://broken.example');
@@ -380,11 +411,15 @@ test('shares one timeout budget across all pages of a source', async (t) => {
     },
   });
 
-  const result = await federatedSearch(targetsFromUrls(['https://board.example']), {
-    ...EMPTY_QUERY,
-    limit: 25,
-    offset: 100,
-  });
+  const result = await federatedSearch(
+    targetsFromUrls(['https://board.example']),
+    {
+      ...EMPTY_QUERY,
+      limit: 25,
+      offset: 100,
+    },
+    { allowPrivate: true },
+  );
 
   assert.equal(requests.length, 1);
   assert.equal(result.sources[0]?.ok, false);
@@ -401,11 +436,15 @@ test('fails a source if its final page completes after the shared time budget', 
       return { items: rows(0, 20), total: 20 };
     },
   });
-  const result = await federatedSearch(targetsFromUrls(['https://board.example']), {
-    ...EMPTY_QUERY,
-    limit: 20,
-    offset: 0,
-  });
+  const result = await federatedSearch(
+    targetsFromUrls(['https://board.example']),
+    {
+      ...EMPTY_QUERY,
+      limit: 20,
+      offset: 0,
+    },
+    { allowPrivate: true },
+  );
   assert.equal(requests.length, 1);
   assert.equal(result.sources[0]?.ok, false);
   assert.equal(result.sources[0]?.count, 0);
@@ -424,7 +463,7 @@ test('does not start another page after the caller aborts', async (t) => {
   const result = await federatedSearch(
     targetsFromUrls(['https://board.example']),
     { ...EMPTY_QUERY, limit: 25, offset: 100 },
-    { signal: controller.signal },
+    { allowPrivate: true, signal: controller.signal },
   );
 
   assert.equal(requests.length, 1);
@@ -442,7 +481,7 @@ test('does not fetch any page when the caller is already aborted', async (t) => 
   const result = await federatedSearch(
     targetsFromUrls(['https://board.example']),
     { ...EMPTY_QUERY, limit: 10, offset: 0 },
-    { signal: controller.signal },
+    { allowPrivate: true, signal: controller.signal },
   );
   assert.equal(requests.length, 0);
   assert.equal(result.sources[0]?.ok, false);
@@ -459,6 +498,7 @@ test('null, zero, and missing totals fall back to at least the raw rows received
   const result = await federatedSearch(
     targetsFromUrls(['https://null.example', 'https://zero.example', 'https://missing.example']),
     { ...EMPTY_QUERY, limit: 2, offset: 0 },
+    { allowPrivate: true },
   );
   assert.deepEqual(
     result.sources.map((source) => source.total),

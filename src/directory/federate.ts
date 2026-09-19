@@ -55,6 +55,8 @@ export interface FederateOptions {
   /** Cap per instance, so one busy board cannot crowd out eleven others. */
   perInstance?: number;
   signal?: AbortSignal;
+  /** Forwarded to every fetch, for runs whose instances are deliberately local. */
+  allowPrivate?: boolean;
 }
 
 interface Target {
@@ -141,6 +143,7 @@ export async function federatedSearch(
           const payload = await fetchJson(`${target.search}?${params.toString()}`, {
             timeoutMs: remainingMs,
             ...(options.signal === undefined ? {} : { signal: options.signal }),
+            ...(options.allowPrivate === undefined ? {} : { allowPrivate: options.allowPrivate }),
           });
           if (Date.now() - started >= budgetMs) throw new FetchProblem(`${target.url} timed out`);
           const page = payload as { items?: unknown; total?: unknown };

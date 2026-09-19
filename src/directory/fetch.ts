@@ -8,8 +8,11 @@
  * response says about where it came from.
  */
 
+import { lookup } from 'node:dns/promises';
+import { isIP } from 'node:net';
 import { publishable, WELL_KNOWN_PATH, type InstanceDescriptor } from '../schema/instance.ts';
 import { parseDescriptor } from '../schema/instance.ts';
+import { isPrivateAddress } from '../core/browse.ts';
 import { SOFTWARE_NAME, VERSION } from '../config.ts';
 
 export const USER_AGENT = `${SOFTWARE_NAME}/${VERSION} (+https://agenticjobs.work)`;
@@ -26,6 +29,13 @@ export interface FetchOptions {
   signal?: AbortSignal;
   method?: 'GET' | 'POST';
   body?: unknown;
+  /**
+   * Skip the resolved-address check, the way BrowseOptions.allowPrivate does:
+   * for runs whose targets are deliberately not public - a test bench, a dev
+   * instance on the same machine. publishable() still applies; a literal
+   * private address is refused either way.
+   */
+  allowPrivate?: boolean;
 }
 
 /**
@@ -57,9 +67,48 @@ export async function fetchText(url: string, options: FetchOptions = {}): Promis
   return fetchRaw(url, 'text/html, application/xhtml+xml;q=0.9, */*;q=0.5', options);
 }
 
+/** Every address a hostname could connect to, the way dns.lookup reports them. */
+export type ResolveAll = (host: string) => Promise<string[]>;
+
+async function lookupAll(host: string): Promise<string[]> {
+  return lookup(host, { all: true })
+    .then((rows) => rows.map((row) => row.address))
+    .catch(() => []);
+}
+
+/**
+ * The half of the check publishable() cannot do: what the name answers with.
+ *
+ * publishable() judges the spelling, and a spelling can be clean while the
+ * name resolves to a private address - localtest.me answers 127.0.0.1, the
+ * fully-qualified spelling localhost. still reaches loopback, and
+ * metadata.google.internal is 169.254.169.254 on the machines that have it.
+ * A job or resume import, a descriptor refresh or an announce all fetch a
+ * URL a stranger chose, so the answer has to be checked, not just the spelling.
+ *
+ * The rule is the one assertPublicUrl in browse.ts already applies to resume
+ * imports, over the same isPrivateAddress predicate: every address the name
+ * resolves to has to be public, because the connect picks one and a single
+ * private answer is enough. Checking the literal spelling too costs nothing
+ * and closes the forms publishable() does not spell out (0.x, CGNAT).
+ */
+export async function assertPublicTarget(url: URL, resolve: ResolveAll = lookupAll): Promise<void> {
+  const host = url.hostname.replace(/^\[|\]$/g, '');
+  const addresses = isIP(host) !== 0 ? [host] : await resolve(host);
+  if (addresses.length === 0) {
+    throw new FetchProblem(`${url.hostname} does not resolve`);
+  }
+  for (const address of addresses) {
+    if (isPrivateAddress(address)) {
+      throw new FetchProblem(`${url.hostname} is not a public address`);
+    }
+  }
+}
+
 async function fetchRaw(url: string, accept: string, options: FetchOptions): Promise<string> {
   const origin = publishable(url);
   if (origin === null) throw new FetchProblem(`${url} is not an address we will fetch`);
+  if (options.allowPrivate !== true) await assertPublicTarget(origin);
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), options.timeoutMs ?? DEFAULT_TIMEOUT_MS);

@@ -74,7 +74,7 @@ for (const kind of ['directory', 'configured boards'] as const) {
     const query = { ...EMPTY_QUERY, sort: 'salary' as const };
     const result =
       kind === 'directory'
-        ? await federatedSearch(targetsFromUrls(HOSTS), query)
+        ? await federatedSearch(targetsFromUrls(HOSTS), query, { allowPrivate: true })
         : await searchEverywhere(
             HOSTS.map((server) => ({ server, token: null })),
             query,
