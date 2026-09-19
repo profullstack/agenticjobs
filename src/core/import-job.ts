@@ -51,7 +51,7 @@ const DEAD =
 function stripTags(html: string): string {
   return html
     .replace(DEAD, ' ')
-    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<br(?=[\s/>])(?:[^>"']|"[^"]*"|'[^']*')*>/gi, '\n')
     .replace(/<\/(p|div|li|h[1-6]|tr)>/gi, '\n')
     .replace(/<li[^>]*>/gi, '- ')
     .replace(/<[^>]+>/g, ' ');
