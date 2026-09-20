@@ -187,7 +187,7 @@ function listingApplications(
           label: `${name}${email === undefined || email === '' ? '' : ` <${email}>`} | ${ago(application.createdAt)}${agent}`,
           badge: application.status,
           color:
-            application.status === 'accepted'
+            application.status === 'hired'
               ? theme.success
               : application.status === 'rejected'
                 ? theme.muted

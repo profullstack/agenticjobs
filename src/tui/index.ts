@@ -174,7 +174,11 @@ export async function startTui(client: BoardClient): Promise<void> {
     }
 
     if (state.detail !== null) {
-      if (key === 'a' || key === 'd') await apply(state.detail, key === 'd');
+      // The applications view reuses detail; applying to your own listing from
+      // it must stay impossible, matching the hidden `a`/`d` hints.
+      if (state.applications === null && (key === 'a' || key === 'd')) {
+        await apply(state.detail, key === 'd');
+      }
       return;
     }
 
