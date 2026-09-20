@@ -13,6 +13,7 @@ import { toPlainText } from '../markup/markdown.ts';
 import {
   keyHints,
   selectedIndex,
+  type ApplicationRow,
   type Job,
   type TuiState,
 } from './types.ts';
@@ -48,7 +49,13 @@ export function render(ui: Container, theme: Theme, state: TuiState): void {
   }
 
   if (state.detail !== null) {
-    jobDetail(ui, theme, state.detail);
+    // Applications first: their presence is what makes the open listing yours,
+    // which is a different screen from one you could apply to.
+    if (state.applications !== null) {
+      listingApplications(ui, theme, state.detail, state.applications);
+    } else {
+      jobDetail(ui, theme, state.detail);
+    }
   } else {
     switch (state.tab) {
       case 'find':
@@ -145,6 +152,55 @@ function agentPolicyText(policy: string): string {
   if (policy === 'human-only') return 'asks for a human-written application';
   return 'welcome if disclosed';
 }
+
+/**
+ * What came back to one of your listings: the "read what came back" half of
+ * the TUI, opened with enter on the Your listings tab. One row per
+ * application, newest first as the API returns them.
+ */
+function listingApplications(
+  ui: Container,
+  theme: Theme,
+  job: Job,
+  applications: ApplicationRow[],
+): void {
+  ui.heading(job.title);
+  ui.label(`${job.org.name} - posted ${ago(job.publishedAt)}`);
+
+  if (applications.length === 0) {
+    ui.panel({ title: 'Applications', size: fill }, (panel) => {
+      panel.label('Nobody yet.');
+    });
+    return;
+  }
+
+  ui.panel({ title: `Applications (${applications.length})`, size: fill }, (panel) => {
+    panel.list({
+      items: applications.map((application) => {
+        const name = application.answers['name']?.trim() || 'Someone';
+        const email = application.answers['email']?.trim();
+        const agent =
+          application.agent === null
+            ? ''
+            : ` | agent: ${application.agent.name}${application.agent.supervised ? ' (supervised)' : ''}`;
+        return {
+          label: `${name}${email === undefined || email === '' ? '' : ` <${email}>`} | ${ago(application.createdAt)}${agent}`,
+          badge: application.status,
+          color:
+            application.status === 'accepted'
+              ? theme.success
+              : application.status === 'rejected'
+                ? theme.muted
+                : undefined,
+        };
+      }),
+      selected: 0,
+      followSelection: false,
+      scrollbar: true,
+    });
+  });
+}
+
 
 function draftsTab(ui: Container, theme: Theme, state: TuiState): void {
   ui.panel({ title: 'Prepared, not sent' }, (panel) => {

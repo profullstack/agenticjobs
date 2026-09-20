@@ -18,6 +18,19 @@ export interface DraftRow {
   createdAt: string;
 }
 
+/**
+ * What came back to one of your listings. The shape of one item of
+ * `GET /api/v1/jobs/<slug>/applications`, which is also what the CLI's
+ * `applications` command renders.
+ */
+export interface ApplicationRow {
+  id: string;
+  answers: Record<string, string>;
+  agent: { name: string; supervised: boolean } | null;
+  status: string;
+  createdAt: string;
+}
+
 export interface BoardRow {
   server: string;
   name: string;
@@ -43,6 +56,14 @@ export interface TuiState {
   jobIndex: number;
   /** Set when a listing is open over the list. */
   detail: Job | null;
+  /**
+   * Set only when the open detail is one of your own listings: the
+   * applications it has received. Null on the find tab, where the open job is
+   * one you could apply to - the two are different screens with different
+   * keys, and an employer must never be offered "apply" against their own
+   * listing.
+   */
+  applications: ApplicationRow[] | null;
 
   drafts: DraftRow[];
   draftIndex: number;
@@ -71,6 +92,7 @@ export function initialState(server: string): TuiState {
     jobsTotal: 0,
     jobIndex: 0,
     detail: null,
+    applications: null,
     drafts: [],
     draftIndex: 0,
     listings: [],
@@ -133,7 +155,7 @@ export function move(state: TuiState, delta: number): TuiState {
 export function nextTab(state: TuiState, delta: number): TuiState {
   const index = TABS.indexOf(state.tab);
   const next = TABS[(index + delta + TABS.length) % TABS.length] ?? 'find';
-  return { ...state, tab: next, detail: null };
+  return { ...state, tab: next, detail: null, applications: null };
 }
 
 export function selectedJob(state: TuiState): Job | null {
@@ -165,6 +187,13 @@ export function keyHints(state: TuiState): { key: string; label: string }[] {
     { key: 'q', label: 'quit' },
   ];
   if (state.detail !== null) {
+    if (state.applications !== null) {
+      // Your own listing's applications: reading, not applying.
+      return [
+        { key: 'esc', label: 'back' },
+        ...common,
+      ];
+    }
     return [
       { key: 'a', label: 'apply' },
       { key: 'd', label: 'prepare draft' },
