@@ -11,7 +11,7 @@ import {
   titleForQuery,
   workplaceLinks,
 } from '../src/core/landing.ts';
-import { EMPTY_QUERY } from '../src/schema/query.ts';
+import { EMPTY_QUERY, parseQuery } from '../src/schema/query.ts';
 
 test('every segment is a value: filters are recognised, the rest are tags', () => {
   const query = queryFromPath('/rust/remote/contract/senior/agents-welcome/100k+');
@@ -84,4 +84,24 @@ test('every tag has three workplace pages', () => {
     workplaceLinks('rust').map((link) => link.href),
     ['/rust/remote', '/rust/hybrid', '/rust/onsite'],
   );
+});
+
+test('workplace links keep the workplace filter when a tag needs a querystring', () => {
+  for (const tag of ['node.js', 'c#']) {
+    const links = workplaceLinks(tag);
+    assert.deepEqual(
+      links.map((link) => link.workplace),
+      ['remote', 'hybrid', 'onsite'],
+    );
+    for (const link of links) {
+      const url = new URL(link.href, 'https://board.example');
+      assert.equal(url.pathname, '/');
+      assert.equal(url.hash, '');
+      assert.deepEqual(parseQuery(url.searchParams), {
+        ...EMPTY_QUERY,
+        tags: [tag],
+        workplace: link.workplace,
+      });
+    }
+  }
 });

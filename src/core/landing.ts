@@ -166,7 +166,7 @@ export function workplaceLinks(tag: string): { workplace: Workplace; href: strin
     workplace,
     href:
       pathForQuery({ ...EMPTY_QUERY, tags: [tag], workplace }) ??
-      `/?tags=${encodeURIComponent(tag)}`,
+      `/?tags=${encodeURIComponent(tag)}&workplace=${workplace}`,
   }));
 }
 
