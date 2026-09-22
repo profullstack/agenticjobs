@@ -51,7 +51,7 @@ export function isFilterWord(segment: string): boolean {
     (WORKPLACES as readonly string[]).includes(segment) ||
     (EMPLOYMENT_TYPES as readonly string[]).includes(segment) ||
     (SENIORITIES as readonly string[]).includes(segment) ||
-    segment in POLICY_SLUGS ||
+    Object.hasOwn(POLICY_SLUGS, segment) ||
     SALARY.test(segment)
   );
 }
@@ -85,7 +85,7 @@ export function queryFromPath(path: string): JobQuery | null {
     } else if ((SENIORITIES as readonly string[]).includes(segment)) {
       if (query.seniority !== null) return null;
       query.seniority = segment as Seniority;
-    } else if (segment in POLICY_SLUGS) {
+    } else if (Object.hasOwn(POLICY_SLUGS, segment)) {
       if (query.agentPolicy !== null) return null;
       query.agentPolicy = POLICY_SLUGS[segment] as AgentPolicy;
     } else if (SALARY.test(segment)) {
