@@ -105,6 +105,15 @@ export interface ClientOptions {
   userAgent?: string;
 }
 
+export interface RequestOptions {
+  /**
+   * Sent as `Idempotency-Key`. A create repeated under the same key returns
+   * the row the first attempt made, so a request that carries one may be
+   * retried after a timeout.
+   */
+  idempotencyKey?: string;
+}
+
 export interface RecommendationLike {
   id: string;
   body: string;
@@ -180,8 +189,9 @@ export class BoardClient {
     method: 'GET' | 'POST' | 'PATCH' | 'DELETE',
     path: string,
     body?: unknown,
+    options: RequestOptions = {},
   ): Promise<T> {
-    const { body: parsed } = await this.requestWithStatus<T>(method, path, body);
+    const { body: parsed } = await this.requestWithStatus<T>(method, path, body, options);
     return parsed;
   }
 
@@ -196,15 +206,19 @@ export class BoardClient {
     method: 'GET' | 'POST' | 'PATCH' | 'DELETE',
     path: string,
     body?: unknown,
+    options: RequestOptions = {},
   ): Promise<{ status: number; body: T }> {
     try {
-      return await this.requestOnce<T>(method, path, body);
+      return await this.requestOnce<T>(method, path, body, options);
     } catch (error) {
       // A hosted board that has been idle can miss a single client timeout
       // (curl's default 15s from a distant region, #36) and then answer in
-      // about a second. GET is safe to repeat; POST is not.
-      if (method === 'GET' && error instanceof ApiError && error.code === 'timeout') {
-        return this.requestOnce<T>(method, path, body);
+      // about a second. GET is safe to repeat. A POST is not, unless it
+      // carries an idempotency key: then the board answers a repeat with
+      // the row the first attempt made, and repeating is the point.
+      const repeatable = method === 'GET' || options.idempotencyKey !== undefined;
+      if (repeatable && error instanceof ApiError && error.code === 'timeout') {
+        return this.requestOnce<T>(method, path, body, options);
       }
       throw error;
     }
@@ -214,6 +228,7 @@ export class BoardClient {
     method: 'GET' | 'POST' | 'PATCH' | 'DELETE',
     path: string,
     body?: unknown,
+    options: RequestOptions = {},
   ): Promise<{ status: number; body: T }> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.timeoutMs);
@@ -226,6 +241,9 @@ export class BoardClient {
           'user-agent': this.userAgent,
           ...(this.token === null ? {} : { authorization: `Bearer ${this.token}` }),
           ...(body === undefined ? {} : { 'content-type': 'application/json' }),
+          ...(options.idempotencyKey === undefined
+            ? {}
+            : { 'idempotency-key': options.idempotencyKey }),
         },
         ...(body === undefined ? {} : { body: JSON.stringify(body) }),
       });
@@ -366,8 +384,21 @@ export class BoardClient {
     return this.request('DELETE', `/api/v1/orgs/${encodeURIComponent(slug)}`);
   }
 
-  async postJob(input: Record<string, unknown>): Promise<{ job: Job }> {
-    return this.request('POST', '/api/v1/jobs', input);
+  /**
+   * Post a listing.
+   *
+   * Every call carries an idempotency key, the caller's or a fresh one, so a
+   * timeout is retried and a response lost on the way back does not leave a
+   * second draft behind (the question asked on r/coolgithubprojects). Pass
+   * your own key to make a re-run of a whole script safe too; `replayed` is
+   * true on the answer when the board had already made the listing.
+   */
+  async postJob(
+    input: Record<string, unknown>,
+    options: { idempotencyKey?: string } = {},
+  ): Promise<{ job: Job; replayed?: boolean }> {
+    const idempotencyKey = options.idempotencyKey ?? crypto.randomUUID();
+    return this.request('POST', '/api/v1/jobs', input, { idempotencyKey });
   }
 
   /** Import a job from a URL, or refresh the listing already imported from it. */

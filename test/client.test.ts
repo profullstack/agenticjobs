@@ -137,3 +137,41 @@ test('a JSON API error retains its status, code and field details', async () => 
     },
   );
 });
+
+test('a POST that carries an idempotency key is retried after a timeout, with the same key', async () => {
+  let calls = 0;
+  const keys: (string | null)[] = [];
+  const client = new BoardClient('https://board.test', {
+    timeoutMs: 20,
+    fetch: async (_url, init) => {
+      calls += 1;
+      keys.push(new Headers(init?.headers).get('idempotency-key'));
+      if (calls === 1) {
+        await new Promise<never>((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () => reject(abortError()), { once: true });
+        });
+      }
+      return jsonResponse(201, { job: { slug: 'a-role' }, replayed: true });
+    },
+  });
+
+  const body = await client.postJob({ org: 'acme', title: 'A role' }, { idempotencyKey: 'run-7' });
+  assert.equal(calls, 2);
+  assert.deepEqual(keys, ['run-7', 'run-7']);
+  assert.equal(body.replayed, true);
+});
+
+test('postJob picks a key when none is given, one per call', async () => {
+  const keys: (string | null)[] = [];
+  const client = new BoardClient('https://board.test', {
+    fetch: async (_url, init) => {
+      keys.push(new Headers(init?.headers).get('idempotency-key'));
+      return jsonResponse(201, { job: { slug: 'a-role' } });
+    },
+  });
+  await client.postJob({ org: 'acme', title: 'A role' });
+  await client.postJob({ org: 'acme', title: 'A role' });
+  assert.equal(keys.length, 2);
+  assert.ok(keys[0] && keys[1], 'every post carries a key');
+  assert.notEqual(keys[0], keys[1], 'two posts are two requests');
+});

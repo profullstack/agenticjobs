@@ -40,6 +40,8 @@ import {
 import {
   countJobs,
   createJob,
+  getJobByIdempotencyKey,
+  insertJob,
   getJobBySlug,
   getJobBySourceUrl,
   normaliseInput,
@@ -160,6 +162,38 @@ function viewerOf(c: Ctx): Viewer | null {
 
 function isUuid(value: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
+}
+
+/**
+ * The caller's idempotency key, from the `Idempotency-Key` header or an
+ * `idempotencyKey` field in the body (a form and a model both find the body
+ * easier than a header). `null` when neither was sent; a problem when one
+ * was sent and cannot be stored.
+ */
+function idempotencyKeyOf(
+  c: Ctx,
+  body: Record<string, unknown>,
+): string | null | { problem: string } {
+  const raw = c.req.header('idempotency-key') ?? body['idempotencyKey'];
+  if (raw === undefined || raw === null || raw === '') return null;
+  if (typeof raw !== 'string') return { problem: 'idempotencyKey must be a string.' };
+  const key = raw.trim();
+  if (key === '' || key.length > 200 || /[\u0000-\u001f\u007f]/.test(key)) {
+    return { problem: 'idempotencyKey is 1 to 200 printable characters.' };
+  }
+  return key;
+}
+
+/**
+ * A create answered from an earlier request under the same key. Still a 201,
+ * so a client that treats anything else as "not created" (the stdio MCP host
+ * once did) keeps working; the header says it was a replay, and so does the
+ * body.
+ */
+function replay(c: Ctx, body: Record<string, unknown>, replayed: boolean): Response {
+  if (!replayed) return c.json(body, 201);
+  c.header('idempotent-replayed', 'true');
+  return c.json({ ...body, replayed: true }, 201);
 }
 
 /** Body from JSON or a form, so curl, a browser and a model all work. */
@@ -384,13 +418,29 @@ export function apiRoutes(): Hono<AppEnv> {
       if (problem !== null) return fail(c, 400, 'pay_required', problem);
     }
 
-    const job = await createJob(pool, input);
-    if (publish) {
+    // A key the poster chose names this request, so repeating it after a
+    // lost response returns the listing it already made rather than a second
+    // one. The row carries the key, so the promise survives a crash between
+    // the insert and the reply; the unique index settles two requests that
+    // overlap, and createJob returns the winner to the loser.
+    const key = idempotencyKeyOf(c, body);
+    if (typeof key === 'object' && key !== null) return fail(c, 400, 'invalid', key.problem);
+    const existing = key === null ? null : await getJobByIdempotencyKey(pool, org.id, key);
+    const stored =
+      existing === null
+        ? await insertJob(pool, input, { idempotencyKey: key })
+        : { job: existing, created: false };
+    const job = stored.job;
+    const replayed = !stored.created;
+    // A retry of `publish: true` that lands after the insert but before the
+    // publish finishes the job it asked for; a listing already live stays as
+    // it is.
+    if (publish && job.status === 'draft') {
       const published = await setStatus(pool, job.id, 'published');
       if (published !== null) await afterPublish(c, published);
-      return c.json({ job: published ?? job }, 201);
+      return replay(c, { job: published ?? job }, replayed);
     }
-    return c.json({ job }, 201);
+    return replay(c, { job }, replayed);
   });
 
   /**

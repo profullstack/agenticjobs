@@ -173,8 +173,18 @@ export function openApiDocument(config: Config): Record<string, unknown> {
           tags: ['jobs'],
           summary: 'Post a job. Creates a draft unless publish is true.',
           description:
-            'Pay is required to publish. Send `pay` as an array of lines written the way a person says them ("$120k - $150k a year", "$0.25 per task", "$5000 fixed", "10% revenue share", "0.01 SOL per task"), or as objects with type, min, max, currency and unit; `payMethod` says how it is settled (SOL, USDC, bank transfer, PayPal); `unpaid: true` says the role pays nothing. With `publish: true` and no pay the request is refused with `pay_required` and nothing is created.',
+            'Pay is required to publish. Send `pay` as an array of lines written the way a person says them ("$120k - $150k a year", "$0.25 per task", "$5000 fixed", "10% revenue share", "0.01 SOL per task"), or as objects with type, min, max, currency and unit; `payMethod` says how it is settled (SOL, USDC, bank transfer, PayPal); `unpaid: true` says the role pays nothing. With `publish: true` and no pay the request is refused with `pay_required` and nothing is created. Send an `Idempotency-Key` header (or `idempotencyKey` in the body), 1 to 200 characters of your choosing, and a repeat of the request under the same key for the same employer returns the listing already made, still as a 201, with `Idempotent-Replayed: true` and `replayed: true` in the body; a repeat with `publish: true` finishes a publish that the first attempt did not reach. Without a key every request creates a listing.',
           security: [{ bearer: [] }],
+          parameters: [
+            {
+              name: 'Idempotency-Key',
+              in: 'header',
+              required: false,
+              description:
+                'Names this request. Repeating it under the same key returns the listing it already made rather than a second one.',
+              schema: { type: 'string', maxLength: 200 },
+            },
+          ],
           requestBody: {
             required: true,
             content: {
@@ -197,12 +207,25 @@ export function openApiDocument(config: Config): Record<string, unknown> {
                     unpaid: { type: 'boolean' },
                     agentPolicy: { type: 'string', enum: ['welcome', 'disclose', 'human-only'] },
                     publish: { type: 'boolean' },
+                    idempotencyKey: {
+                      type: 'string',
+                      maxLength: 200,
+                      description:
+                        'The same thing as the Idempotency-Key header, for callers that find a body easier.',
+                    },
                   },
                 },
               },
             },
           },
-          responses: { 201: ok('The job as stored.'), 400: err(), 401: err(), 403: err() },
+          responses: {
+            201: ok(
+              'The job as stored. On a repeat under an idempotency key, the job made earlier, with `replayed: true`.',
+            ),
+            400: err(),
+            401: err(),
+            403: err(),
+          },
         },
       },
       '/api/v1/jobs/{slug}': {

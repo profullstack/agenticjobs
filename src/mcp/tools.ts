@@ -203,6 +203,9 @@ export const TOOLS: ToolDefinition[] = [
           enum: ['welcome', 'disclose', 'human-only'],
           description: 'Required on every listing. Defaults to disclose.',
         },
+        idempotencyKey: string(
+          'Optional. A key of your choosing that names this post. Calling post_job again with the same key returns the listing already made instead of creating a second one, so use one when retrying after an error or a timeout.',
+        ),
       },
       ['org', 'title', 'description'],
     ),
@@ -611,17 +614,24 @@ export async function callTool(
       if (response.status === 401) return toolError(signInFirst(caller));
       if (response.status !== 201)
         return toolError(message(response.body, 'The job was not created.'));
-      const created = (
-        response.body as {
-          job?: {
-            slug?: string;
-            pay?: { unpaid?: boolean; lines?: { min?: number | null; max?: number | null }[] };
-          };
-        }
-      ).job;
+      const answer = response.body as {
+        job?: {
+          slug?: string;
+          status?: string;
+          pay?: { unpaid?: boolean; lines?: { min?: number | null; max?: number | null }[] };
+        };
+        replayed?: boolean;
+      };
+      const created = answer.job;
       const stated =
         created?.pay?.unpaid === true ||
         (created?.pay?.lines ?? []).some((line) => line.min != null || line.max != null);
+      if (answer.replayed === true) {
+        return text(
+          `Already created under that idempotencyKey: ${created?.slug ?? 'unknown'} (status ${created?.status ?? 'unknown'}). No second listing was made.`,
+          response.body,
+        );
+      }
       return text(
         `Created as a draft: ${created?.slug ?? 'unknown'}. It is not visible to anyone until publish_job is called.${
           stated

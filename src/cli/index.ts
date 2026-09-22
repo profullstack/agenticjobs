@@ -12,6 +12,7 @@
  */
 
 import { readFile } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
 import process from 'node:process';
 import { createInterface } from 'node:readline/promises';
 import { flagBool, flagList, flagNumber, flagString, parseArgs, type Args } from './args.ts';
@@ -123,6 +124,7 @@ const USAGE = `agenticjobs ${VERSION} - an agent-friendly job board you can self
     employer update <slug>    [--name n] [--website u] [--description d]
     employer delete <slug> --yes
     post <file.md>            post a job; stays a draft until you publish
+                              --publish to go live; --idempotency-key <k> makes a re-run safe
       --pay "<line>"            what it pays, repeatable: "$0.25 per task",
                               "$120k - $150k a year", "$5000 fixed"
       --pay-method <how>        SOL, USDC, bank transfer, PayPal, payroll
@@ -1379,11 +1381,30 @@ async function commandPost(args: Args): Promise<number> {
   }
   if (flagBool(args, 'publish')) input['publish'] = true;
 
-  const created = await client.postJob(input);
+  // A key names this post, so running the command again after a lost answer
+  // returns the listing it already made instead of a second one. Without the
+  // flag the client picks one per call, which covers a retry within this
+  // process; the flag covers a script that re-runs the whole command.
+  const idempotencyKey = flagString(args, 'idempotency-key', 'key') ?? randomUUID();
+  let created: Awaited<ReturnType<typeof client.postJob>>;
+  try {
+    created = await client.postJob(input, { idempotencyKey });
+  } catch (error) {
+    if (error instanceof ApiError && (error.code === 'timeout' || error.code === 'unreachable')) {
+      process.stderr.write(
+        `${error.message}\n${dim(
+          `  The board may still have created it. Run the same command again with --idempotency-key ${idempotencyKey} and it will not make a second listing.`,
+        )}\n`,
+      );
+      return 1;
+    }
+    throw error;
+  }
   const live = created.job.status === 'published';
+  const verb = created.replayed === true ? 'Already created' : 'Created';
   return out(
     args,
-    `Created ${live ? 'and published' : 'as a draft'}: ${created.job.slug}\n${live ? '' : dim(`  publish it: agenticjobs publish ${created.job.slug}`)}`,
+    `${verb} ${live ? 'and published' : 'as a draft'}: ${created.job.slug}\n${live ? '' : dim(`  publish it: agenticjobs publish ${created.job.slug}`)}`,
     created,
   );
 }
