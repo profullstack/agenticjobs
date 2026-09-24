@@ -830,6 +830,61 @@ export async function setPay(pool: pg.Pool, id: string, pay: Pay): Promise<Job |
   return getJobById(pool, id);
 }
 
+/**
+ * Change only the fields a PATCH sent, leaving the rest of the listing alone.
+ *
+ * Rewriting every column from a merged read lets two members editing
+ * different fields at the same time silently revert each other's change,
+ * and any field the merge forgot to carry over — `remoteRegions` and
+ * `expiresAt` were — was cleared on every edit. Only the columns whose
+ * fields arrived move; the caller still validates the merged document
+ * first, so a partial write cannot leave the listing in a state a post
+ * could not have created. Pay is one group: any pay field rewrites the
+ * whole pay, exactly as the route's merge already treats it.
+ */
+export async function patchJob(
+  pool: pg.Pool,
+  id: string,
+  input: JobInput,
+  fields: ReadonlySet<string>,
+): Promise<Job | null> {
+  const values: unknown[] = [id];
+  const assignments: string[] = [];
+  const set = (column: string, value: unknown): void => {
+    values.push(value);
+    assignments.push(`${column} = $${values.length}`);
+  };
+  if (fields.has('title')) set('title', input.title);
+  if (fields.has('description')) set('description', input.description);
+  if (fields.has('employmentType')) set('employment_type', input.employmentType);
+  if (fields.has('workplace')) set('workplace', input.workplace);
+  if (fields.has('seniority')) set('seniority', input.seniority);
+  if (fields.has('location')) set('location', input.location);
+  if (fields.has('remoteRegions')) set('remote_regions', input.remoteRegions);
+  if (fields.has('tags')) set('tags', input.tags);
+  if (fields.has('stack')) set('stack', input.stack);
+  if (fields.has('requirements')) set('requirements', input.requirements);
+  if (fields.has('responsibilities')) set('responsibilities', input.responsibilities);
+  if (fields.has('agentPolicy')) set('agent_policy', input.agentPolicy);
+  if (fields.has('expiresAt')) set('expires_at', input.expiresAt);
+  if (fields.has('pay')) {
+    const salary = salaryFromPay(input.pay);
+    set('salary_min', salary.min);
+    set('salary_max', salary.max);
+    set('salary_currency', salary.currency);
+    set('salary_period', salary.period);
+    set('salary_equity', input.pay.equity);
+    set('salary_unpaid', input.pay.unpaid);
+    set('pay_lines', JSON.stringify(input.pay.lines));
+    set('pay_method', input.pay.method);
+  }
+  if (assignments.length > 0) {
+    assignments.push('updated_at = now()');
+    await pool.query(`update jobs set ${assignments.join(', ')} where id = $1`, values);
+  }
+  return getJobById(pool, id);
+}
+
 /** The listing imported from this URL, if there is one. */
 export async function getJobBySourceUrl(pool: pg.Pool, url: string): Promise<Job | null> {
   const result = await pool.query<{ id: string }>(
