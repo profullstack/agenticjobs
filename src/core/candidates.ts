@@ -23,11 +23,16 @@ const LOCATION_KEYS = /^(location|based|city|where|region)$/i;
  * and the index; a directory card applies its own display limit.
  */
 function skillsOf(resume: Resume): string[] {
-  const section = resume.parsed?.sections.find((item) => item.kind === 'skills');
-  if (section === undefined) return [];
+  // A resume may split its skills across more than one section — "Skills"
+  // for languages and "Technical Skills" for tooling, say — and every title
+  // in the skills family normalises to the same kind. Taking only the first
+  // would drop the rest of the list off the candidate card and the index.
+  const sections =
+    resume.parsed?.sections.filter((item) => item.kind === 'skills') ?? [];
+  if (sections.length === 0) return [];
 
-  const fromBullets = section.markdown
-    .split('\n')
+  const fromBullets = sections
+    .flatMap((section) => section.markdown.split('\n'))
     .map((line) => line.replace(/^\s*[-*+]\s+/, '').trim())
     // A skills bullet is very often "**Languages:** JavaScript, Go", and the
     // label is a category rather than a skill. Without dropping it the first
