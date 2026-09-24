@@ -321,33 +321,61 @@ export function renderInline(source: string, options: MarkdownOptions = {}): str
 
   text = escapeHtml(text);
 
-  text = replaceInlineLinks(text, options, rel);
+  text = replaceInlineLinks(text, options, rel, codes);
 
   // Bare URLs. Trailing punctuation is left outside the link, because a URL at
   // the end of a sentence is the common case and the full stop is not part of
-  // it.
-  text = text.replace(/(^|[\s(])(https?:\/\/[^\s<>"']+)/g, (_whole, lead: string, href: string) => {
-    // The match ran on escaped text, so decode before trimming: an entity's
-    // own `;` would otherwise count as trailing punctuation and corrupt it.
-    const decoded = unescapeUrl(href);
-    const trimmed = trimBareUrl(decoded);
-    const tail = decoded.slice(trimmed.length);
-    const url = safeUrl(trimmed);
-    if (url === null) return `${lead}${href}`;
-    return `${lead}<a href="${escapeHtml(url)}" rel="${rel}">${escapeHtml(trimmed)}</a>${tail}`;
-  });
+  // it. The character class also excludes the MARK sentinel, so a code span or
+  // emitted link sitting at the end of a URL is not swallowed into the href.
+  text = text.replace(
+    /(^|[\s(])(https?:\/\/[^\s<>"'\x00]+)/g,
+    (_whole, lead: string, href: string) => {
+      // The match ran on escaped text, so decode before trimming: an entity's
+      // own `;` would otherwise count as trailing punctuation and corrupt it.
+      const decoded = unescapeUrl(href);
+      const trimmed = trimBareUrl(decoded);
+      const tail = decoded.slice(trimmed.length);
+      const url = safeUrl(trimmed);
+      if (url === null) return `${lead}${href}`;
+      // Emitted like code spans are: the anchor goes behind a sentinel so the
+      // emphasis pass below cannot put markup inside the tag or its label.
+      codes.push(`<a href="${escapeHtml(url)}" rel="${rel}">${escapeHtml(trimmed)}</a>`);
+      return `${lead}${MARK}${codes.length - 1}${MARK}${tail}`;
+    },
+  );
 
-  text = text
+  text = emphasis(text);
+
+  return text.replace(new RegExp(`${MARK}(\\d+)${MARK}`, 'g'), (_whole, id: string) => {
+    return codes[Number(id)] ?? '';
+  });
+}
+
+/**
+ * Emphasis, strikethrough and strong, in one place so a link label can be
+ * given the same treatment the rest of the line gets.
+ */
+function emphasis(text: string): string {
+  return text
     .replace(/\*\*\*([^*]+)\*\*\*/g, '<strong><em>$1</em></strong>')
     .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
     .replace(/(^|[^\w*])\*([^*\n]+)\*(?!\w)/g, '$1<em>$2</em>')
     .replace(/(^|[^\w_])__([^_\n]+)__(?!\w)/g, '$1<strong>$2</strong>')
     .replace(/(^|[^\w_])_([^_\n]+)_(?!\w)/g, '$1<em>$2</em>')
     .replace(/~~([^~\n]+)~~/g, '<del>$1</del>');
+}
 
-  return text.replace(new RegExp(`${MARK}(\\d+)${MARK}`, 'g'), (_whole, id: string) => {
-    return codes[Number(id)] ?? '';
-  });
+/**
+ * An image description is plain text (CommonMark renders `![*x*]` as alt="x"),
+ * never markup: tags inside an attribute are not emphasis, they are broken
+ * HTML. Code spans read as their text.
+ */
+function plainTextLabel(label: string, codes: string[]): string {
+  const resolved = label.replace(
+    new RegExp(`${MARK}(\\d+)${MARK}`, 'g'),
+    (_whole, id: string) => (codes[Number(id)] ?? '').replace(/<\/?code>/g, ''),
+  );
+  return emphasis(resolved).replace(/<\/?(?:em|strong|del)>/g, '');
 }
 
 /** Keep balanced URL parentheses; only surrounding prose belongs outside the link. */
@@ -372,7 +400,12 @@ function trimBareUrl(url: string): string {
   return url.slice(0, end);
 }
 
-function replaceInlineLinks(text: string, options: MarkdownOptions, rel: string): string {
+function replaceInlineLinks(
+  text: string,
+  options: MarkdownOptions,
+  rel: string,
+  codes: string[],
+): string {
   let result = '';
   let cursor = 0;
   for (let index = 0; index < text.length; index += 1) {
@@ -389,14 +422,19 @@ function replaceInlineLinks(text: string, options: MarkdownOptions, rel: string)
     const url = safeUrl(unescapeUrl(parsed.href));
     if (url === null) continue;
     result += text.slice(cursor, index);
+    // Emitted markup goes behind a sentinel, like a code span: the bare-URL
+    // and emphasis passes run after this one, and a match inside the tag, the
+    // label or the alt text would nest anchors or corrupt the attribute.
     if (image) {
-      result +=
+      codes.push(
         options.noImages === true
-          ? `<a href="${escapeHtml(url)}" rel="${rel}">${label === '' ? escapeHtml(url) : label}</a>`
-          : `<img src="${escapeHtml(url)}" alt="${label}" loading="lazy" />`;
+          ? `<a href="${escapeHtml(url)}" rel="${rel}">${label === '' ? escapeHtml(url) : emphasis(label)}</a>`
+          : `<img src="${escapeHtml(url)}" alt="${plainTextLabel(label, codes)}" loading="lazy" />`,
+      );
     } else {
-      result += `<a href="${escapeHtml(url)}" rel="${rel}">${label}</a>`;
+      codes.push(`<a href="${escapeHtml(url)}" rel="${rel}">${emphasis(label)}</a>`);
     }
+    result += `${MARK}${codes.length - 1}${MARK}`;
     cursor = parsed.end + 1;
     index = parsed.end;
   }
