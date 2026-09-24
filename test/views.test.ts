@@ -472,3 +472,78 @@ test('neither flow sends you to curl for a step the CLI cannot do', () => {
     'a curl with a bearer token is no longer the documented path for either step',
   );
 });
+
+/**
+ * The employer landing page, which exists because every other public page on
+ * this board is written for the supply side.
+ *
+ * The one thing that must never drift here is the labelling of the example
+ * briefs. This board's entire claim is that no listing on it was invented, so
+ * three plausible-looking briefs on its own landing page are a liability the
+ * moment they stop reading as templates. The rest asserts the facts a reader
+ * came for: what it costs, and that a person is the one who publishes.
+ */
+const hire = async (signedIn = false) => {
+  const { PostAJobPage } = await import('../dist/views/hire.js');
+  return String(
+    PostAJobPage({ publicUrl: 'https://example.test', boardName: 'Example Board', signedIn }),
+  );
+};
+
+test('the example briefs are visibly templates, not listings on this board', async () => {
+  const html = await hire();
+  assert.match(html, /Templates, not listings/, 'said in the copy, where a reader sees it');
+  assert.match(html, /Nothing below is posted on this board/);
+  // The briefs must not link anywhere that would read as a real listing.
+  assert.ok(!/href="\/jobs\//.test(html), 'a template must not link out as though it were live');
+});
+
+test('the page answers what it costs before it asks for a signup', async () => {
+  const html = await hire();
+  assert.match(html, /no listing fee/i, 'the first question an employer has');
+  assert.match(html, /\$250 fixed/, 'the pay grammar the parser actually accepts');
+  assert.match(html, /per task/, 'and the repeatable-unit form');
+  assert.match(html, /USDC|SOL/, 'how it settles');
+});
+
+test('a person publishes, and the page says so', async () => {
+  const html = await hire();
+  assert.match(html, /draft/i, 'the seam this board is built around');
+  assert.match(html, /human-only/i, 'the three agent policies are the choice of the employer');
+  assert.match(html, /stated, not enforced/i, 'and the page is honest about which half is real');
+});
+
+/**
+ * Signed out, the CTA cannot go straight to /post.
+ *
+ * /post is noindex and behind requireViewer, so sending an anonymous reader
+ * there spends the click on a login redirect. Signed in, the form is the
+ * right destination and the detour would be the bug.
+ */
+test('the call to action matches whether the reader is signed in', async () => {
+  assert.match(await hire(false), /href="\/login\?next=%2Fpost"/, 'signed out, via the login');
+  const inside = await hire(true);
+  assert.match(inside, /href="\/post"/, 'signed in, straight to the form');
+  assert.ok(!inside.includes('/login?next='), 'and no pointless detour through the login');
+});
+
+test('a signed-out visitor is offered somewhere to hire from', async () => {
+  const { Layout } = await import('../dist/views/layout.js');
+  const nav = (viewer: unknown) =>
+    String(
+      Layout({
+        title: 'A board',
+        viewer,
+        boardName: 'A board',
+        publicUrl: 'https://example.test',
+        path: '/',
+        children: 'x',
+      } as never),
+    );
+
+  // A crawler is always signed out, so this link is also the only one that
+  // gets the page indexed.
+  assert.match(nav(null), /href="\/post-a-job"/, 'signed out, the pitch is reachable');
+  // Signed in, the nav already has a button to the form; two would be noise.
+  assert.match(nav({ id: 'u' }), /href="\/post"/, 'signed in, the form is still one click away');
+});

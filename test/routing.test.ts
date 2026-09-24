@@ -67,3 +67,20 @@ test('the pattern that broke it is a RegExpRouter feature, not a universal one',
   assert.equal(ask(RegExpRouter), 1, 'RegExpRouter supports it, which is why it looked fine');
   assert.equal(ask(TrieRouter), 0, 'TrieRouter does not, and TrieRouter is what runs here');
 });
+
+/**
+ * The employer landing page is a page route, not a job-search landing page.
+ *
+ * `landingRoutes()` is a `/*` catch-all mounted last, so a path nobody claims
+ * renders as a search for whatever its segments parse as. A missing or
+ * misspelled registration here would not 404 and would not throw: it would
+ * quietly serve "jobs tagged post-a-job", which looks like a working page and
+ * would send every visitor the campaign brings to an empty search.
+ */
+test('the employer landing page is claimed by the page router', () => {
+  assert.ok(handlersFor('/post-a-job') > 0, '/post-a-job matches no page route');
+});
+
+test('adding it did not disturb the posting form next door', () => {
+  assert.ok(handlersFor('/post') > 0, 'the form a signed-in employer posts from still routes');
+});

@@ -3121,6 +3121,31 @@ describe('the API', { skip: reason === '' ? false : `no database: ${reason}` }, 
       }
     });
 
+    /**
+     * The employer landing page, end to end and signed out.
+     *
+     * The component test proves the markup and the router test proves the
+     * path is claimed. This is the one that would have caught the page being
+     * reachable but unlisted, which is the failure that costs a campaign its
+     * traffic without ever looking broken.
+     */
+    test('an anonymous reader can reach the employer landing page', async () => {
+      const response = await get('/post-a-job');
+      assert.equal(response.status, 200, 'no session required to read what posting costs');
+      const html = await response.text();
+      assert.match(html, /Post a paid task/, 'and it is the hiring page, not a job search');
+      assert.ok(!/<meta[^>]+noindex/.test(html), 'unlike /post, this one is indexable');
+    });
+
+    test('the static sitemap lists the employer landing page', async () => {
+      const xml = await (await get('/sitemaps/pages.xml')).text();
+      assert.match(
+        xml,
+        /<loc>[^<]*\/post-a-job<\/loc>/,
+        'a page no sitemap names is a page nobody finds',
+      );
+    });
+
     test('the site feed carries the whole site and what a directory checks for', async () => {
       const response = await get('/feed.rss');
       assert.match(response.headers.get('content-type') ?? '', /application\/rss\+xml/);

@@ -72,6 +72,7 @@ import { MePage, ResumeEditor } from '../../views/me.tsx';
 import { ManageJobPage, NewEmployerPage, PostJobPage } from '../../views/post.tsx';
 import { NetworkPage, NetworkSearchPage } from '../../views/network.tsx';
 import { DocsPage, SpecPage } from '../../views/docs.tsx';
+import { PostAJobPage } from '../../views/hire.tsx';
 import { CandidateDetail, CandidateList } from '../../views/candidates.tsx';
 import {
   allTags,
@@ -1541,6 +1542,33 @@ export function pageRoutes(): Hono<AppEnv> {
     return c.html(
       <Layout {...shell(c)} title="Search the network">
         <NetworkSearchPage result={result} query={query} />
+      </Layout>,
+    );
+  });
+
+  // --- hiring -----------------------------------------------------------
+
+  /**
+   * The employer-facing half of the pitch, and the only one that is public.
+   *
+   * /post is the form, and it is noindex behind a session, which is correct
+   * for a form and useless for acquisition: a company that has never heard of
+   * this board met a login redirect. This page is what a crawler and a cold
+   * reader get instead, and it links on to /post once they want the form.
+   */
+  pages.get('/post-a-job', (c) => {
+    const { config } = c.get('deps');
+    return c.html(
+      <Layout
+        {...shell(c)}
+        title="Post a paid task for an AI agent"
+        description="Post a paid task on this board. You write the brief and set the price, a person publishes it, and there is no listing fee."
+      >
+        <PostAJobPage
+          publicUrl={config.publicUrl}
+          boardName={config.boardName}
+          signedIn={c.get('viewer') !== null}
+        />
       </Layout>,
     );
   });

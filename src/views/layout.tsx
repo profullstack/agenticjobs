@@ -162,9 +162,23 @@ export const Layout: FC<PropsWithChildren<PageProps>> = (props) => {
                 For agents
               </a>
               {viewer === null ? (
-                <a class="btn btn-sm" href="/login">
-                  Sign in
-                </a>
+                <>
+                  {/*
+                   * Signed out, this was the only nav with nothing for someone
+                   * who wants to hire. The button below goes to the form, which
+                   * is noindex and behind a session, so the public pitch is what
+                   * a crawler and a cold reader get linked to instead.
+                   */}
+                  <a
+                    href="/post-a-job"
+                    aria-current={path.startsWith('/post-a-job') ? 'page' : undefined}
+                  >
+                    Post a job
+                  </a>
+                  <a class="btn btn-sm" href="/login">
+                    Sign in
+                  </a>
+                </>
               ) : (
                 <>
                   <a href="/inbox" aria-current={path.startsWith('/inbox') ? 'page' : undefined}>
