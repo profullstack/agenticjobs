@@ -88,17 +88,58 @@ export function isPrivateAddress(address: string): boolean {
   const hextet = Number.parseInt(lower.split(':', 1)[0] ?? '', 16);
   if ((hextet & 0xffc0) === 0xfe80 || (hextet & 0xffc0) === 0xfec0 || (hextet & 0xfe00) === 0xfc00) return true;
   if (lower.startsWith('2001:db8:')) return true;
-  // An IPv4 address hidden in an IPv6 one. A DNS result spells it dotted
-  // (::ffff:127.0.0.1), but a URL parser hands over the hex form
-  // (::ffff:7f00:1) — including when the user typed the dotted spelling —
-  // so checking only the dotted form lets [::ffff:a9fe:a9fe] reach
-  // 169.254.169.254.
-  const mapped = /^::ffff:(?:(\d+\.\d+\.\d+\.\d+)|([0-9a-f]{1,4}):([0-9a-f]{1,4}))$/.exec(lower);
-  if (mapped === null) return false;
-  if (mapped[1] !== undefined) return isPrivateAddress(mapped[1]);
-  const high = Number.parseInt(mapped[2] ?? '', 16);
-  const low = Number.parseInt(mapped[3] ?? '', 16);
-  return isPrivateAddress(`${high >>> 8}.${high & 0xff}.${low >>> 8}.${low & 0xff}`);
+  // An IPv4 address hidden in an IPv6 one, by whichever prefix carries it:
+  // ::ffff: mapped, the deprecated :: compatible form, the NAT64 well-known
+  // prefix and 6to4. A host whose only v4 route is a NAT64 translator, or a
+  // resolver doing DNS64, really does reach 64:ff9b::a9fe:a9fe as
+  // 169.254.169.254, so the address inside is what has to be judged.
+  const embedded = embeddedIpv4(lower);
+  if (embedded === 'reserved') return true;
+  if (embedded === null) return false;
+  return isPrivateAddress(embedded);
+}
+
+/**
+ * The IPv4 an IPv6 translation address stands for, 'reserved' when the
+ * spelling is translation space that names no public host, or null when the
+ * address embeds no IPv4 at all.
+ */
+function embeddedIpv4(lower: string): string | 'reserved' | null {
+  // A dotted tail is how getaddrinfo spells a mapped address; fold it into
+  // two hextets so every form below reads the same way.
+  const dotted = /(\d+)\.(\d+)\.(\d+)\.(\d+)$/.exec(lower);
+  if (dotted !== null) {
+    const octets = [1, 2, 3, 4].map((part) => Number(dotted[part]));
+    lower = `${lower.slice(0, dotted.index)}${(((octets[0] ?? 0) << 8) | (octets[1] ?? 0)).toString(16)}:${(((octets[2] ?? 0) << 8) | (octets[3] ?? 0)).toString(16)}`;
+  }
+  const halves = lower.split('::');
+  if (halves.length > 2) return null;
+  const left = halves[0] === '' ? [] : (halves[0] ?? '').split(':');
+  const right =
+    halves.length === 2 ? (halves[1] === '' ? [] : (halves[1] ?? '').split(':')) : [];
+  if (halves.length === 1 && left.length !== 8) return null;
+  const pad = 8 - left.length - right.length;
+  if (halves.length === 2 && pad < 1) return null;
+  const h = [...left, ...new Array<string>(Math.max(pad, 0)).fill('0'), ...right].map((part) =>
+    Number.parseInt(part, 16),
+  );
+  if (h.length !== 8 || h.some((part) => Number.isNaN(part))) return null;
+  const v4 = (hi: number, lo: number): string =>
+    `${hi >>> 8}.${hi & 0xff}.${lo >>> 8}.${lo & 0xff}`;
+  // 6to4 keeps the relay's address in the two hextets after 2002:.
+  if (h[0] === 0x2002) return v4(h[1] ?? 0, h[2] ?? 0);
+  // 64:ff9b::/96 is the NAT64 well-known prefix, v4 in the last 32 bits. The
+  // rest of 64:ff9b::/32 is translation space with no public host inside.
+  if (h[0] === 0x64 && h[1] === 0xff9b) {
+    return h[2] === 0 && h[3] === 0 && h[4] === 0 && h[5] === 0
+      ? v4(h[6] ?? 0, h[7] ?? 0)
+      : 'reserved';
+  }
+  // The mapped form ::ffff:/96 and the compatible form ::/96 both end in v4.
+  if (h.slice(0, 5).every((part) => part === 0) && (h[5] === 0xffff || h[5] === 0)) {
+    return v4(h[6] ?? 0, h[7] ?? 0);
+  }
+  return null;
 }
 
 /** The page as Markdown, by whichever route is configured. */
