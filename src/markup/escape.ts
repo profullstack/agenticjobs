@@ -36,6 +36,14 @@ export function safeUrl(input: string): string | null {
     if (code < 0x20 || code === 0x7f) return null;
   }
   if (!SAFE_SCHEME.test(trimmed)) return null;
+  // `//` is a protocol-relative URL: it inherits the page scheme and lands on
+  // whatever host follows, so `[link](//attacker.example)` reaches off-site
+  // while reading as a root-anchored path. `/\` parses the same way — a URL
+  // parser treats the backslash as a second separator. A leading `/` is only
+  // safe when the second character is a path character, never a separator.
+  if (trimmed.startsWith('/') && (trimmed[1] === '/' || trimmed[1] === '\\')) {
+    return null;
+  }
   return trimmed;
 }
 
