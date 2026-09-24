@@ -609,9 +609,46 @@ export async function insertJob(
   options: { idempotencyKey?: string | null } = {},
 ): Promise<{ job: Job; created: boolean }> {
   const idempotencyKey = options.idempotencyKey ?? null;
-  const slug = await uniqueSlug(pool, input.title);
   const salary = salaryFromPay(input.pay);
-  const result = await pool.query<{ id: string }>(
+  // The slug is picked by a lookup, so two posts with the same title in
+  // flight at once can pick the same one. The loser gets a unique violation
+  // on the slug, not the key, and simply tries again with a fresh slug; for
+  // an overlapping retry, the second attempt then meets the key and returns
+  // the original's row.
+  let result: pg.QueryResult<{ id: string }> | undefined;
+  for (let attempt = 0; result === undefined; attempt += 1) {
+    const slug = await uniqueSlug(pool, input.title);
+    try {
+      result = await insertJobRow(pool, input, salary, slug, idempotencyKey);
+    } catch (error) {
+      const { code, constraint } = error as { code?: string; constraint?: string };
+      if (code !== '23505' || constraint !== 'jobs_slug_key' || attempt >= 4) throw error;
+    }
+  }
+  const id = result.rows[0]?.id;
+  if (id === undefined) {
+    // No row back means the key was already taken between the caller's
+    // lookup and this insert: a retry that overlapped the original. The
+    // original's row is the answer.
+    if (idempotencyKey !== null) {
+      const existing = await getJobByIdempotencyKey(pool, input.orgId, idempotencyKey);
+      if (existing !== null) return { job: existing, created: false };
+    }
+    throw new Error('insert returned no row');
+  }
+  const job = await getJobById(pool, id);
+  if (job === null) throw new Error('inserted job could not be read back');
+  return { job, created: true };
+}
+
+function insertJobRow(
+  pool: pg.Pool,
+  input: JobInput,
+  salary: ReturnType<typeof salaryFromPay>,
+  slug: string,
+  idempotencyKey: string | null,
+): Promise<pg.QueryResult<{ id: string }>> {
+  return pool.query<{ id: string }>(
     `insert into jobs (
        slug, org_id, title, description, employment_type, workplace, seniority, location,
        remote_regions, salary_min, salary_max, salary_currency, salary_period, salary_equity,
@@ -656,20 +693,6 @@ export async function insertJob(
       idempotencyKey,
     ],
   );
-  const id = result.rows[0]?.id;
-  if (id === undefined) {
-    // No row back means the key was already taken between the caller's
-    // lookup and this insert: a retry that overlapped the original. The
-    // original's row is the answer.
-    if (idempotencyKey !== null) {
-      const existing = await getJobByIdempotencyKey(pool, input.orgId, idempotencyKey);
-      if (existing !== null) return { job: existing, created: false };
-    }
-    throw new Error('insert returned no row');
-  }
-  const job = await getJobById(pool, id);
-  if (job === null) throw new Error('inserted job could not be read back');
-  return { job, created: true };
 }
 
 export async function setStatus(pool: pg.Pool, id: string, status: JobStatus): Promise<Job | null> {
