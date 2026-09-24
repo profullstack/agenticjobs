@@ -278,3 +278,24 @@ test('writing as the employer the thread is with still finds it', async () => {
   assert.equal(reply.created, false);
   assert.equal(reply.threadId, first.threadId);
 });
+
+test('a body-derived subject never carries a lone surrogate into the insert', async () => {
+  const { pool, model } = makePool();
+  seed({ pool, model });
+
+  // 116 BMP characters then an astral one: the 117-unit preview cap lands
+  // between the halves of the surrogate pair and leaves the high half
+  // dangling. Postgres rejects a lone surrogate as invalid UTF-8, so the
+  // threads insert failed and the message never sent.
+  const body = `${'a'.repeat(116)}\u{1f600} the rest of the message`;
+  const result = await startThread(pool as never, carol, { kind: 'candidate', userId: alice }, {
+    subject: '', body, as: null,
+  });
+  assert.notEqual(typeof result, 'string');
+  if (typeof result === 'string') return;
+
+  const thread = model.threads.find((t) => t.id === result.threadId);
+  assert.ok(thread);
+  assert.ok(!/[\uD800-\uDFFF]/.test(thread.subject), `lone surrogate in ${JSON.stringify(thread.subject.slice(-8))}`);
+  assert.ok(thread.subject.endsWith('...'));
+});
