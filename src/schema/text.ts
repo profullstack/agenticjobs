@@ -32,11 +32,18 @@ export function clean(value: unknown, max: number, options: { multiline?: boolea
   let out = '';
   for (const char of source) {
     const code = char.codePointAt(0) ?? 0;
+    // A lone surrogate is invisible content of the same kind this scan exists
+    // to remove: it survives into storage and renders as U+FFFD or worse.
+    if (code >= 0xd800 && code <= 0xdfff) continue;
     const keep = options.multiline === true && code === 0x0a;
     if (!keep && isFormat(char, code)) continue;
     out += !keep && (code < 0x20 || (code >= 0x7f && code <= 0x9f)) ? ' ' : char;
   }
-  return out.trim().slice(0, max);
+  const capped = out.trim().slice(0, max);
+  // The cap counts UTF-16 units, so it can land between the halves of a
+  // surrogate pair and leave the high half dangling - the case toPlainText
+  // already guards in its own truncation. Drop the dangling half.
+  return /^[\uD800-\uDBFF]$/.test(capped.slice(-1)) ? capped.slice(0, -1) : capped;
 }
 
 const FORMAT = /\p{Cf}/u;

@@ -62,3 +62,15 @@ test('the joiners real text needs survive', () => {
   assert.equal(clean(`a${ch(0x200c)}b`, 500), `a${ch(0x200c)}b`);
   assert.equal(clean('👨‍👩‍👧', 500), '👨‍👩‍👧');
 });
+
+test('the length cap cannot split a surrogate pair', () => {
+  // slice() counts UTF-16 units, so a cap landing inside an emoji left the
+  // high half dangling - a lone surrogate that stores and renders as U+FFFD.
+  // toPlainText already drops the dangling half; the cap here does the same.
+  assert.equal(clean(`ab${ch(0x1f9e0)}cd`, 3), 'ab');
+  // The pair survives whole when it fits.
+  assert.equal(clean(`ab${ch(0x1f9e0)}cd`, 4), `ab${ch(0x1f9e0)}`);
+  // A lone surrogate already present in the source is dropped, not stored.
+  assert.equal(clean(`x${ch(0xd83e)}y`, 500), 'xy');
+  assert.equal(clean(`x${ch(0xdc00)}y`, 500), 'xy');
+});
