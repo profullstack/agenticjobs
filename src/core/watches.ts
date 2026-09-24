@@ -19,6 +19,7 @@ import { jobMatchesQuery } from './jobs.ts';
 import type { Mailer, Message } from './mail.ts';
 import { escapeHtml } from '../markup/escape.ts';
 import { formatPayShort, payOfJob } from '../schema/pay.ts';
+import { clean } from '../schema/text.ts';
 
 export const WATCHES_PER_ACCOUNT = 20;
 export const NOTIFICATIONS_KEPT = 200;
@@ -260,8 +261,8 @@ export async function addNotification(
     [
       userId,
       input.kind,
-      input.title.slice(0, 200),
-      (input.body ?? '').slice(0, 1000),
+      clean(input.title, 200),
+      clean(input.body ?? '', 1000),
       input.url ?? null,
     ],
   );
