@@ -126,8 +126,15 @@ export function publishable(raw: string): URL | null {
 }
 
 function embeddedIpv4(host: string): [number, number, number, number] | null {
-  if (!host.startsWith('::ffff:') && !host.startsWith('::')) return null;
-  const match = /(?:^|:)([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(host);
+  // A 6to4 address carries the relayed v4 in the two hextets after the 2002:
+  // prefix; the mapped, compatible and NAT64 well-known forms all end in it.
+  // Judging a 64:ff9b: address by its last 32 bits is also how the rest of
+  // the translation space fails safe: the reserved forms have a zero tail.
+  const match = host.startsWith('2002:')
+    ? /^2002:([0-9a-f]{1,4}):([0-9a-f]{1,4})/.exec(host)
+    : host.startsWith('::ffff:') || host.startsWith('::') || host.startsWith('64:ff9b:')
+      ? /(?:^|:)([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(host)
+      : null;
   if (match === null) return null;
   const high = Number.parseInt(match[1] ?? '', 16);
   const low = Number.parseInt(match[2] ?? '', 16);
