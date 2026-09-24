@@ -1856,6 +1856,10 @@ async function resolveResume(
 
   const id = body['resumeId'];
   if (typeof id === 'string' && id !== '') {
+    // A string that is not a uuid can never name a resume, and Postgres
+    // raises `invalid input syntax for type uuid` rather than match nothing -
+    // without the check a mistyped id is a 500, not a miss.
+    if (!isUuid(id)) return { error: 'That resume is not shared, or does not exist.' };
     // A shared id is accepted from anyone, which is what a share link is for;
     // a private one only from its owner.
     const shared = await getSharedResume(pool, id);
