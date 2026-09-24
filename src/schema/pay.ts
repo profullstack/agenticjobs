@@ -430,7 +430,10 @@ function parseLine(text: string): PayLine | string {
     if (/^(?:project|job|engagement)$/i.test(what)) return { ...base, type: 'fixed', unit: null };
     if (/^tasks?$/i.test(what)) return { ...base, type: 'per_task', unit: 'task' };
     if (what.length > UNIT_MAX) return `The unit in "${text}" is too long: at most ${UNIT_MAX} characters.`;
-    return { ...base, type: 'per_unit', unit: what };
+    // The unit is free text that lands in pay_lines untouched: give it the
+    // same scrub as the object form's unit field so a surrogate or control
+    // character cannot make the row uninsertable.
+    return { ...base, type: 'per_unit', unit: cleanText(what, UNIT_MAX) || null };
   }
 
   return `Could not read "${rest}" in "${text}". Write it like ${PAY_LINE_EXAMPLES}.`;
@@ -597,7 +600,17 @@ function truthy(value: unknown): boolean {
 
 function cleanText(value: unknown, max: number): string {
   if (typeof value !== 'string') return '';
-  return value.replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max);
+  const flat = value.replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim();
+  // A JSON client can send an unpaired surrogate as a \ud800 escape:
+  // it survives the control strip and Postgres refuses the whole row. The cap
+  // counts UTF-16 units and can also sever a real pair, so the tail needs the
+  // same check clean() gives its own truncation.
+  const whole = flat.replace(
+    /[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/g,
+    '',
+  );
+  const capped = whole.slice(0, max);
+  return /^[\ud800-\udbff]$/.test(capped.slice(-1)) ? capped.slice(0, -1) : capped;
 }
 
 /** A ticker typed in any case comes out in capitals; a rail stays as typed. */
