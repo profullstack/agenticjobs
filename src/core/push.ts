@@ -26,6 +26,7 @@ import {
   type KeyObject,
 } from 'node:crypto';
 import type pg from 'pg';
+import { publishable } from '../schema/instance.ts';
 
 export interface PushKeys {
   /** Uncompressed P-256 point, base64url: what the browser is handed. */
@@ -219,6 +220,12 @@ export function parseSubscription(input: unknown): PushSubscription | null {
   const p256dh = typeof keys['p256dh'] === 'string' ? keys['p256dh'] : '';
   const auth = typeof keys['auth'] === 'string' ? keys['auth'] : '';
   if (!/^https:\/\//.test(endpoint) || endpoint.length > 2000) return null;
+  // The board POSTs to this endpoint itself, with a signed VAPID header, so
+  // the host rules are the directory's: a loopback or private address would
+  // point the board's own client at its own network on every notification.
+  // `publishable` keeps only an origin, so it is used as the test and the
+  // full URL is what is stored — a push endpoint is its path.
+  if (publishable(endpoint) === null) return null;
   if (b64u.decode(p256dh).length !== 65 || b64u.decode(auth).length !== 16) return null;
   return { endpoint, keys: { p256dh, auth } };
 }
