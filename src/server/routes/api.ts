@@ -48,7 +48,7 @@ import {
   publishProblem,
   searchJobs,
   setStatus,
-  editJob,
+  patchJob,
   updateJobFromImport,
 } from '../../core/jobs.ts';
 import { extractJob, JobImportProblem, type ImportedJob } from '../../core/import-job.ts';
@@ -249,6 +249,58 @@ function payPatch(body: Record<string, unknown>, job: Job): Record<string, unkno
     payMethod: body['payMethod'] ?? body['paymentMethod'] ?? body['paymentCoin'] ?? job.pay.method,
     payEquity: body['payEquity'] ?? body['salaryEquity'] ?? body['equity'] ?? job.pay.equity,
   };
+}
+
+/** Body keys that name a listing field, mapped to the patchJob column group. */
+const JOB_PATCH_FIELDS: Record<string, string> = {
+  title: 'title',
+  description: 'description',
+  employmentType: 'employmentType',
+  workplace: 'workplace',
+  seniority: 'seniority',
+  location: 'location',
+  remoteRegions: 'remoteRegions',
+  tags: 'tags',
+  stack: 'stack',
+  requirements: 'requirements',
+  responsibilities: 'responsibilities',
+  agentPolicy: 'agentPolicy',
+  expiresAt: 'expiresAt',
+};
+
+/** Every body key that touches the pay group. */
+const JOB_PAY_KEYS = [
+  'pay',
+  'payLines',
+  'salaryMin',
+  'salaryMax',
+  'salaryPeriod',
+  'salaryCurrency',
+  'salaryUnpaid',
+  'unpaid',
+  'payUnpaid',
+  'payMethod',
+  'paymentMethod',
+  'paymentCoin',
+  'payEquity',
+  'salaryEquity',
+  'equity',
+];
+
+/**
+ * The fields a PATCH actually sent. `undefined` is "leave it"; an explicit
+ * `null` still counts as sent so a nullable field like `expiresAt` can be
+ * cleared. Only these columns move — two members editing different fields
+ * at once no longer overwrite each other, and an edit cannot silently
+ * clear a field the merge never carried.
+ */
+function sentJobFields(body: Record<string, unknown>): Set<string> {
+  const fields = new Set<string>();
+  for (const [key, field] of Object.entries(JOB_PATCH_FIELDS)) {
+    if (body[key] !== undefined) fields.add(field);
+  }
+  if (JOB_PAY_KEYS.some((key) => body[key] !== undefined)) fields.add('pay');
+  return fields;
 }
 
 export function apiRoutes(): Hono<AppEnv> {
@@ -577,11 +629,15 @@ export function apiRoutes(): Hono<AppEnv> {
         workplace: body['workplace'] ?? job.workplace,
         seniority: body['seniority'] ?? job.seniority ?? undefined,
         location: body['location'] ?? job.location ?? undefined,
+        remoteRegions: body['remoteRegions'] ?? job.remoteRegions,
         tags: body['tags'] ?? job.tags,
         stack: body['stack'] ?? job.stack,
         requirements: body['requirements'] ?? job.requirements,
         responsibilities: body['responsibilities'] ?? job.responsibilities,
         agentPolicy: body['agentPolicy'] ?? job.agentPolicy,
+        ...(body['expiresAt'] !== undefined
+          ? { expiresAt: body['expiresAt'] }
+          : { expiresAt: job.expiresAt }),
         ...payPatch(body, job),
       },
       job.org.id,
@@ -595,7 +651,7 @@ export function apiRoutes(): Hono<AppEnv> {
       if (problem !== null) return fail(c, 400, 'pay_required', problem);
     }
 
-    const updated = await editJob(pool, job.id, merged);
+    const updated = await patchJob(pool, job.id, merged, sentJobFields(body));
     return c.json({ job: updated ?? job });
   });
 
