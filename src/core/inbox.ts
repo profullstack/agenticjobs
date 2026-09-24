@@ -139,7 +139,15 @@ function otherParty(rows: ParticipantRow[], viewerId: string): Party {
 
 function preview(body: string): string {
   const line = body.replace(/\s+/g, ' ').trim();
-  return line.length > 120 ? `${line.slice(0, 117)}...` : line;
+  if (line.length <= 120) return line;
+  let capped = line.slice(0, 117);
+  // The cap counts UTF-16 units, so it can land between the halves of a
+  // surrogate pair and leave the high half dangling. That half is invalid
+  // UTF-8 to the database - the threads insert rejects it - and renders as
+  // U+FFFD wherever the preview is shown. Drop it, as clean() does for its
+  // own cap.
+  if (/^[\uD800-\uDBFF]$/.test(capped.slice(-1))) capped = capped.slice(0, -1);
+  return `${capped}...`;
 }
 
 async function isParticipant(pool: pg.Pool, threadId: string, userId: string): Promise<boolean> {
