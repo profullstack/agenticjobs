@@ -141,9 +141,15 @@
       if (note) note.hidden = true;
       navigator.serviceWorker.ready
         .then(function (registration) {
-          return registration.pushManager.subscribe({
-            userVisibleOnly: true,
-            applicationServerKey: decode(key),
+          var options = { userVisibleOnly: true, applicationServerKey: decode(key) };
+          return registration.pushManager.subscribe(options).catch(function (problem) {
+            // A subscription left over from a different key (a board whose
+            // keys were regenerated) makes subscribe() refuse. Drop it and
+            // ask again, once.
+            if (!problem || problem.name !== 'InvalidStateError') throw problem;
+            return registration.pushManager.getSubscription()
+              .then(function (stale) { return stale ? stale.unsubscribe() : null; })
+              .then(function () { return registration.pushManager.subscribe(options); });
           });
         })
         .then(function (subscription) {
@@ -158,8 +164,21 @@
         })
         .catch(function (problem) {
           enable.disabled = false;
-          if (problem && problem.name === 'NotAllowedError') {
+          // Chromium reports a refused permission as AbortError
+          // "Registration failed - permission denied", not NotAllowedError.
+          if (problem && (problem.name === 'NotAllowedError' || Notification.permission === 'denied'
+            || /permission/i.test(problem.message || ''))) {
             fail('Notifications are blocked for this site in the browser settings.');
+            return;
+          }
+          // "Registration failed - push service error": the browser could not
+          // reach its own push service, before this board is involved. Brave
+          // ships with that service switched off; ungoogled and some distro
+          // Chromium builds have none at all.
+          if (problem && problem.name === 'AbortError') {
+            fail(navigator.brave
+              ? 'Brave has push messaging switched off. Turn on "Use Google services for push messaging" in brave://settings/privacy, restart Brave, then try again.'
+              : 'This browser could not reach its push service, so it cannot receive notifications. Some Chromium builds ship without one; Chrome, Edge, Firefox and Safari work. Email notifications still arrive.');
             return;
           }
           fail(problem && problem.message ? problem.message : 'That did not work.');
