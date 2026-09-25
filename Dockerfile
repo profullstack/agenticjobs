@@ -46,16 +46,20 @@ RUN apt-get update \
  && apt-get install --no-install-recommends -y poppler-utils pandoc weasyprint ca-certificates \
  && rm -rf /var/lib/apt/lists/*
 
-COPY --from=build /app/node_modules ./node_modules
-COPY --from=build /app/dist ./dist
-COPY --from=build /app/package.json ./package.json
-COPY bin ./bin
-COPY migrations ./migrations
-COPY docs ./docs
-COPY web/public ./web/public
+COPY --chown=node:node --from=build /app/node_modules ./node_modules
+COPY --chown=node:node --from=build /app/dist ./dist
+COPY --chown=node:node --from=build /app/package.json ./package.json
+COPY --chown=node:node bin ./bin
+COPY --chown=node:node migrations ./migrations
+COPY --chown=node:node docs ./docs
+COPY --chown=node:node web/public ./web/public
 
 # Run unprivileged. The image needs no write access to anything but /tmp,
-# which is where document conversion stages its files.
+# which is where document conversion stages its files. The COPYs above are
+# --chown=node:node because COPY keeps the build context's file modes: a
+# checkout made under a restrictive umask (0660 files, as on dev2) is
+# unreadable by `node` once root owns it, and the process dies at boot with
+# ERR_INVALID_PACKAGE_CONFIG. Railway's builder happened to hand us 0644.
 USER node
 
 EXPOSE 8787
