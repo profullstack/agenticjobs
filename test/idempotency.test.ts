@@ -22,6 +22,7 @@ let pool: {
 } | null = null;
 let closePool: (() => Promise<void>) | null = null;
 let reason = '';
+let ready = false;
 
 try {
   const db = await import('../dist/db/pool.js');
@@ -40,6 +41,7 @@ try {
     SECRET: 'test-secret',
   });
   app = createApp(created, config, { send: async () => true }) as never;
+  ready = true;
 } catch (error) {
   reason = error instanceof Error ? error.message : String(error);
 }
@@ -87,7 +89,7 @@ async function countJobs(orgId: string): Promise<number> {
   return Number(rows.rows[0]?.['count'] ?? '0');
 }
 
-describe('idempotent posting', { skip: reason === '' ? false : `no database: ${reason}` }, () => {
+describe('idempotent posting', { skip: ready ? false : `no database: ${reason || 'setup failed'}` }, () => {
   test('a repeat under the same key returns the listing already made, not a second one', async () => {
     const { org, stamp, auth } = await employer('Retry Co');
     const listing = {
