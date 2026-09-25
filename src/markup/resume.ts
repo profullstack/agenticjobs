@@ -384,13 +384,16 @@ function hrefFor(value: string): string | null {
 /** "Full Stack Engineer (Mar 2020 - Present)" -> start, end, current. */
 function parseRange(subtitle: string): { start: string | null; end: string | null; current: boolean } {
   const bracketed = /\(([^)]*)\)\s*$/.exec(subtitle);
-  const candidate = bracketed?.[1] ?? subtitle;
+  // Separators in an undated role (e.g. Assistant to Director) are prose,
+  // not date endpoints. The convention only reads a trailing bracketed range.
+  if (bracketed === null) return { start: null, end: null, current: false };
+  const candidate = bracketed[1] ?? '';
   // An en dash, an em dash and a hyphen all show up in real resumes.
   // Typographic dashes also appear without spaces (2019–2021). Keep
   // whitespace required around ASCII hyphens so ISO dates stay intact.
   const split = candidate.split(/\s+(?:to|-)\s+|\s*[–—]\s*/i);
   if (split.length < 2) {
-    if (bracketed !== null && candidate.trim() !== '') {
+    if (candidate.trim() !== '') {
       return { start: candidate.trim(), end: null, current: PRESENT.test(candidate) };
     }
     return { start: null, end: null, current: false };
