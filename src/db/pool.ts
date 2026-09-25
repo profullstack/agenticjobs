@@ -28,7 +28,12 @@ let pool: pg.Pool | null = null;
 export function getPool(databaseUrl: string): pg.Pool {
   if (pool !== null) return pool;
   pool = new Pool({
-    connectionString: databaseUrl,
+    // Without this the URL wins: pg copies whatever it parses out of the
+    // connection string over the options given here, and pg-connection-string
+    // turns `sslmode=require` into full certificate verification. That made
+    // the PGSSLMODE opt-in below a no-op the moment a URL carried sslmode, and
+    // a database with a self-signed certificate unreachable.
+    connectionString: withoutSslMode(databaseUrl),
     max: Number.parseInt(process.env['PG_POOL_MAX'] ?? '10', 10) || 10,
     idleTimeoutMillis: 30_000,
     connectionTimeoutMillis: 10_000,
@@ -46,6 +51,13 @@ export function getPool(databaseUrl: string): pg.Pool {
   });
 
   return pool;
+}
+
+/** The URL minus its sslmode parameter; SSL is decided by needsSsl() instead. */
+function withoutSslMode(databaseUrl: string): string {
+  return databaseUrl
+    .replace(/([?&])sslmode=[^&]*(&|$)/, (_match, lead: string, trail: string) => (trail ? lead : ''))
+    .replace(/[?&]$/, '');
 }
 
 function needsSsl(databaseUrl: string): boolean {
