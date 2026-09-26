@@ -17,8 +17,16 @@ export type Pool = pg.Pool;
 // default, which then serialise differently depending on which surface does
 // the serialising. Everything in this codebase treats a time as an ISO string,
 // so the conversion happens once, here.
-types.setTypeParser(1184, (value: string) => new Date(value).toISOString());
-types.setTypeParser(1114, (value: string) => new Date(`${value}Z`).toISOString());
+//
+// A timestamp older than the server timezone's adoption of standard time
+// renders with the local-mean-time offset, which carries seconds
+// (`1900-01-15 08:27:52+08:27:52` in Asia/Seoul). Date rejects an offset with
+// seconds, the parse used to land in toISOString() as an Invalid Date, and
+// every route reading such a row answered 500. Truncating the offset to whole
+// minutes shifts the instant by under a second, which only ever touches
+// dates far older than any job on the board.
+types.setTypeParser(1184, (value: string) => parseTimestamp(value));
+types.setTypeParser(1114, (value: string) => parseTimestamp(`${value}Z`));
 // `int8` comes back as a string so that large values survive. Every count in
 // this schema is comfortably inside Number.MAX_SAFE_INTEGER.
 types.setTypeParser(20, (value: string) => Number.parseInt(value, 10));
@@ -51,6 +59,15 @@ export function getPool(databaseUrl: string): pg.Pool {
   });
 
   return pool;
+}
+
+/** Parse a Postgres timestamp into an ISO string, tolerating LMT offsets. */
+function parseTimestamp(value: string): string {
+  const direct = new Date(value);
+  const parsed = Number.isNaN(direct.getTime())
+    ? new Date(value.replace(/([+-]\d{2}:\d{2}):\d{2}$/, '$1'))
+    : direct;
+  return parsed.toISOString();
 }
 
 /** The URL minus its sslmode parameter; SSL is decided by needsSsl() instead. */
