@@ -1129,6 +1129,7 @@ export function apiRoutes(): Hono<AppEnv> {
     const posted = await postUpdate(pool, viewer.id, target, {
       body: body['body'],
       link: body['link'],
+      board: config.publicUrl,
     });
     if (typeof posted === 'string') {
       // 429 when it is the rate limit and 400 when it is the update itself:

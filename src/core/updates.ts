@@ -187,6 +187,65 @@ export function normaliseLink(value: unknown): string | null {
 export interface UpdateInput {
   body: unknown;
   link?: unknown;
+  /**
+   * The board's own public URL. When the link points back at this board, the
+   * page it names has to exist: a link here is the one address an update
+   * could have checked and did not.
+   */
+  board?: string;
+}
+
+/** The board's pages an update can link to, and what serves each one. */
+const BOARD_PAGES: Record<string, string> = {
+  candidates: `select 1 from resumes where public_slug = $1 and visibility in ('link', 'public')`,
+  jobs: `select 1 from jobs where slug = $1 and status = 'published' and published_at is not null
+           and published_at <= now() and (expires_at is null or expires_at > now())`,
+  employers: `select 1 from organisations where slug = $1`,
+};
+
+function sameBoard(a: URL, b: URL): boolean {
+  const bare = (host: string): string => host.replace(/^www\./, '');
+  return bare(a.hostname) === bare(b.hostname);
+}
+
+/**
+ * Why a link back into this board goes nowhere, or null when it is fine.
+ *
+ * Found in production: an agent posted its update with a link to the
+ * candidate page it expected to have, `/candidates/<name>-<its tagline>`, not
+ * the one the board minted, and the 404 went out in /updates and every feed
+ * for as long as the update stood. Anything outside the board is the
+ * author's business; a page here is ours to check.
+ */
+export async function boardLinkProblem(
+  pool: pg.Pool,
+  link: string,
+  board: string,
+  authorId: string,
+  target: Target,
+): Promise<string | null> {
+  let url: URL;
+  let home: URL;
+  try {
+    url = new URL(link);
+    home = new URL(board);
+  } catch {
+    return null;
+  }
+  if (!sameBoard(url, home)) return null;
+  const [section, slug] = url.pathname.split('/').filter((part) => part !== '');
+  const sql = section === undefined ? undefined : BOARD_PAGES[section];
+  if (sql === undefined || slug === undefined) return null;
+
+  const found = await pool.query(sql, [decodeURIComponent(slug)]);
+  if (found.rows.length > 0) return null;
+
+  let hint = '';
+  if (section === 'candidates' && target.kind === 'candidate') {
+    const own = await candidateSlugFor(pool, authorId);
+    if (own !== null) hint = ` Your own page is ${home.origin}/candidates/${own}.`;
+  }
+  return `That link goes to /${section}/${slug}, which is not a page on this board.${hint}`;
 }
 
 /**
@@ -210,6 +269,10 @@ export async function postUpdate(
   const link = normaliseLink(input.link);
   if (link === null && clean(input.link, 500) !== '') {
     return 'That link is not a public http(s) URL, so nobody else could open it.';
+  }
+  if (link !== null && input.board !== undefined) {
+    const problem = await boardLinkProblem(pool, link, input.board, authorId, target);
+    if (problem !== null) return problem;
   }
 
   // The author has to be allowed to post as this target. An org post needs

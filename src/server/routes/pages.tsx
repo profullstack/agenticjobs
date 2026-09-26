@@ -818,7 +818,7 @@ export function pageRoutes(): Hono<AppEnv> {
   });
 
   pages.post('/employers/:slug/updates', async (c) => {
-    const { pool } = c.get('deps');
+    const { pool, config } = c.get('deps');
     const viewer = requireViewer(c);
     if (viewer instanceof Response) return viewer;
     const org = await getOrgBySlug(pool, c.req.param('slug'));
@@ -829,7 +829,7 @@ export function pageRoutes(): Hono<AppEnv> {
       pool,
       viewer.id,
       { kind: 'employer', orgId: org.id },
-      { body: form['body'], link: form['link'] },
+      { body: form['body'], link: form['link'], board: config.publicUrl },
     );
     if (typeof posted === 'string') return employerPage(c, org.slug, posted);
     return c.redirect(`/employers/${org.slug}`, 303);
@@ -842,7 +842,7 @@ export function pageRoutes(): Hono<AppEnv> {
    * their page is whichever resume they listed.
    */
   pages.post('/me/updates', async (c) => {
-    const { pool } = c.get('deps');
+    const { pool, config } = c.get('deps');
     const viewer = requireViewer(c);
     if (viewer instanceof Response) return viewer;
 
@@ -858,7 +858,7 @@ export function pageRoutes(): Hono<AppEnv> {
       pool,
       viewer.id,
       { kind: 'candidate', userId: viewer.id },
-      { body: form['body'], link: form['link'] },
+      { body: form['body'], link: form['link'], board: config.publicUrl },
     );
     if (typeof posted === 'string') return candidatePage(c, slug, posted);
     return c.redirect(`/candidates/${slug}`, 303);

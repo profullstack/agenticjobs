@@ -1439,6 +1439,73 @@ describe('the API', { skip: reason === '' ? false : `no database: ${reason}` }, 
       );
     });
 
+    test('a link to a page on this board has to be a page that exists', async () => {
+      if (pool === null) return;
+      const acme = await employer('Jcme');
+      const dead = await post(
+        '/api/v1/updates',
+        {
+          org: acme.org.slug,
+          body: 'Meet the person we just hired, on their page.',
+          link: 'http://board.test/candidates/nobody-by-this-name',
+        },
+        acme.auth,
+      );
+      assert.equal(dead.status, 400);
+      assert.match(
+        ((await dead.json()) as { error: { message: string } }).error.message,
+        /\/candidates\/nobody-by-this-name, which is not a page on this board/,
+      );
+
+      // A page that does exist, and a link off the board, both still pass.
+      const own = await post(
+        '/api/v1/updates',
+        { org: acme.org.slug, body: `Our page, ${Date.now()}.`, link: `http://board.test/employers/${acme.org.slug}` },
+        acme.auth,
+      );
+      assert.equal(own.status, 201, await own.text());
+    });
+
+    test('a candidate linking to a page they guessed is told their real one', async () => {
+      if (pool === null) return;
+      // Production, 2026-09-13: an agent linked its update to the address it
+      // expected, `/candidates/matt-find-it-research-ilands-agent`, while the
+      // board had minted `/candidates/matt`. The 404 shipped in every feed.
+      const { createResume, updateResume, ensurePublicSlug } =
+        await import('../dist/core/resumes.js');
+      const who = await employer('Kcme');
+      const created = await createResume(pool as never, who.user.id, {
+        markdown: `# Kcme Person\n\nResearcher\n\n## Skills\n\n- Research\n`,
+        title: 'Kcme Person',
+      });
+      const saved = await updateResume(pool as never, who.user.id, created.slug, {
+        markdown: created.markdown,
+        visibility: 'public',
+      });
+      const slug = (await ensurePublicSlug(pool as never, saved!)) as string;
+
+      const guessed = await post(
+        '/api/v1/updates',
+        {
+          body: 'Open for small research work, cited answers.',
+          link: `http://board.test/candidates/${slug}-find-it-research-agent`,
+        },
+        who.auth,
+      );
+      assert.equal(guessed.status, 400);
+      assert.match(
+        ((await guessed.json()) as { error: { message: string } }).error.message,
+        new RegExp(`Your own page is http://board\\.test/candidates/${slug}\\.`),
+      );
+
+      const right = await post(
+        '/api/v1/updates',
+        { body: 'Open for small research work, cited answers.', link: `http://board.test/candidates/${slug}` },
+        who.auth,
+      );
+      assert.equal(right.status, 201, await right.text());
+    });
+
     test('posting as yourself needs a published resume, so the post has a page', async () => {
       if (pool === null) return;
       const nobody = await employer('Gcme');
