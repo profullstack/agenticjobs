@@ -626,6 +626,10 @@ function payAmount(value: unknown): { value: number | null; error: string | null
   if (value === null || value === undefined || (typeof value === 'string' && value.trim() === '')) {
     return { value: null, error: null };
   }
+  // JSON arrays such as [25] stringify to "25"; they are not amounts.
+  if (typeof value !== 'number' && typeof value !== 'string') {
+    return { value: null, error: 'A pay amount must be a non-negative number.' };
+  }
   const raw = typeof value === 'number' ? value : String(value).replace(/[,_$]/g, '');
   if (typeof raw === 'string' && raw.trim() === '') {
     return { value: null, error: 'A pay amount must be a non-negative number.' };
