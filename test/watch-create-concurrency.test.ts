@@ -14,20 +14,37 @@ test('concurrent saves of one search return the same watch instead of a database
   };
 
   let stored: StoredWatch | null = null;
-  let lookupCount = 0;
-  let releaseLookups: (() => void) | undefined;
-  const bothLookups = new Promise<void>((resolve) => {
-    releaseLookups = resolve;
-  });
+  let lockTail = Promise.resolve();
 
   const pool = {
+    async connect() {
+      let unlock: (() => void) | undefined;
+      return {
+        async query(sql: string, params: unknown[] = []) {
+          if (sql === 'begin') return { rows: [] };
+          if (sql === 'select id from users where id = $1 for update') {
+            const previous = lockTail;
+            lockTail = new Promise<void>((resolve) => {
+              unlock = resolve;
+            });
+            await previous;
+            return { rows: [{ id: params[0] }] };
+          }
+          if (sql === 'commit' || sql === 'rollback') {
+            unlock?.();
+            return { rows: [] };
+          }
+          return pool.query(sql, params);
+        },
+        release() {
+          unlock?.();
+        },
+      };
+    },
     async query(sql: string, params: unknown[] = []) {
       if (sql.includes('from watches where user_id = $1 and query = $2::jsonb')) {
         const snapshot =
           stored !== null && JSON.stringify(stored.query) === params[1] ? { ...stored } : null;
-        lookupCount += 1;
-        if (lookupCount === 2) releaseLookups?.();
-        if (lookupCount <= 2) await bothLookups;
         return { rows: snapshot === null ? [] : [snapshot], rowCount: snapshot === null ? 0 : 1 };
       }
       if (sql.includes('select count(*)::int as n from watches')) {
