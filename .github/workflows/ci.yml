@@ -61,6 +61,31 @@ jobs:
           grep -q "no database" output.txt && { echo "::error::the API suite skipped itself"; exit 1; }
           exit 0
 
+      # Production runs dist/ under Bun (see the Dockerfile), so the suite
+      # runs under Bun too, against a fresh database (several api tests
+      # depend on the seed). Node stays the gate above because the npm
+      # package targets Node; this step catches the places the two runtimes
+      # differ (callback error values, child processes started with
+      # process.execPath). Each file gets its own process, as under node
+      # --test. cli-sync.test.ts is left out: it mocks an import with
+      # node:module registerHooks, which Bun does not implement.
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.0
+
+      - name: Test under Bun
+        shell: bash
+        run: |
+          PGPASSWORD=agenticjobs psql -h localhost -U agenticjobs -d postgres \
+            -c 'drop database agenticjobs with (force)' -c 'create database agenticjobs'
+          files=$(grep -L registerHooks test/*.test.ts)
+          failed=""
+          for f in $files; do
+            bun test "./$f" > bun-out.txt 2>&1 || { cat bun-out.txt; failed="$failed $f"; }
+            if grep -q "no database" bun-out.txt; then echo "::error::$f skipped its database tests"; failed="$failed $f"; fi
+          done
+          if [ -n "$failed" ]; then echo "::error::failed under Bun:$failed"; exit 1; fi
+
       - name: The docs the board serves must exist
         run: |
           test -f docs/openjob.md
@@ -93,4 +118,13 @@ jobs:
           curl -fsS http://localhost:8787/.well-known/agenticjobs
           # pdftotext is what makes PDF resumes work; the image is wrong
           # without it and nothing else would notice.
-          docker exec app sh -c 'command -v pdftotext'
+          docker exec app sh -c 'command -v pdftotext && command -v pandoc && command -v weasyprint'
+          # The board runs on Bun, as uid 1000, and there is no node to fall
+          # back to.
+          docker top app -eo pid,user,args | tee top.txt
+          grep -q 'bun dist/cli/index.js serve' top.txt
+          if docker exec app sh -c 'command -v node'; then echo '::error::node is in the image'; exit 1; fi
+          # PID 1 must answer SIGTERM, or every deploy waits ten seconds.
+          start=$(date +%s); docker stop -t 10 app; end=$(date +%s)
+          echo "docker stop took $((end - start))s"
+          test $((end - start)) -lt 5

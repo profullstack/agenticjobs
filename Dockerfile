@@ -1,7 +1,7 @@
 # The board, in one image.
 #
 # Multi-stage so the runtime layer carries no pnpm store, no TypeScript and no
-# dev dependencies - just Node, two document converters and the built output.
+# dev dependencies - just Bun, three document converters and the built output.
 
 FROM node:24-slim AS build
 WORKDIR /app
@@ -28,7 +28,17 @@ RUN pnpm run build
 RUN pnpm install --frozen-lockfile --prod --ignore-scripts
 
 
-FROM node:24-slim AS runtime
+# The runtime is Bun, not Node. Bun runs the same tsc output (dist/) and the
+# same pnpm node_modules; only the process that executes them changes. The
+# build stage above stays on Node + pnpm because the npm package still targets
+# Node 24 (engines, bin shebangs), and self-hosters run it that way.
+#
+# Debian 12 (bookworm) is deliberate: it is what node:24-slim was, so pandoc,
+# weasyprint and poppler are the exact versions resumes were converted with
+# before (oven/bun:*-slim is Debian 13, which moves all three).
+FROM oven/bun:1.4.0-slim AS bun
+
+FROM debian:bookworm-slim AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
 
@@ -44,27 +54,35 @@ ENV NODE_ENV=production
 #                    engine instead.
 RUN apt-get update \
  && apt-get install --no-install-recommends -y poppler-utils pandoc weasyprint ca-certificates \
- && rm -rf /var/lib/apt/lists/*
+ && rm -rf /var/lib/apt/lists/* \
+ && groupadd --gid 1000 bun \
+ && useradd --uid 1000 --gid bun --home-dir /home/bun --create-home --shell /usr/sbin/nologin bun
 
-COPY --chown=node:node --from=build /app/node_modules ./node_modules
-COPY --chown=node:node --from=build /app/dist ./dist
-COPY --chown=node:node --from=build /app/package.json ./package.json
-COPY --chown=node:node bin ./bin
-COPY --chown=node:node migrations ./migrations
-COPY --chown=node:node docs ./docs
-COPY --chown=node:node web/public ./web/public
+COPY --from=bun /usr/local/bin/bun /usr/local/bin/bun
 
-# Run unprivileged. The image needs no write access to anything but /tmp,
-# which is where document conversion stages its files. The COPYs above are
-# --chown=node:node because COPY keeps the build context's file modes: a
-# checkout made under a restrictive umask (0660 files, as on dev2) is
-# unreadable by `node` once root owns it, and the process dies at boot with
-# ERR_INVALID_PACKAGE_CONFIG. Railway's builder happened to hand us 0644.
-USER node
+COPY --chown=bun:bun --from=build /app/node_modules ./node_modules
+COPY --chown=bun:bun --from=build /app/dist ./dist
+COPY --chown=bun:bun --from=build /app/package.json ./package.json
+COPY --chown=bun:bun bin ./bin
+COPY --chown=bun:bun migrations ./migrations
+COPY --chown=bun:bun docs ./docs
+COPY --chown=bun:bun web/public ./web/public
+
+# Run unprivileged (uid 1000, the same uid `node` had). The image needs no
+# write access to anything but /tmp, which is where document conversion stages
+# its files. The COPYs above are --chown because COPY keeps the build context's
+# file modes: a checkout made under a restrictive umask (0660 files, as on
+# dev2) is unreadable by the app user once root owns it, and the process dies
+# at boot. Railway's builder happened to hand us 0644.
+USER bun
 
 EXPOSE 8787
 ENV PORT=8787
 
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
+  CMD bun -e "fetch('http://127.0.0.1:'+(process.env.PORT||8787)+'/api/v1/stats').then(r=>process.exit(r.status<500?0:1)).catch(()=>process.exit(1))"
+
 # Migrations run at boot inside an advisory lock, so scaling to several
-# replicas is safe: the extra copies wait rather than race.
-CMD ["node", "dist/cli/index.js", "serve"]
+# replicas is safe: the extra copies wait rather than race. The CLI inside the
+# container is `bun dist/cli/index.js <command>` (there is no node here).
+CMD ["bun", "dist/cli/index.js", "serve"]

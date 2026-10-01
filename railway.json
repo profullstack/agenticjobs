@@ -5,7 +5,7 @@
     "dockerfilePath": "Dockerfile"
   },
   "deploy": {
-    "startCommand": "node dist/cli/index.js serve",
+    "startCommand": "bun dist/cli/index.js serve",
     "healthcheckPath": "/api/v1/stats",
     "healthcheckTimeout": 60,
     "restartPolicyType": "ON_FAILURE",

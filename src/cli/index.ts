@@ -231,6 +231,14 @@ async function run(args: Args): Promise<number> {
     case 'serve': {
       const { startServer } = await import('../server/serve.ts');
       await startServer();
+      // In a container the board is PID 1, and PID 1 gets no default SIGTERM
+      // action: without a handler every `docker stop` (so every deploy) waits
+      // the full ten seconds for SIGKILL. Nothing is lost by exiting at once:
+      // requests in flight are retried by the proxy and the pool holds no
+      // uncommitted work.
+      for (const signal of ['SIGTERM', 'SIGINT'] as const) {
+        process.once(signal, () => process.exit(0));
+      }
       return new Promise<number>(() => undefined);
     }
     case 'migrate': {
