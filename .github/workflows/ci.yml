@@ -83,7 +83,11 @@ jobs:
           for f in $files; do
             bun test "./$f" > bun-out.txt 2>&1 || { cat bun-out.txt; failed="$failed $f"; }
             if grep -q "no database" bun-out.txt; then echo "::error::$f skipped its database tests"; failed="$failed $f"; fi
+            cat bun-out.txt >> bun-all.txt
           done
+          # A tally, so a green step that ran nothing is visible as one.
+          sed 's/\x1b\[[0-9;]*m//g' bun-all.txt | grep -E '^ *[0-9]+ (pass|fail|skip)$' \
+            | awk '{ n[$2] += $1 } END { printf "bun test: %d pass, %d fail, %d skip\n", n["pass"], n["fail"], n["skip"] }'
           if [ -n "$failed" ]; then echo "::error::failed under Bun:$failed"; exit 1; fi
 
       - name: The docs the board serves must exist
