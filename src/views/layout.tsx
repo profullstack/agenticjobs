@@ -81,6 +81,9 @@ const BrandMark: FC = () => (
   </svg>
 );
 
+/** The Profullstack OpenWebring this board belongs to. */
+const RING = 'https://rssamplifier.com/ring/profullstack';
+
 export const Layout: FC<PropsWithChildren<PageProps>> = (props) => {
   const {
     title,
@@ -102,6 +105,8 @@ export const Layout: FC<PropsWithChildren<PageProps>> = (props) => {
 
   const full = title === boardName ? title : `${title} - ${boardName}`;
   const url = canonical ?? `${publicUrl}${path}`;
+  // The ring finds its neighbours by this site's own front page address.
+  const ringFrom = encodeURIComponent(`${publicUrl.replace(/\/+$/, '')}/`);
 
   return (
     <html lang="en">
@@ -291,6 +296,15 @@ export const Layout: FC<PropsWithChildren<PageProps>> = (props) => {
             <a href="/.well-known/agenticjobs">Instance</a>
             <a href="/jobs.json">Feed</a>
             <a href="/llms.txt">llms.txt</a>
+            <nav class="webring" aria-label="Profullstack webring">
+              <a href={`${RING}/previous?from=${ringFrom}`} rel="prev">
+                {'<<'}
+              </a>{' '}
+              <a href={RING}>Profullstack</a>{' '}
+              <a href={`${RING}/next?from=${ringFrom}`} rel="next">
+                {'>>'}
+              </a>
+            </nav>
           </div>
         </footer>
         <script src="/assets/app.js" defer></script>
