@@ -15,6 +15,7 @@
  * API is the cloud.
  */
 import { hostname } from 'node:os';
+import { isDeepStrictEqual } from 'node:util';
 import { dirname } from 'node:path';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import {
@@ -165,7 +166,8 @@ export async function syncLoad(
     if (synced) {
       const before = loadConfig();
       const applied = applySettings(synced, before);
-      if (applied.added.length || applied.directoriesAdded.length || applied.current !== before.current) saveConfig(applied.config);
+      // Existing boards may gain missing metadata even when no board or directory is added.
+      if (!isDeepStrictEqual(applied.config, before)) saveConfig(applied.config);
       added = applied.added;
       directoriesAdded = applied.directoriesAdded;
     }
