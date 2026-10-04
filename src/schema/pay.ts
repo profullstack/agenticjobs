@@ -205,7 +205,7 @@ function codeFrom(raw: string | undefined): string | null {
   return null;
 }
 
-function readMoney(text: string, at: number): Money | null {
+function readMoney(text: string, at: number, allowSuffixWords = false): Money | null {
   MONEY.lastIndex = at;
   const match = MONEY.exec(text);
   if (match === null) return null;
@@ -225,7 +225,12 @@ function readMoney(text: string, at: number): Money | null {
     currency ??= code;
   }
   if (codeAfter !== undefined) {
-    const code = codeFrom(codeAfter);
+    // Only retry ambiguous uppercase words as prose after the ordinary
+    // currency interpretation failed, and only for a complete pay suffix.
+    const suffix = text.slice(end - codeAfter.length).trim();
+    const suffixWord = allowSuffixWords &&
+      (FLAT.test(suffix) || PERIOD_ONLY.test(suffix) || PER.test(suffix));
+    const code = suffixWord ? null : codeFrom(codeAfter);
     if (code !== null) {
       // Every symbol or code attached to one amount must agree.
       // Otherwise "USD 100 EUR" or "$100 EUR" silently loses a currency.
@@ -342,7 +347,9 @@ export function readPayLine(input: unknown): { line: PayLine; method: string | n
       text = raw.slice(0, settled.index).trim();
     }
   }
-  const line = parseLine(text);
+  const ordinary = parseLine(text);
+  const retry = typeof ordinary === 'string' ? parseLine(text, true) : ordinary;
+  const line = typeof retry === 'string' ? ordinary : retry;
   return typeof line === 'string' ? line : { line, method };
 }
 
@@ -354,7 +361,7 @@ function isRail(value: string): boolean {
   );
 }
 
-function parseLine(text: string): PayLine | string {
+function parseLine(text: string, allowSuffixWords = false): PayLine | string {
   const share = parseRevenueShare(text);
   if (share !== null) return share;
 
@@ -367,7 +374,7 @@ function parseLine(text: string): PayLine | string {
     cursor = leadMatch[0].length;
   }
 
-  const first = readMoney(text, cursor);
+  const first = readMoney(text, cursor, allowSuffixWords);
   if (first === null) {
     return `Could not find an amount in "${text}". Write it like ${PAY_LINE_EXAMPLES}.`;
   }
@@ -378,7 +385,7 @@ function parseLine(text: string): PayLine | string {
   dash.lastIndex = cursor;
   const dashMatch = dash.exec(text);
   if (dashMatch !== null) {
-    second = readMoney(text, cursor + dashMatch[0].length);
+    second = readMoney(text, cursor + dashMatch[0].length, allowSuffixWords);
     if (second !== null) cursor = second.end;
   }
 
