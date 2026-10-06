@@ -52,6 +52,26 @@ export function createApp(
   );
   app.use('/api/*', apiCors());
 
+  // Liveness for the status page: the process answers and the database
+  // answers within three seconds. Nothing about why it failed leaves the box.
+  app.get('/api/health', async (c) => {
+    c.header('Cache-Control', 'no-store');
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([
+        pool.query('select 1'),
+        new Promise((_, reject) => {
+          timer = setTimeout(() => reject(new Error('timeout')), 3000);
+        }),
+      ]);
+      return c.json({ status: 'ok', db: 'ok' });
+    } catch {
+      return c.json({ status: 'error', db: 'down' }, 503);
+    } finally {
+      clearTimeout(timer);
+    }
+  });
+
   // Settings sync (@profullstack/synconfig): the boards a member uses, on
   // every machine. Mounted before the API router, whose catch-all answers
   // 404 for any /api/v1 path it does not know, this one included.
