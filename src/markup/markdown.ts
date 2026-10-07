@@ -224,6 +224,7 @@ function tryList(lines: string[], start: number, options: MarkdownOptions): Bloc
 
   const firstMarker = first[2] ?? '';
   const ordered = /\d/.test(firstMarker);
+  const markerStyle = ordered ? firstMarker.slice(-1) : firstMarker;
   const orderedStart = ordered ? Number.parseInt(firstMarker, 10) : 1;
   const indent = (first[1] ?? '').length;
   const items: string[][] = [];
@@ -235,9 +236,13 @@ function tryList(lines: string[], start: number, options: MarkdownOptions): Bloc
     const match = /^(\s*)([-*+]|\d{1,9}[.)])\s+(.*)$/.exec(line);
 
     if (match !== null && (match[1] ?? '').length <= indent) {
-      // A different marker type at the same level starts a new list rather
-      // than silently continuing this one.
-      if (/\d/.test(match[2] ?? '') !== ordered) break;
+      // A different marker style at the same level starts a new list rather
+      // than silently continuing this one. CommonMark treats 1. and 1)
+      // as different ordered lists, just as - and * are different bullet lists.
+      const currentMarker = match[2] ?? '';
+      const currentOrdered = /\d/.test(currentMarker);
+      const currentStyle = currentOrdered ? currentMarker.slice(-1) : currentMarker;
+      if (currentOrdered !== ordered || currentStyle !== markerStyle) break;
       const content = match[3] ?? '';
       // Each item may have a different marker width (for example 9. then 10.)
       // or padding. Remove exactly that prefix from its continuation lines.

@@ -163,6 +163,17 @@ test('ordered and unordered lists do not merge', () => {
   assert.ok(html.includes('<ul>') && html.includes('<ol>'), html);
 });
 
+test('different list marker styles start new lists', () => {
+  assert.equal(
+    renderMarkdown('1. one\n2) two'),
+    '<ol><li>one</li></ol>\n<ol start="2"><li>two</li></ol>',
+  );
+  assert.equal(
+    renderMarkdown('- one\n* two'),
+    '<ul><li>one</li></ul>\n<ul><li>two</li></ul>',
+  );
+});
+
 test('ordered lists preserve a non-default starting number', () => {
   assert.equal(
     renderMarkdown('3. Review\n4. Deliver'),
