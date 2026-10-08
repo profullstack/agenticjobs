@@ -52,7 +52,7 @@ function takesValue(
   const boolean = BOOLEAN_FLAGS.has(name) && !(command === 'news' && name === 'candidate');
   return (
     next !== undefined &&
-    (!next.startsWith('-') || negativeNumber) &&
+    (next === '-' || !next.startsWith('-') || negativeNumber) &&
     (!boolean || /^(true|false|1|0|yes|no)$/i.test(next))
   );
 }
