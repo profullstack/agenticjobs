@@ -29,7 +29,11 @@ function firstHeading(text: string): { title: string; start: number; end: number
       } else {
         const heading = /^#\s+(.+)$/.exec(line);
         if (heading !== null) {
-          return { title: (heading[1] ?? '').trim(), start: offset, end: offset + line.length };
+          // A closing run of hashes after a space, or a heading made only of
+          // them, is heading syntax, as the Markdown renderer reads it; a hash
+          // attached to a word (C#) is text.
+          const title = (heading[1] ?? '').trim().replace(/(?:^|[ \t]+)#+$/, '');
+          return { title, start: offset, end: offset + line.length };
         }
       }
     }
