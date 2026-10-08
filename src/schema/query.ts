@@ -93,12 +93,16 @@ export function parseQuery(params: URLSearchParams): JobQuery {
     agentPolicy: isAgentPolicy(agentPolicy) ? agentPolicy : null,
     // `tag=a&tag=b` and `tags=a,b` mean the same thing. The second is what a
     // badge links to and what a person types; the first is what the CLI's
-    // repeatable --tag produces.
-    tags: [...params.getAll('tag'), ...params.getAll('tags')]
-      .flatMap((value) => value.split(','))
-      .map((value) => value.trim().toLowerCase())
-      .filter((value) => value !== '')
-      .slice(0, 10),
+    // repeatable --tag produces. A tag named in both forms is still one
+    // filter, so repeats are dropped before the cap rather than spending it.
+    tags: [
+      ...new Set(
+        [...params.getAll('tag'), ...params.getAll('tags')]
+          .flatMap((value) => value.split(','))
+          .map((value) => value.trim().toLowerCase())
+          .filter((value) => value !== ''),
+      ),
+    ].slice(0, 10),
     salaryMin: salaryMin === null ? null : integer(salaryMin, 0, 0, 100_000_000) || null,
     org: one(params, 'org'),
     sort: sort !== null && (SORTS as readonly string[]).includes(sort) ? (sort as Sort) : 'recent',
