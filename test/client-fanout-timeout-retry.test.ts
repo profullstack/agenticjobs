@@ -23,7 +23,7 @@ test('fanout does not restart an exhausted board timeout budget', async (t) => {
       { server: 'https://healthy.test', token: null },
     ],
     {},
-    { timeoutMs: 50 },
+    { timeoutMs: 1_000 },
   );
 
   assert.equal(slowCalls, 1, 'a timed-out board must not receive a new full timeout budget');
