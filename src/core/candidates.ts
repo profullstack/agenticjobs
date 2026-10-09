@@ -12,6 +12,7 @@ import type { CandidateSummary } from '../views/candidates.tsx';
 import { parseCapacity } from './capacity.ts';
 import {
   type OpenResume,
+  CONTACT_WITHHELD,
   hasContactChannel,
   parseResume,
   redactContactChannels,
@@ -39,11 +40,9 @@ function skillsOf(resume: Resume): string[] {
   const fromBullets = sections
     .flatMap((section) => section.markdown.split('\n'))
     .map((line) => line.replace(/^\s*(?:[-*+]|\d{1,9}[.)])\s+/, '').trim())
-    // A skills bullet is very often "**Languages:** JavaScript, Go", and the
-    // label is a category rather than a skill. Without dropping it the first
-    // badge on the card reads "**Languages:** JavaScript". The colon may
-    // also sit outside the emphasis: "**Languages**: JavaScript, Go".
-    .map((line) => line.replace(/^\*{0,2}[^*:]{1,40}\*{0,2}\s*:\*{0,2}\s*/, ''))
+    // A mailto URI may contain several comma-separated recipients. Withhold
+    // the complete channel before commas can turn its tail into another skill.
+    .map((line) => redactContactChannels(line).markdown)
     .filter((line) => line !== '' && !line.startsWith('#'));
 
   const flattened = fromBullets.flatMap((line) =>
@@ -53,9 +52,15 @@ function skillsOf(resume: Resume): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
   for (const skill of flattened) {
+    // Check before dropping a category label: `mailto:` is a channel, not a
+    // label whose removal should leave the recipient on a public badge.
+    if (skill.includes(CONTACT_WITHHELD) || hasContactChannel(skill)) continue;
+    // A skills bullet is often "**Languages:** JavaScript, Go". Strip the
+    // category only after each comma-separated entry has passed the guard.
+    const withoutLabel = skill.replace(/^\*{0,2}[^*:]{1,40}\*{0,2}\s*:\*{0,2}\s*/, '');
     // A sentence is prose that happened to be in the skills section, not a
     // skill, and a badge is the wrong shape for it.
-    const cleaned = skill.replace(/\*\*/g, '').replace(/^`|`$/g, '').trim();
+    const cleaned = withoutLabel.replace(/\*\*/g, '').replace(/^`|`$/g, '').trim();
     if (cleaned === '' || cleaned.length > 40) continue;
     const key = cleaned.toLowerCase();
     if (seen.has(key)) continue;
@@ -67,7 +72,8 @@ function skillsOf(resume: Resume): string[] {
 
 function locationOf(resume: Resume): string | null {
   const found = resume.parsed?.contact.find((item) => LOCATION_KEYS.test(item.key));
-  return found?.value ?? null;
+  const value = found?.value;
+  return value === undefined || hasContactChannel(value) ? null : value;
 }
 
 /**

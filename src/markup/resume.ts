@@ -482,9 +482,95 @@ const EMAIL_IN_TEXT = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g;
 const PHONE_IN_TEXT =
   /(?:\+\d[\d ()./-]{6,}\d|\(\d{3}\)[\d ()./-]{5,}\d|\b\d{3}[-.\s]\d{3}[-.\s]\d{4}\b)/g;
 
+/**
+ * An explicit contact URI is a channel even when its recipient does not
+ * resemble plain prose: mailto can percent-encode @, and tel can carry an
+ * unformatted number. The URI boundary is checked below so balanced parentheses
+ * in telephone numbers or mail headers do not leave a recipient behind.
+ */
+const CONTACT_URI_IN_TEXT =
+  /\b(?:mailto|tel):/gi;
+
+/** Match the renderer's balanced/escaped URL parentheses, including URI headers. */
+function contactUriEnd(text: string, start: number, telephone: boolean): number {
+  let depth = 0;
+  let end = start;
+  for (; end < text.length; end += 1) {
+    const char = text[end] ?? '';
+    if (/[<>[\]"`]/.test(char)) break;
+    if (/\s/.test(char)) {
+      // Visual telephone separators may contain spaces. A line break, prose,
+      // or an unmatched Markdown closing parenthesis ends the destination.
+      if (!telephone || !/[ \t]/.test(char) || !/^(?:\d|\\?\()/.test(text.slice(end + 1))) break;
+    }
+    if (char === '\\' && /[()]/.test(text[end + 1] ?? '')) {
+      end += 1;
+      continue;
+    }
+    if (char === '(') depth += 1;
+    if (char === ')') {
+      if (depth === 0) break;
+      depth -= 1;
+    }
+  }
+  // A trailing comma separates prose or a following skill; commas within
+  // a mail recipient list remain part of the channel and are withheld.
+  while (end > start && text[end - 1] === ',') end -= 1;
+  return end;
+}
+
+/** Keep scheme names within project HTTP URLs from becoming contact fields. */
+function redactContactUris(text: string): string {
+  const urls: { start: number; end: number }[] = [];
+  for (const match of text.matchAll(/\bhttps?:\/\//gi)) {
+    let end = match.index + match[0].length;
+    let depth = 0;
+    for (; end < text.length; end += 1) {
+      const char = text[end] ?? '';
+      if (/[\s<>"`]/.test(char)) break;
+      if (char === '[') {
+        // A bracketed IPv6 host belongs to the URL. A following Markdown
+        // link label begins a separate token even when there is no space.
+        const close = text.indexOf(']', end + 1);
+        if (end === match.index + match[0].length && close !== -1
+          && /^[\da-f:.%]+$/i.test(text.slice(end + 1, close))) {
+          end = close;
+          continue;
+        }
+        break;
+      }
+      if (char === ']') break;
+      if (char === '\\' && /[()]/.test(text[end + 1] ?? '')) {
+        end += 1;
+        continue;
+      }
+      if (char === '(') depth += 1;
+      if (char === ')') {
+        if (depth === 0) break;
+        depth -= 1;
+      }
+    }
+    urls.push({ start: match.index, end });
+  }
+  const out: string[] = [];
+  let cursor = 0;
+  for (const match of text.matchAll(CONTACT_URI_IN_TEXT)) {
+    const start = match.index;
+    if (start < cursor || urls.some((url) => start >= url.start && start < url.end)) continue;
+    const payload = start + match[0].length;
+    const end = contactUriEnd(text, payload, /^tel:/i.test(match[0]));
+    if (end === payload) continue;
+    out.push(text.slice(cursor, start), CONTACT_WITHHELD);
+    cursor = end;
+  }
+  out.push(text.slice(cursor));
+  return out.join('');
+}
+
 /** Whether plain summary text contains a channel the public resume withholds. */
 export function hasContactChannel(text: string): boolean {
   return (
+    redactContactUris(text) !== text ||
     new RegExp(EMAIL_IN_TEXT.source).test(text) ||
     new RegExp(PHONE_IN_TEXT.source).test(text)
   );
@@ -572,7 +658,7 @@ export function redactContactChannels(source: string): { markdown: string; redac
     // global, and a global regex's `test` advances `lastIndex` between calls,
     // so it returns false on matches it has already walked past. That is how a
     // redaction skips lines at random and still passes a one-line unit test.
-    const scrubbed = line
+    const scrubbed = redactContactUris(line)
       .replace(EMAIL_IN_TEXT, CONTACT_WITHHELD)
       .replace(PHONE_IN_TEXT, CONTACT_WITHHELD);
     if (scrubbed !== line) {
