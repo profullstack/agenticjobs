@@ -228,6 +228,7 @@ function tryList(lines: string[], start: number, options: MarkdownOptions): Bloc
   const orderedStart = ordered ? Number.parseInt(firstMarker, 10) : 1;
   const indent = (first[1] ?? '').length;
   const items: string[][] = [];
+  let loose = false;
   let contentIndent = indent + 2;
   let index = start;
 
@@ -255,11 +256,27 @@ function tryList(lines: string[], start: number, options: MarkdownOptions): Bloc
     const current = items[items.length - 1];
     if (current === undefined) break;
     if (line.trim() === '') {
-      // A blank run continues the item only when followed by indented content.
-      // Keep it in the item so fenced code does not end at its first blank line.
+      // A matching sibling after blank lines continues the same loose list.
+      // Otherwise preserve blanks only before indented content, so fences keep
+      // their blank lines and outside paragraphs still end the list.
       let next = index + 1;
       while (next < lines.length && (lines[next] ?? '').trim() === '') next += 1;
       const following = lines[next] ?? '';
+      const sibling = /^(\s*)([-*+]|\d{1,9}[.)])\s+(.*)$/.exec(following);
+      if (
+        sibling !== null &&
+        (sibling[1] ?? '').length === indent &&
+        !/^\s{0,3}([-*_])\s*(\1\s*){2,}$/.test(following)
+      ) {
+        const siblingMarker = sibling[2] ?? '';
+        const siblingOrdered = /\d/.test(siblingMarker);
+        const siblingStyle = siblingOrdered ? siblingMarker.slice(-1) : siblingMarker;
+        if (siblingOrdered === ordered && siblingStyle === markerStyle) {
+          loose = true;
+          index = next;
+          continue;
+        }
+      }
       if (
         next === lines.length ||
         following.length - following.trimStart().length < contentIndent
@@ -287,12 +304,14 @@ function tryList(lines: string[], start: number, options: MarkdownOptions): Bloc
   const rendered = items
     .map((item) => {
       const body = item.join('\n');
-      // A one-line item stays inline, so a bullet list does not gain a
-      // paragraph's worth of vertical space per bullet.
-      let inner = item.length === 1 ? renderInline(body, options) : renderMarkdown(body, options);
+      // Tight single-line items stay inline; blank-separated siblings retain
+      // paragraph wrappers across the whole loose list.
+      let inner =
+        item.length === 1 && !loose ? renderInline(body, options) : renderMarkdown(body, options);
       // Unwrap only a single paragraph. A multi-block item can start and end
       // with different paragraphs; removing those outer tags leaves both incomplete.
       if (
+        !loose &&
         item.length > 1 &&
         inner.startsWith('<p>') &&
         inner.indexOf('</p>') === inner.length - 4
