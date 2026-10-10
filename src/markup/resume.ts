@@ -186,7 +186,7 @@ function parseDocument(source: string): { resume: OpenResume; body: string } {
       continue;
     }
 
-    const h1 = /^#\s+(.+?)\s*(?:(?<=[ \t])#+)?\s*$/.exec(line);
+    const h1 = /^ {0,3}#\s+(.+?)\s*(?:(?<=[ \t])#+)?\s*$/.exec(line);
     if (h1 !== null) {
       if (seenH1) {
         warnings.push('More than one top-level heading; the first one is used as the name.');
@@ -199,7 +199,7 @@ function parseDocument(source: string): { resume: OpenResume; body: string } {
       continue;
     }
 
-    const h2 = /^##\s+(.+?)\s*(?:(?<=[ \t])#+)?\s*$/.exec(line);
+    const h2 = /^ {0,3}##\s+(.+?)\s*(?:(?<=[ \t])#+)?\s*$/.exec(line);
     if (h2 !== null) {
       flushSection();
       inPreamble = false;
@@ -208,7 +208,7 @@ function parseDocument(source: string): { resume: OpenResume; body: string } {
       continue;
     }
 
-    const h3 = /^###\s+(.+?)\s*(?:(?<=[ \t])#+)?\s*$/.exec(line);
+    const h3 = /^ {0,3}###\s+(.+?)\s*(?:(?<=[ \t])#+)?\s*$/.exec(line);
     if (h3 !== null && section !== null) {
       flushEntry();
       const raw = (h3[1] ?? '').trim();
