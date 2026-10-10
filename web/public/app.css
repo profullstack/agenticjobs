@@ -166,10 +166,8 @@ footer.pfs-footer {
 }
 
 /* The skill links above the footer proper: one row that wraps. */
+/* The shared footer's own top rule follows, so the row needs none of its own. */
 .footer-skills {
-  padding-bottom: 0.75rem;
-  margin-bottom: 0.75rem;
-  border-bottom: 1px solid var(--border);
   gap: 0.5rem 0.9rem;
 }
 
