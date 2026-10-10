@@ -13,3 +13,4 @@ packages:
 minimumReleaseAgeExclude:
   - '@profullstack/hqtui'
   - '@profullstack/synconfig@0.1.2'
+  - '@profullstack/footer'
