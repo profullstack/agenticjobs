@@ -34,6 +34,17 @@ export async function handleMessage(
   caller: Caller,
   info: ServerInfo,
 ): Promise<JsonRpcResponse | null> {
+  const response = await dispatchMessage(payload, caller, info);
+  // Suppress every result and error at the boundary, while still dispatching
+  // notifications exactly once. Individual method branches must not reply.
+  return isRequest(payload) && isNotification(payload) ? null : response;
+}
+
+async function dispatchMessage(
+  payload: unknown,
+  caller: Caller,
+  info: ServerInfo,
+): Promise<JsonRpcResponse | null> {
   if (!isRequest(payload)) {
     return failure(null, INVALID_PARAMS, 'Not a JSON-RPC 2.0 request.');
   }
