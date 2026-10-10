@@ -297,12 +297,19 @@ export const Layout: FC<PropsWithChildren<PageProps>> = (props) => {
             <a href="/jobs.json">Feed</a>
             <a href="/llms.txt">llms.txt</a>
             <nav class="webring" aria-label="Profullstack webring">
-              <a href={`${RING}/previous?from=${ringFrom}`} rel="prev">
+              <a href={`${RING}/previous?from=${ringFrom}`} rel="prev" title="Previous site">
                 {'<<'}
               </a>{' '}
               <a href={RING}>Profullstack</a>{' '}
-              <a href={`${RING}/next?from=${ringFrom}`} rel="next">
+              <a href={`${RING}/next?from=${ringFrom}`} rel="next" title="Next site">
                 {'>>'}
+              </a>{' '}
+              <a
+                href={`${RING}/random?from=${ringFrom}`}
+                title="Random site"
+                aria-label="Random site"
+              >
+                {'⚄'}
               </a>
             </nav>
           </div>

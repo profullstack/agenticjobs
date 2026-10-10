@@ -35,6 +35,9 @@ import { toPlainText } from '../../markup/markdown.ts';
 import { descriptorFor } from './descriptor.ts';
 import type { AppEnv } from '../deps.ts';
 
+/** Ring member slugs the ring assigned that are not simply the host with dots as dashes. */
+const RING_SLUGS: Record<string, string> = { 'agenticjobs.work': 'agenticjobs-work-3' };
+
 function publicDir(): string {
   // dist/server/routes/discovery.js -> package root -> web/public
   return join(dirname(dirname(dirname(dirname(fileURLToPath(import.meta.url))))), 'web', 'public');
@@ -958,6 +961,28 @@ export function discoveryRoutes(): Hono<AppEnv> {
       tools: TOOLS.map((tool) => tool.name),
       catalogs: ['https://openmcp.logicsrc.com'],
     });
+  });
+
+  /**
+   * The OpenWebring descriptor (rssamplifier.com/openwebring): this board's
+   * membership in the Profullstack ring, whose footer links every page carries.
+   * The member slug is the host with dots as dashes, except where the ring
+   * assigned another one.
+   */
+  routes.get('/.well-known/openwebring.json', (c) => {
+    const { config } = c.get('deps');
+    const host = new URL(config.publicUrl).hostname;
+    const slug = RING_SLUGS[host] ?? host.replaceAll('.', '-');
+    return c.json(
+      {
+        openwebring: '0.1',
+        site: { url: `${config.publicUrl.replace(/\/+$/, '')}/`, name: config.boardName },
+        made_by: 'both',
+        rings: [{ ring: 'https://rssamplifier.com/ring/profullstack', slug }],
+      },
+      200,
+      { 'cache-control': 'public, max-age=300' },
+    );
   });
 
   /**
