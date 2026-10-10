@@ -15,6 +15,7 @@ import { renderMarkdown } from '../markup/markdown.ts';
 import type { SkillCount } from '../core/skills.ts';
 import { pathForQuery } from '../core/landing.ts';
 import { EMPTY_QUERY } from '../schema/query.ts';
+import { pfsFooter } from './pfs-footer.ts';
 
 export interface PageProps {
   title: string;
@@ -81,9 +82,6 @@ const BrandMark: FC = () => (
   </svg>
 );
 
-/** The Profullstack OpenWebring this board belongs to. */
-const RING = 'https://rssamplifier.com/ring/profullstack';
-
 export const Layout: FC<PropsWithChildren<PageProps>> = (props) => {
   const {
     title,
@@ -106,7 +104,6 @@ export const Layout: FC<PropsWithChildren<PageProps>> = (props) => {
   const full = title === boardName ? title : `${title} - ${boardName}`;
   const url = canonical ?? `${publicUrl}${path}`;
   // The ring finds its neighbours by this site's own front page address.
-  const ringFrom = encodeURIComponent(`${publicUrl.replace(/\/+$/, '')}/`);
 
   return (
     <html lang="en">
@@ -271,8 +268,8 @@ export const Layout: FC<PropsWithChildren<PageProps>> = (props) => {
         <main id="main">
           <div class="container">{children}</div>
         </main>
-        <footer class="site-footer">
-          {skills.length > 0 && (
+        {skills.length > 0 && (
+          <footer class="site-footer">
             <div class="container footer-skills">
               <span>Popular skills:</span>
               {skills.map((skill) => (
@@ -282,38 +279,25 @@ export const Layout: FC<PropsWithChildren<PageProps>> = (props) => {
               ))}
               <a href="/skills">all skills</a>
             </div>
-          )}
-          <div class="container">
-            <a href="/popular">Popular</a>
-            <a href="/most-profitable">Most profitable</a>
-            <a href="/agents">Agents</a>
-            <span>
-              {boardName} runs on{' '}
-              <a href="https://github.com/profullstack/agenticjobs">agenticjobs</a>, MIT licensed.
-            </span>
-            <a href="/docs">API</a>
-            <a href="/api/v1/openapi.json">OpenAPI</a>
-            <a href="/.well-known/agenticjobs">Instance</a>
-            <a href="/jobs.json">Feed</a>
-            <a href="/llms.txt">llms.txt</a>
-            <nav class="webring" aria-label="Profullstack webring">
-              <a href={`${RING}/previous?from=${ringFrom}`} rel="prev" title="Previous site">
-                {'<<'}
-              </a>{' '}
-              <a href={RING}>Profullstack</a>{' '}
-              <a href={`${RING}/next?from=${ringFrom}`} rel="next" title="Next site">
-                {'>>'}
-              </a>{' '}
-              <a
-                href={`${RING}/random?from=${ringFrom}`}
-                title="Random site"
-                aria-label="Random site"
-              >
-                {'⚄'}
-              </a>
-            </nav>
-          </div>
-        </footer>
+          </footer>
+        )}
+        {raw(
+          pfsFooter({
+            site: `${publicUrl.replace(/\/+$/, '')}/`,
+            links: [
+              { label: 'Popular', href: '/popular' },
+              { label: 'Most profitable', href: '/most-profitable' },
+              { label: 'Agents', href: '/agents' },
+              { label: 'API', href: '/docs' },
+              { label: 'OpenAPI', href: '/api/v1/openapi.json' },
+              { label: 'Instance', href: '/.well-known/agenticjobs' },
+              { label: 'Feed', href: '/jobs.json' },
+              { label: 'llms.txt', href: '/llms.txt' },
+              { label: 'Source', href: 'https://github.com/profullstack/agenticjobs' },
+            ],
+            tagline: `${boardName} runs on agenticjobs, MIT licensed.`,
+          }),
+        )}
         <script src="/assets/app.js" defer></script>
         {/*
          * CrawlProof, as a plain tag. `defer` is what `strategy` meant on the

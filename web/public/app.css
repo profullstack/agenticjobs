@@ -159,6 +159,12 @@ main {
   color: var(--muted-foreground);
 }
 
+/* The shared Profullstack footer (src/views/pfs-footer.ts) under the skills row. */
+footer.pfs-footer {
+  --pfs-footer-muted: var(--muted-foreground);
+  border-top-color: var(--border);
+}
+
 /* The skill links above the footer proper: one row that wraps. */
 .footer-skills {
   padding-bottom: 0.75rem;
