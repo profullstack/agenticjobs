@@ -431,7 +431,11 @@ interface ParsedLinkDestination {
   end: number;
 }
 
-function parseLinkDestination(text: string, open: number): ParsedLinkDestination | null {
+function parseLinkDestination(
+  text: string,
+  open: number,
+  titleQuote = '&quot;',
+): ParsedLinkDestination | null {
   let depth = 0;
   let index = open + 1;
   while (index < text.length) {
@@ -448,10 +452,10 @@ function parseLinkDestination(text: string, open: number): ParsedLinkDestination
       const titleStart = text.slice(index).search(/\S/);
       if (titleStart < 0) return null;
       const title = index + titleStart;
-      if (!text.startsWith('&quot;', title)) return null;
-      const titleEnd = text.indexOf('&quot;', title + 6);
+      if (!text.startsWith(titleQuote, title)) return null;
+      const titleEnd = text.indexOf(titleQuote, title + titleQuote.length);
       if (titleEnd < 0) return null;
-      let close = titleEnd + 6;
+      let close = titleEnd + titleQuote.length;
       while (/\s/.test(text[close] ?? '')) close += 1;
       return text[close] === ')' && href !== '' ? { href, end: close } : null;
     } else if (character === ')') {
@@ -532,16 +536,35 @@ function normalizeCodeSpanBody(body: string): string {
   return normalized;
 }
 
+/** Strip complete destinations, including the parentheses and title they contain. */
+function plainInlineLinks(source: string): string {
+  let text = source;
+  // Omit images before retaining link labels, so a linked image stays omitted.
+  for (const image of [true, false]) {
+    const parts: string[] = [];
+    let cursor = 0;
+    const pattern = image ? /!\[([^\]]*)\]\(/g : /\[([^\]]+)\]\(/g;
+    for (const match of text.matchAll(pattern)) {
+      if (match.index < cursor) continue;
+      const parsed = parseLinkDestination(text, match.index + match[0].length - 1, '"');
+      if (parsed === null) continue;
+      parts.push(text.slice(cursor, match.index), image ? ' ' : (match[1] ?? ''));
+      cursor = parsed.end + 1;
+    }
+    parts.push(text.slice(cursor));
+    text = parts.join('');
+  }
+  return text;
+}
+
 /** Plain text, for meta descriptions, feeds, the TUI and search snippets. */
 export function toPlainText(source: string, limit = 300): string {
-  const text = source
-    .replace(
-      /(`{3,}|~{3,})[^\n]*\n([\s\S]*?)(?:\n\s{0,3}(`{3,}|~{3,})\s*(?=\n|$)|$)/g,
-      (whole, open: string, _body: string, close?: string) =>
-        close !== undefined && close[0] === open[0] && close.length >= open.length ? ' ' : whole,
-    )
-    .replace(/!\[[^\]]*\]\([^)]*\)/g, ' ')
-    .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+  const withoutCode = source.replace(
+    /(`{3,}|~{3,})[^\n]*\n([\s\S]*?)(?:\n\s{0,3}(`{3,}|~{3,})\s*(?=\n|$)|$)/g,
+    (whole, open: string, _body: string, close?: string) =>
+      close !== undefined && close[0] === open[0] && close.length >= open.length ? ' ' : whole,
+  );
+  const text = plainInlineLinks(withoutCode)
     // A hash in C#, an issue number or a URL fragment is text. Only remove
     // ATX heading markers, including optional closing hashes and quoted headings.
     .replace(
