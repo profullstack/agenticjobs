@@ -314,19 +314,28 @@ const MARK = String.fromCharCode(0);
 /**
  * Inline markup.
  *
- * Code spans are pulled out first and put back last, so a backticked
- * `**not bold**` stays literal and an asterisk inside code cannot open
- * emphasis that then runs off through the rest of the paragraph.
+ * Code spans and generated HTML are held aside while prose is formatted,
+ * so Markdown markers stay literal in code and URL/attribute values.
  */
 export function renderInline(source: string, options: MarkdownOptions = {}): string {
-  const codes: string[] = [];
+  const fragments: string[] = [];
   const rel = options.linkRel ?? DEFAULT_REL;
+  const restore = (text: string): string =>
+    text.replace(new RegExp(`${MARK}(\\d+)${MARK}`, 'g'), (_whole, id: string) => {
+      return fragments[Number(id)] ?? '';
+    });
+  const protectHtml = (html: string): string => {
+    // Link labels may already contain protected code spans. Resolve those
+    // before storing the whole tag so restoration only needs one pass.
+    fragments.push(restore(html));
+    return `${MARK}${fragments.length - 1}${MARK}`;
+  };
 
-  let text = protectCodeSpans(source, codes);
+  let text = protectCodeSpans(source, fragments);
 
   text = escapeHtml(text);
 
-  text = replaceInlineLinks(text, options, rel);
+  text = replaceInlineLinks(text, options, rel, protectHtml);
 
   // Bare URLs. Trailing punctuation is left outside the link, because a URL at
   // the end of a sentence is the common case and the full stop is not part of
@@ -339,20 +348,21 @@ export function renderInline(source: string, options: MarkdownOptions = {}): str
     const tail = decoded.slice(trimmed.length);
     const url = safeUrl(trimmed);
     if (url === null) return `${lead}${href}`;
-    return `${lead}<a href="${escapeHtml(url)}" rel="${rel}">${escapeHtml(trimmed)}</a>${tail}`;
+    const html = `<a href="${escapeHtml(url)}" rel="${rel}">${escapeHtml(trimmed)}</a>`;
+    return `${lead}${protectHtml(html)}${tail}`;
   });
 
-  text = text
+  return restore(renderEmphasis(text));
+}
+
+function renderEmphasis(text: string): string {
+  return text
     .replace(/\*\*\*([^*]+)\*\*\*/g, '<strong><em>$1</em></strong>')
     .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
     .replace(/(^|[^\w*])\*([^*\n]+)\*(?!\w)/g, '$1<em>$2</em>')
     .replace(/(^|[^\w_])__([^_\n]+)__(?!\w)/g, '$1<strong>$2</strong>')
     .replace(/(^|[^\w_])_([^_\n]+)_(?!\w)/g, '$1<em>$2</em>')
     .replace(/~~([^~\n]+)~~/g, '<del>$1</del>');
-
-  return text.replace(new RegExp(`${MARK}(\\d+)${MARK}`, 'g'), (_whole, id: string) => {
-    return codes[Number(id)] ?? '';
-  });
 }
 
 /** Keep balanced URL parentheses; only surrounding prose belongs outside the link. */
@@ -377,7 +387,12 @@ function trimBareUrl(url: string): string {
   return url.slice(0, end);
 }
 
-function replaceInlineLinks(text: string, options: MarkdownOptions, rel: string): string {
+function replaceInlineLinks(
+  text: string,
+  options: MarkdownOptions,
+  rel: string,
+  protectHtml: (html: string) => string,
+): string {
   let result = '';
   let cursor = 0;
   for (let index = 0; index < text.length; index += 1) {
@@ -394,14 +409,17 @@ function replaceInlineLinks(text: string, options: MarkdownOptions, rel: string)
     const url = safeUrl(unescapeUrl(parsed.href));
     if (url === null) continue;
     result += text.slice(cursor, index);
+    let html: string;
     if (image) {
-      result +=
+      const linkLabel = label === '' ? escapeHtml(url) : renderEmphasis(label);
+      html =
         options.noImages === true
-          ? `<a href="${escapeHtml(url)}" rel="${rel}">${label === '' ? escapeHtml(url) : label}</a>`
+          ? `<a href="${escapeHtml(url)}" rel="${rel}">${linkLabel}</a>`
           : `<img src="${escapeHtml(url)}" alt="${label}" loading="lazy" />`;
     } else {
-      result += `<a href="${escapeHtml(url)}" rel="${rel}">${label}</a>`;
+      html = `<a href="${escapeHtml(url)}" rel="${rel}">${renderEmphasis(label)}</a>`;
     }
+    result += protectHtml(html);
     cursor = parsed.end + 1;
     index = parsed.end;
   }
