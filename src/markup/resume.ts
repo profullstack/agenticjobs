@@ -284,7 +284,7 @@ function parseDocument(source: string): { resume: OpenResume; body: string } {
 export function parseMarkdownLink(text: string): { label: string; href: string; end: number } | null {
   const opening = /^\[([^\]]+)\]\(/.exec(text);
   if (opening === null) return null;
-  const angleDestination = /^\[([^\]]+)\]\(<((?:\\.|[^<>\\\n])*)>(?:\s+"[^"]*")?\)/.exec(
+  const angleDestination = /^\[([^\]]+)\]\(<((?:\\.|[^<>\\\n])*)>(?:\s+"[^"]*")?\s*\)/.exec(
     text,
   );
   if (angleDestination !== null) {
@@ -314,7 +314,7 @@ export function parseMarkdownLink(text: string): { label: string; href: string; 
       }
     } else if (/\s/.test(character)) {
       // An optional link title follows the URL; it is not part of the account.
-      const title = /^\s+"[^"]*"\s*\)/.exec(text.slice(index));
+      const title = /^\s+(?:"[^"]*"\s*)?\)/.exec(text.slice(index));
       return title === null || href === ''
         ? null
         : { label: opening[1] ?? '', href, end: index + title[0].length - 1 };
