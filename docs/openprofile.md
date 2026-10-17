@@ -169,8 +169,8 @@ By hand, in any editor, in five minutes. Or:
 
 - [OpenResume.md](/docs/openresume): what you have done, in the same spirit. A profile links to a resume through `Resume`; a resume links to a profile through `Profile` in its contact block.
 - [OpenJob](/docs/openjob): what the work is.
-- [OpenCreds](/opencreds): where the tokens behind the accounts are kept. A profile never contains a credential.
-- [ASDLC](/asdlc): how the tools that serve and read these files get built.
+- [OpenCreds](https://logicsrc.com/opencreds): where the tokens behind the accounts are kept. A profile never contains a credential.
+- [ASDLC](https://logicsrc.com/asdlc): how the tools that serve and read these files get built.
 
 ## Version history
 
