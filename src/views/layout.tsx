@@ -15,7 +15,7 @@ import { renderMarkdown } from '../markup/markdown.ts';
 import type { SkillCount } from '../core/skills.ts';
 import { pathForQuery } from '../core/landing.ts';
 import { EMPTY_QUERY } from '../schema/query.ts';
-import { pfsFooter } from './pfs-footer.ts';
+import { pitFooter } from './pit-footer.ts';
 import { AdUnit, showsAd } from './ad-unit.tsx';
 
 export interface PageProps {
@@ -267,11 +267,12 @@ export const Layout: FC<PropsWithChildren<PageProps>> = (props) => {
           </div>
         </header>
         <main id="main">
+          {/* The one ad, at the top of the content: never pressed against the footer. */}
+          {showsAd(path, noindex) && <AdUnit />}
           <div class="container">{children}</div>
         </main>
-        {showsAd(path, noindex) && <AdUnit />}
-        {skills.length > 0 && (
-          <footer class="site-footer">
+        <footer class="site-footer">
+          {skills.length > 0 && (
             <div class="container footer-skills">
               <span>Popular skills:</span>
               {skills.map((skill) => (
@@ -281,25 +282,18 @@ export const Layout: FC<PropsWithChildren<PageProps>> = (props) => {
               ))}
               <a href="/skills">all skills</a>
             </div>
-          </footer>
-        )}
-        {raw(
-          pfsFooter({
-            site: `${publicUrl.replace(/\/+$/, '')}/`,
-            links: [
-              { label: 'Popular', href: '/popular' },
-              { label: 'Most profitable', href: '/most-profitable' },
-              { label: 'Agents', href: '/agents' },
-              { label: 'API', href: '/docs' },
-              { label: 'OpenAPI', href: '/api/v1/openapi.json' },
-              { label: 'Instance', href: '/.well-known/agenticjobs' },
-              { label: 'Feed', href: '/jobs.json' },
-              { label: 'llms.txt', href: '/llms.txt' },
-              { label: 'Source', href: 'https://github.com/profullstack/agenticjobs' },
-            ],
-            tagline: `${boardName} runs on agenticjobs, MIT licensed.`,
-          }),
-        )}
+          )}
+          <div class="container footer-links">
+            <span>
+              &copy; {new Date().getFullYear()} {boardName}
+            </span>
+            <a href="/popular">Popular</a>
+            <a href="/agents">Agents</a>
+            <a href="/docs">API</a>
+            <a href="/jobs.json">Feed</a>
+            <a href="https://github.com/profullstack/agenticjobs">Source</a>
+          </div>
+        </footer>
         <script src="/assets/app.js" defer></script>
         {/*
          * CrawlProof, as a plain tag. `defer` is what `strategy` meant on the
@@ -312,6 +306,8 @@ export const Layout: FC<PropsWithChildren<PageProps>> = (props) => {
             defer
           ></script>
         )}
+        {/* The pit.world global footer, last in <body>. */}
+        {raw(pitFooter(publicUrl))}
       </body>
     </html>
   );

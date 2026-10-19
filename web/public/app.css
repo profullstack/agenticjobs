@@ -143,7 +143,7 @@ main {
 
 .site-footer {
   border-top: 1px solid var(--border);
-  padding: 2rem 0;
+  padding: 1.25rem 0;
   color: var(--muted-foreground);
   font-size: 0.85rem;
 }
@@ -159,16 +159,12 @@ main {
   color: var(--muted-foreground);
 }
 
-/* The shared Profullstack footer (src/views/pfs-footer.ts) under the skills row. */
-footer.pfs-footer {
-  --pfs-footer-muted: var(--muted-foreground);
-  border-top-color: var(--border);
-}
-
-/* The skill links above the footer proper: one row that wraps. */
-/* The shared footer's own top rule follows, so the row needs none of its own. */
+/* Two rows: the popular skills, then the copyright and the links people use. */
 .footer-skills {
   gap: 0.5rem 0.9rem;
+}
+.footer-skills + .footer-links {
+  margin-top: 0.75rem;
 }
 
 .thread.unread {
@@ -1100,9 +1096,9 @@ a.badge-plain:hover .badge {
 .tracker-missing { color: var(--warning); font-size: 0.9rem; margin: 0.25rem 0; }
 .tracker-improve ul { margin: 0; padding-left: 1.25rem; display: grid; gap: 0.5rem; }
 
-/* CrawlProof ad unit (src/views/ad-unit.tsx): one fluid text_link frame above the footer. */
+/* CrawlProof ad unit (src/views/ad-unit.tsx): one fluid text_link frame at the top of the content. */
 .ad-unit {
-  margin: 1.5rem 0 0;
+  margin: 0 0 1.5rem;
 }
 .ad-unit iframe {
   display: block;
