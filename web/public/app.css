@@ -159,7 +159,13 @@ main {
   color: var(--muted-foreground);
 }
 
-/* Two rows: the popular skills, then the copyright and the links people use. */
+/* The shared Profullstack footer (src/views/pfs-footer.ts) under the site footer. */
+footer.pfs-footer {
+  --pfs-footer-muted: var(--muted-foreground);
+  border-top-color: var(--border);
+}
+
+/* Two rows: the popular skills, then the links people use. */
 .footer-skills {
   gap: 0.5rem 0.9rem;
 }

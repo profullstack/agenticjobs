@@ -15,6 +15,7 @@ import { renderMarkdown } from '../markup/markdown.ts';
 import type { SkillCount } from '../core/skills.ts';
 import { pathForQuery } from '../core/landing.ts';
 import { EMPTY_QUERY } from '../schema/query.ts';
+import { pfsFooter } from './pfs-footer.ts';
 import { pitFooter } from './pit-footer.ts';
 import { AdUnit, showsAd } from './ad-unit.tsx';
 
@@ -284,9 +285,6 @@ export const Layout: FC<PropsWithChildren<PageProps>> = (props) => {
             </div>
           )}
           <div class="container footer-links">
-            <span>
-              &copy; {new Date().getFullYear()} {boardName}
-            </span>
             <a href="/popular">Popular</a>
             <a href="/agents">Agents</a>
             <a href="/docs">API</a>
@@ -294,6 +292,14 @@ export const Layout: FC<PropsWithChildren<PageProps>> = (props) => {
             <a href="https://github.com/profullstack/agenticjobs">Source</a>
           </div>
         </footer>
+        {/* Copyright and the Profullstack webring: @profullstack/footer. */}
+        {raw(
+          pfsFooter({
+            site: `${publicUrl.replace(/\/+$/, '')}/`,
+            links: [],
+            tagline: `${boardName} runs on agenticjobs, MIT licensed.`,
+          }),
+        )}
         <script src="/assets/app.js" defer></script>
         {/*
          * CrawlProof, as a plain tag. `defer` is what `strategy` meant on the
