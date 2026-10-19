@@ -16,6 +16,7 @@ import type { SkillCount } from '../core/skills.ts';
 import { pathForQuery } from '../core/landing.ts';
 import { EMPTY_QUERY } from '../schema/query.ts';
 import { pfsFooter } from './pfs-footer.ts';
+import { AdUnit, showsAd } from './ad-unit.tsx';
 
 export interface PageProps {
   title: string;
@@ -268,6 +269,7 @@ export const Layout: FC<PropsWithChildren<PageProps>> = (props) => {
         <main id="main">
           <div class="container">{children}</div>
         </main>
+        {showsAd(path, noindex) && <AdUnit />}
         {skills.length > 0 && (
           <footer class="site-footer">
             <div class="container footer-skills">

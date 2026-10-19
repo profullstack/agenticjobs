@@ -107,6 +107,9 @@ export function securityHeaders(
     `frame-ancestors 'none'`,
     `object-src 'none'`,
     `script-src 'self' https://crawlproof.com`,
+    // The one ad unit is a cross-origin CrawlProof frame (/api/ads/frame), so
+    // it costs this entry and nothing else: no script, no style, no storage.
+    `frame-src https://crawlproof.com`,
     `style-src 'self' 'unsafe-inline'`,
     // Employer logos and avatars come from wherever the employer hosts them.
     // 'self' has to be listed explicitly: omitting it works in production and

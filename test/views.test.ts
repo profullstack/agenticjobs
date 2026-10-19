@@ -556,3 +556,36 @@ test('a signed-out visitor is offered somewhere to hire from', async () => {
   // Signed in, the nav already has a button to the form; two would be noise.
   assert.match(nav({ id: 'u' }), /href="\/post"/, 'signed in, the form is still one click away');
 });
+
+test('the ad unit is a crawlproof frame on public pages only, and the policy frames it', async () => {
+  const { showsAd, AD_SLOT } = await import('../dist/views/ad-unit.js');
+  const { Layout } = await import('../dist/views/layout.js');
+  const { securityHeaders } = await import('../dist/server/middleware.js');
+  assert.equal(showsAd('/', false), true);
+  assert.equal(showsAd('/jobs/abc', false), true);
+  assert.equal(showsAd('/me/settings', false), false);
+  assert.equal(showsAd('/post-a-job', false), false);
+  assert.equal(showsAd('/tracker', false), false);
+  assert.equal(showsAd('/jobs/abc', true), false);
+
+  const page = (path: string) =>
+    String(
+      Layout({
+        title: 'A board',
+        viewer: null,
+        boardName: 'A board',
+        publicUrl: 'https://example.test',
+        path,
+        children: 'x',
+      }),
+    );
+  const home = page('/');
+  assert.equal(home.match(/crawlproof\.com\/api\/ads\/frame/g)?.length, 1, 'exactly one unit');
+  assert.ok(home.includes(`slot=${AD_SLOT}&amp;format=text_link`), home);
+  assert.ok(!home.includes('theme='), 'the frame answers prefers-color-scheme itself');
+  assert.ok(!page('/inbox').includes('/api/ads/frame'), 'no ad inside the inbox');
+
+  const headers = new Headers();
+  await securityHeaders()({ res: { headers } } as never, async () => undefined);
+  assert.match(headers.get('content-security-policy') ?? '', /frame-src https:\/\/crawlproof\.com/);
+});

@@ -1099,3 +1099,15 @@ a.badge-plain:hover .badge {
 .tracker-metrics .card-content { padding: 1rem; }
 .tracker-missing { color: var(--warning); font-size: 0.9rem; margin: 0.25rem 0; }
 .tracker-improve ul { margin: 0; padding-left: 1.25rem; display: grid; gap: 0.5rem; }
+
+/* CrawlProof ad unit (src/views/ad-unit.tsx): one fluid text_link frame above the footer. */
+.ad-unit {
+  margin: 1.5rem 0 0;
+}
+.ad-unit iframe {
+  display: block;
+  width: 100%;
+  height: 40px;
+  border: 0;
+  background: transparent;
+}
