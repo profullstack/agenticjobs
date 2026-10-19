@@ -11,6 +11,4 @@ packages:
 # hqtui is published by us, often on the same day we depend on the new version.
 # pnpm 11 refuses packages younger than a day unless they are listed here.
 minimumReleaseAgeExclude:
-  - '@profullstack/hqtui'
-  - '@profullstack/synconfig@0.1.2'
-  - '@profullstack/footer'
+  - '@profullstack/*'
