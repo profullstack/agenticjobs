@@ -175,8 +175,10 @@ An employer with a brief and no time can have a model expand it into the form. S
 one key and the box appears on `/post`; set neither and it does not:
 
 ```bash
-OPENAI_API_KEY=sk-...          # or ANTHROPIC_API_KEY=sk-ant-...
-WRITER_MODEL=gpt-5.2-codex     # optional; defaults to gpt-5.2 or claude-opus-5
+ANTHROPIC_API_KEY=sk-ant-...   # tried first
+OPENAI_API_KEY=sk-...          # either alone works; with both, OpenAI is the fallback
+WRITER_MODEL=gpt-5.2-codex     # optional; defaults to claude-opus-5 / gpt-5.2, and only
+                               # applies to the provider it names (claude-* = Anthropic)
 ```
 
 It fills the form in and stops. Nothing is written and nothing is published: the

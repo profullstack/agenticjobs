@@ -206,3 +206,46 @@ test('a brief too short to work with never reaches the model', async () => {
   );
   assert.equal(called, false, 'and costs the board nothing');
 });
+
+test('with both keys, an Anthropic failure falls back to OpenAI', async () => {
+  const sent = [];
+  const fake = async (url, init) => {
+    sent.push({ url, model: JSON.parse(init.body).model });
+    if (url.includes('anthropic')) {
+      return new Response(JSON.stringify({ error: { message: 'Your credit balance is too low' } }), {
+        status: 400,
+      });
+    }
+    return new Response(JSON.stringify({ choices: [{ message: { content: FULL } }] }), { status: 200 });
+  };
+
+  const values = await draftListing('A real brief about a real job.', { boardName: 'B', orgName: null },
+    { ...CONFIG, anthropicApiKey: 'sk-ant', openaiApiKey: 'sk-oai', writerModel: 'claude-haiku-5-5' }, fake);
+
+  assert.equal(values['title'], 'Senior Go Engineer');
+  assert.deepEqual(sent.map((s) => s.url), [
+    'https://api.anthropic.com/v1/messages',
+    'https://api.openai.com/v1/chat/completions',
+  ]);
+  assert.equal(sent[0].model, 'claude-haiku-5-5');
+  assert.equal(sent[1].model, 'gpt-5.2', 'a Claude model name is never sent to OpenAI');
+});
+
+test('an empty account says so, rather than claiming a rate limit', async () => {
+  // OpenAI answers an exhausted balance with a 429, the same status as a real
+  // rate limit, and "try again shortly" would never come true.
+  const broke = async () =>
+    new Response(JSON.stringify({ error: { code: 'credit_balance_exhausted', type: 'insufficient_quota' } }), {
+      status: 429,
+    });
+
+  await assert.rejects(
+    draftListing('A real brief about a real job.', { boardName: 'B', orgName: null },
+      { ...CONFIG, openaiApiKey: 'sk-test' }, broke),
+    (error) => {
+      assert.ok(error instanceof AgentWriterProblem);
+      assert.match(error.message, /out of credits/);
+      return true;
+    },
+  );
+});

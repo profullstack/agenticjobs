@@ -10,8 +10,10 @@
  *
  * Two providers, because this is MIT software other people self-host and a
  * board that only works if you bank with one vendor is not self-hostable. The
- * key that is set decides; when neither is set the feature is simply absent
- * from the page rather than present and broken.
+ * keys that are set decide; when neither is set the feature is simply absent
+ * from the page rather than present and broken. With both set, the second is
+ * a fallback: a provider that is out of credits or down hands the brief to the
+ * other one instead of the employer.
  *
  * Written against the two REST APIs directly rather than either vendor SDK.
  * One dependency per provider to fill in a form is a poor trade for a package
@@ -36,16 +38,33 @@ export class AgentWriterProblem extends Error {}
 export type WriterProvider = 'anthropic' | 'openai';
 
 /**
- * Which provider this instance can use, or null for none.
+ * The providers this instance can use, in the order they are tried.
  *
- * Anthropic first when both are set, for no better reason than that a board
- * with both keys has to pick one and a coin flip at request time would make
- * the same brief produce different listings.
+ * Anthropic first when both are set, so the same brief goes to the same model
+ * whenever it can; OpenAI only answers when Anthropic could not.
  */
+export function writerProviders(config: Config): WriterProvider[] {
+  const providers: WriterProvider[] = [];
+  if (config.anthropicApiKey !== null) providers.push('anthropic');
+  if (config.openaiApiKey !== null) providers.push('openai');
+  return providers;
+}
+
+/** The provider tried first, or null for none. */
 export function writerProvider(config: Config): WriterProvider | null {
-  if (config.anthropicApiKey !== null) return 'anthropic';
-  if (config.openaiApiKey !== null) return 'openai';
-  return null;
+  return writerProviders(config)[0] ?? null;
+}
+
+/**
+ * WRITER_MODEL, for the provider it names.
+ *
+ * One setting serves two vendors, so a Claude model name must never be sent to
+ * OpenAI on the fallback path, nor a GPT name to Anthropic.
+ */
+function modelFor(provider: WriterProvider, config: Config): string | null {
+  const model = config.writerModel;
+  if (model === null) return null;
+  return model.startsWith('claude') === (provider === 'anthropic') ? model : null;
 }
 
 /**
@@ -118,8 +137,8 @@ export async function draftListing(
     throw new AgentWriterProblem('Say a little more about the role, and I will draft it.');
   }
 
-  const provider = writerProvider(config);
-  if (provider === null) {
+  const providers = writerProviders(config);
+  if (providers.length === 0) {
     throw new AgentWriterProblem('This board has no model configured.');
   }
 
@@ -133,12 +152,26 @@ export async function draftListing(
     .filter((line) => line !== null)
     .join('\n');
 
-  const raw =
-    provider === 'anthropic'
-      ? await askAnthropic(prompt, config, fetchImpl)
-      : await askOpenAi(prompt, config, fetchImpl);
-
-  return fieldsFromModelJson(raw);
+  // Each provider in turn. A failure on the first is logged for whoever runs
+  // the board and never shown; the employer only hears about it when every
+  // provider failed, and then from the last one tried.
+  let problem: AgentWriterProblem | null = null;
+  for (const provider of providers) {
+    try {
+      const raw =
+        provider === 'anthropic'
+          ? await askAnthropic(prompt, config, fetchImpl)
+          : await askOpenAi(prompt, config, fetchImpl);
+      return fieldsFromModelJson(raw);
+    } catch (error) {
+      if (!(error instanceof AgentWriterProblem)) throw error;
+      if (problem === null && providers.length > 1) {
+        console.error(`agent writer: ${provider} failed, trying the next provider: ${error.message}`);
+      }
+      problem = error;
+    }
+  }
+  throw problem ?? new AgentWriterProblem('This board has no model configured.');
 }
 
 /**
@@ -161,7 +194,7 @@ async function askAnthropic(
       'anthropic-version': '2023-06-01',
     },
     body: JSON.stringify({
-      model: config.writerModel ?? 'claude-opus-5',
+      model: modelFor('anthropic', config) ?? 'claude-opus-5',
       max_tokens: 4000,
       output_config: { effort: 'low' },
       system: SYSTEM,
@@ -207,7 +240,7 @@ async function askOpenAi(
       authorization: `Bearer ${config.openaiApiKey ?? ''}`,
     },
     body: JSON.stringify({
-      model: config.writerModel ?? 'gpt-5.2',
+      model: modelFor('openai', config) ?? 'gpt-5.2',
       max_completion_tokens: 4000,
       response_format: { type: 'json_object' },
       messages: [
@@ -239,11 +272,17 @@ async function askOpenAi(
  * carry account details that do not belong on a public page.
  */
 async function problemFor(response: Response, provider: string): Promise<AgentWriterProblem> {
-  // Read and discard, so the connection is not left hanging on a body nobody
-  // consumed.
-  await response.text().catch(() => '');
+  // Read in full, so the connection is not left hanging, and so an empty
+  // account can be told apart from a busy one. Both providers say "out of
+  // credits" with a status that also means something else: OpenAI with a 429,
+  // Anthropic with a 400.
+  const body = await response.text().catch(() => '');
+  console.error(`agent writer: ${provider} answered ${response.status}: ${body.slice(0, 300)}`);
   if (response.status === 401 || response.status === 403) {
     return new AgentWriterProblem(`This board's ${provider} key was rejected.`);
+  }
+  if (/insufficient_quota|credit_balance|credit balance/i.test(body)) {
+    return new AgentWriterProblem(`This board's ${provider} account is out of credits.`);
   }
   if (response.status === 429) {
     return new AgentWriterProblem('The model is rate limited right now. Try again shortly.');
