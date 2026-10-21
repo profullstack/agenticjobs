@@ -65,6 +65,9 @@ export interface Payment {
 
 export class CoinPayProblem extends Error {}
 
+/** The site every payment here is for, as CoinPay records it (`property`). */
+export const PROPERTY = 'agenticjobs.work';
+
 export interface CoinPayClient {
   readonly config: CoinPayConfig;
   authorizeUrl(input: { state: string; codeChallenge: string; redirectUri: string }): string;
@@ -83,6 +86,11 @@ export interface CoinPayClient {
     redirectUrl: string;
     idempotencyKey: string;
     metadata: Record<string, string>;
+    /** Who is paying: their email and agenticjobs user id. Sent top-level and in metadata. */
+    customerEmail?: string | null;
+    accountId?: string | null;
+    /** Who is being paid: the payee's agenticjobs user id. */
+    payeeId?: string | null;
   }): Promise<Payment>;
   getPayment(id: string): Promise<Payment | null>;
   /** Where a payer goes to pay. */
@@ -276,7 +284,18 @@ export function createCoinPay(config: CoinPayConfig, fetchImpl: Fetch = fetch): 
           merchant_wallet_address: input.payeeAddress,
           description: input.description,
           redirect_url: input.redirectUrl,
-          metadata: { ...input.metadata, idempotency_key: input.idempotencyKey },
+          // Optional on /payments/create: a malformed one is dropped by CoinPay, never a 400.
+          ...(input.customerEmail ? { customer_email: input.customerEmail } : {}),
+          ...(input.accountId ? { account_id: input.accountId } : {}),
+          property: PROPERTY,
+          metadata: {
+            ...input.metadata,
+            property: PROPERTY,
+            ...(input.accountId ? { account_id: input.accountId } : {}),
+            ...(input.customerEmail ? { customer_email: input.customerEmail } : {}),
+            ...(input.payeeId ? { payee_id: input.payeeId } : {}),
+            idempotency_key: input.idempotencyKey,
+          },
         }),
       });
       if (result.status !== 200 && result.status !== 201) {

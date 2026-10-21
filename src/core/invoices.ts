@@ -307,6 +307,11 @@ export async function requestPayment(
     return synced;
   }
 
+  const payer = await pool.query<{ email: string }>('select email from users where id = $1', [
+    input.payerId,
+  ]);
+  const payerEmail = payer.rows[0]?.email ?? null;
+
   let minted;
   try {
     minted = await coinpay.createPayment({
@@ -324,6 +329,9 @@ export async function requestPayment(
         thread_id: current.threadId,
         payer_id: input.payerId,
       },
+      customerEmail: payerEmail,
+      accountId: input.payerId,
+      payeeId: current.payee.id,
     });
   } catch (error) {
     if (error instanceof CoinPayProblem) return error.message;
@@ -419,15 +427,43 @@ export async function markPaid(
  * to the next page load, which clears it the same way and does not depend on
  * a delivery that may never come.
  */
+export function readWebhook(payload: Record<string, unknown>): {
+  event: string;
+  paymentId: string;
+  status: string;
+  txHash: string | null;
+  metadata: Record<string, unknown>;
+} {
+  // CoinPay nests the payment under `data`; the top-level `id` is the EVENT id,
+  // never the payment's. Read `data` first, the old flat shape as a fallback.
+  const nested = payload['data'];
+  const data =
+    typeof nested === 'object' && nested !== null ? (nested as Record<string, unknown>) : payload;
+  const s = (v: unknown) => (typeof v === 'string' ? v : '');
+  const event = s(payload['type']) || s(payload['event']);
+  const paymentId = s(data['payment_id']) || (data === payload ? '' : s(data['id']));
+  const meta = data['metadata'] ?? payload['metadata'];
+  return {
+    event,
+    paymentId,
+    status: s(data['status']).toLowerCase(),
+    txHash: s(data['tx_hash']) || null,
+    metadata: typeof meta === 'object' && meta !== null ? (meta as Record<string, unknown>) : {},
+  };
+}
+
 export async function applyWebhook(
   pool: pg.Pool,
   payload: Record<string, unknown>,
 ): Promise<'paid' | 'ignored' | 'unknown'> {
-  const event = typeof payload['event'] === 'string' ? payload['event'] : '';
-  const paymentId = typeof payload['payment_id'] === 'string' ? payload['payment_id'] : '';
+  const { event, paymentId, status, txHash } = readWebhook(payload);
   if (paymentId === '') return 'ignored';
-  if (event !== 'payment.confirmed' && event !== 'payment.forwarded') return 'ignored';
-  const txHash = typeof payload['tx_hash'] === 'string' ? payload['tx_hash'] : null;
+  const settled =
+    event === 'payment.confirmed' ||
+    event === 'payment.forwarded' ||
+    status === 'confirmed' ||
+    status === 'forwarded';
+  if (!settled) return 'ignored';
   const paid = await markPaid(pool, { paymentId, txHash });
   return paid ? 'paid' : 'unknown';
 }

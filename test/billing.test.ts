@@ -16,7 +16,7 @@ import {
   pkcePair,
   SCOPES,
 } from '../dist/core/coinpay.js';
-import { parseAmount } from '../dist/core/invoices.js';
+import { applyWebhook, parseAmount, readWebhook } from '../dist/core/invoices.js';
 import { inboxMessage } from '../dist/core/mail.js';
 
 const FULL = {
@@ -138,6 +138,9 @@ test('the payment request names the payee wallet and the board business, with th
     redirectUrl: 'https://b/inbox/t',
     idempotencyKey: 'k',
     metadata: { invoice_id: 'i' },
+    customerEmail: 'payer@example.com',
+    accountId: 'user-payer',
+    payeeId: 'user-payee',
   });
   assert.equal(payment.id, 'pay_1');
   assert.equal(payment.currency, 'USDC_POL');
@@ -154,6 +157,80 @@ test('the payment request names the payee wallet and the board business, with th
   assert.equal(sent['blockchain'], 'USDC_POL');
   assert.equal(sent['amount_usd'], 1200);
   assert.equal((sent['metadata'] as Record<string, unknown>)['idempotency_key'], 'k');
+  // Who pays, who is paid and which site, top-level and in metadata.
+  assert.equal(sent['customer_email'], 'payer@example.com');
+  assert.equal(sent['account_id'], 'user-payer');
+  assert.equal(sent['property'], 'agenticjobs.work');
+  assert.deepEqual(sent['metadata'], {
+    invoice_id: 'i',
+    property: 'agenticjobs.work',
+    account_id: 'user-payer',
+    customer_email: 'payer@example.com',
+    payee_id: 'user-payee',
+    idempotency_key: 'k',
+  });
+});
+
+test('the webhook is read from the nested data, never the event id, with the old flat shape as a fallback', async () => {
+  const nested = {
+    id: 'evt_pay_9_1700000000',
+    type: 'payment.forwarded',
+    data: {
+      payment_id: 'pay_9',
+      status: 'forwarded',
+      tx_hash: '0xabc',
+      customer_email: 'payer@example.com',
+      account_id: 'user-payer',
+      property: 'agenticjobs.work',
+      metadata: { invoice_id: 'i', payee_id: 'user-payee' },
+    },
+  };
+  assert.deepEqual(readWebhook(nested), {
+    event: 'payment.forwarded',
+    paymentId: 'pay_9',
+    status: 'forwarded',
+    txHash: '0xabc',
+    metadata: { invoice_id: 'i', payee_id: 'user-payee' },
+  });
+  assert.equal(
+    readWebhook({ event: 'payment.confirmed', payment_id: 'pay_flat' }).paymentId,
+    'pay_flat',
+  );
+
+  const marked: unknown[][] = [];
+  const pool = {
+    query: async (_sql: string, params: unknown[]) => {
+      marked.push(params);
+      return { rowCount: params[0] === 'pay_9' || params[0] === 'pay_flat' ? 1 : 0, rows: [] };
+    },
+  } as never;
+  assert.equal(await applyWebhook(pool, nested), 'paid');
+  assert.deepEqual(
+    marked[0]!.slice(0, 2),
+    ['pay_9', '0xabc'],
+    'settled by the payment id, not evt_',
+  );
+  assert.equal(
+    await applyWebhook(pool, { event: 'payment.confirmed', payment_id: 'pay_flat' }),
+    'paid',
+  );
+  assert.equal(
+    await applyWebhook(pool, {
+      id: 'evt',
+      type: 'payment.detected',
+      data: { payment_id: 'pay_9', status: 'detected' },
+    }),
+    'ignored',
+  );
+  assert.equal(
+    await applyWebhook(pool, {
+      id: 'evt',
+      type: 'payment.confirmed',
+      data: { payment_id: 'pay_nobody', status: 'confirmed' },
+    }),
+    'unknown',
+  );
+  assert.equal(marked.length, 3, 'detected never reaches the database');
 });
 
 test('an HTML answer from CoinPay is reported as such, not parsed', async () => {
