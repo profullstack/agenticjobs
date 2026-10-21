@@ -561,7 +561,7 @@ test('the ad unit is a crawlproof frame on public pages only, and the policy fra
   const { showsAd, AD_SLOT } = await import('../dist/views/ad-unit.js');
   const { Layout } = await import('../dist/views/layout.js');
   const { securityHeaders } = await import('../dist/server/middleware.js');
-  assert.equal(showsAd('/', false), true);
+  assert.equal(showsAd('/', false), false, 'the homepage carries no ad');
   assert.equal(showsAd('/jobs/abc', false), true);
   assert.equal(showsAd('/me/settings', false), false);
   assert.equal(showsAd('/post-a-job', false), false);
@@ -579,10 +579,11 @@ test('the ad unit is a crawlproof frame on public pages only, and the policy fra
         children: 'x',
       }),
     );
-  const home = page('/');
-  assert.equal(home.match(/crawlproof\.com\/api\/ads\/frame/g)?.length, 1, 'exactly one unit');
-  assert.ok(home.includes(`slot=${AD_SLOT}&amp;format=text_link`), home);
-  assert.ok(!home.includes('theme='), 'the frame answers prefers-color-scheme itself');
+  assert.ok(!page('/').includes('/api/ads/frame'), 'no ad on the homepage');
+  const job = page('/jobs/abc');
+  assert.equal(job.match(/crawlproof\.com\/api\/ads\/frame/g)?.length, 1, 'exactly one unit');
+  assert.ok(job.includes(`slot=${AD_SLOT}&amp;format=text_link`), job);
+  assert.ok(!job.includes('theme='), 'the frame answers prefers-color-scheme itself');
   assert.ok(!page('/inbox').includes('/api/ads/frame'), 'no ad inside the inbox');
 
   const headers = new Headers();

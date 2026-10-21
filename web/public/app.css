@@ -1104,7 +1104,7 @@ a.badge-plain:hover .badge {
 
 /* CrawlProof ad unit (src/views/ad-unit.tsx): one fluid text_link frame at the top of the content. */
 .ad-unit {
-  margin: 0 0 1.5rem;
+  margin: 0 0 0.75rem;
 }
 .ad-unit iframe {
   display: block;

@@ -38,10 +38,14 @@ const NO_AD_SEGMENTS = new Set([
   'revisions',
 ]);
 
-/** Public, indexable pages only. A noindex page is a dashboard or a one-off flow. */
+/**
+ * Public, indexable pages only. A noindex page is a dashboard or a one-off flow,
+ * and the homepage carries no ad.
+ */
 export function showsAd(path: string, noindex?: boolean): boolean {
   if (noindex) return false;
   const first = path.split(/[/?#]/)[1] ?? '';
+  if (first === '') return false;
   return !NO_AD_SEGMENTS.has(first);
 }
 
