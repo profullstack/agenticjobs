@@ -58,12 +58,13 @@
     "test:only": "node --test \"test/*.test.ts\""
   },
   "dependencies": {
-    "@profullstack/footer": "latest",
     "@hono/node-server": "^1.14.0",
     "@profullstack/emailer": "^1.0.3",
+    "@profullstack/footer": "latest",
     "@profullstack/hqtui": "^0.5.0",
     "@profullstack/leaderboard": "^0.3.1",
     "@profullstack/synconfig": "^0.1.2",
+    "@profullstack/x402-gateway": "^0.11.0",
     "@simplewebauthn/server": "^14.0.1",
     "hono": "^4.6.14",
     "pg": "^8.13.1"

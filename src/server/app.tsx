@@ -8,6 +8,9 @@
  */
 
 import { Hono } from 'hono';
+import { SESSION_COOKIE } from '../core/auth.ts';
+import { createGateway } from '@profullstack/x402-gateway';
+import { x402Gateway } from '@profullstack/x402-gateway/hono';
 import type pg from 'pg';
 import type { Config } from '../config.ts';
 import { apiRoutes } from './routes/api.ts';
@@ -42,6 +45,26 @@ export function createApp(
 ): Hono<AppEnv> {
   const deps: Deps = { pool, config, mailer, coinpay, rankings: createRankings(pool, config) };
   const app = new Hono<AppEnv>();
+
+  // The crawl door, first: a training crawler, headless browser or SEO scraper is
+  // sold a day pass ($1 over x402, or any coin / PayPal through CoinPay's hosted
+  // checkout on /crawl) before the board spends a database query on it. People,
+  // verified search crawlers and the AI chat/search fetchers pass through, as does
+  // anyone signed in. Ahead of the security headers, whose form-action would stop
+  // the /crawl/checkout redirect to CoinPay.
+  if (config.crawl) {
+    const crawlGateway = createGateway({
+      siteUrl: config.publicUrl,
+      siteName: config.boardName,
+      coinpay: { apiKey: config.crawl.apiKey },
+      payTo: config.crawl.payTo,
+      contact: 'mailto:anthony@profullstack.com',
+      openPaths: ['/api/health', '/llms.txt', '/.well-known/'],
+      exempt: (request) =>
+        new RegExp(`(?:^|;\\s*)${SESSION_COOKIE}=`).test(request.headers.get('cookie') ?? ''),
+    });
+    app.use('*', x402Gateway(crawlGateway));
+  }
 
   app.use('*', withViewer(deps));
   // A payer is sent from a form on this board to CoinPay's hosted pay page,

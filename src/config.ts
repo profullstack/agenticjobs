@@ -44,6 +44,12 @@ export interface Config {
    * absent from every page rather than present and broken.
    */
   coinpay: CoinPayConfig | null;
+  /**
+   * The crawl door (x402-gateway): a scoped CoinPay key and the USDC payee. Both or
+   * nothing; a board without them never sells crawl passes. Optional so a
+   * hand-built config in a test can leave it out.
+   */
+  crawl?: { apiKey: string; payTo: string } | null;
   version: string;
 }
 
@@ -182,6 +188,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     openaiApiKey: env['OPENAI_API_KEY']?.trim() || null,
     writerModel: env['WRITER_MODEL']?.trim() || null,
     coinpay: coinpayConfig(env),
+    crawl:
+      env['COINPAY_X402_KEY']?.trim() && env['CRAWL_PAY_TO']?.trim()
+        ? { apiKey: env['COINPAY_X402_KEY'].trim(), payTo: env['CRAWL_PAY_TO'].trim() }
+        : null,
     version: env['npm_package_version']?.trim() || VERSION,
   };
 }
