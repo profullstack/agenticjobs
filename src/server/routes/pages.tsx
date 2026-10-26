@@ -8,6 +8,7 @@
  */
 
 import { Hono } from 'hono';
+import { PROFILE_ENHANCE_SCRIPT, validateProfile } from '@profullstack/profile';
 import type { Context } from 'hono';
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
 import {
@@ -69,8 +70,9 @@ import { parseResume, resumeBodyMarkdown, resumeTemplate } from '../../markup/re
 import { openProfileFromResume } from '../../markup/openprofile.ts';
 import { Layout, type PageProps } from '../../views/layout.tsx';
 import { EmployerDetail, EmployerList, JobDetail, JobList } from '../../views/jobs.tsx';
-import { DevicePage, LoginPage } from '../../views/auth.tsx';
-import { MePage, ResumeEditor } from '../../views/me.tsx';
+import { DevicePage, LoginPage, SignupPage } from '../../views/auth.tsx';
+import { profileStore, saveCarriedProfile } from '../../core/profile.ts';
+import { MePage, ProfileCard, ResumeEditor } from '../../views/me.tsx';
 import { ManageJobPage, NewEmployerPage, PostJobPage } from '../../views/post.tsx';
 import { NetworkPage, NetworkSearchPage } from '../../views/network.tsx';
 import { DocsPage, SpecPage } from '../../views/docs.tsx';
@@ -901,6 +903,68 @@ export function pageRoutes(): Hono<AppEnv> {
     );
   });
 
+  pages.get('/signup', (c) => {
+    if (c.get('viewer') !== null) return c.redirect('/me', 302);
+    const next = safeRedirect(new URL(c.req.url).searchParams.get('next'));
+    return c.html(
+      <Layout {...shell(c)} title="Create your account" noindex>
+        <SignupPage {...(next === null ? {} : { next })} />
+      </Layout>,
+    );
+  });
+
+  /**
+   * Signup is a magic link with the shared profile fields on it. They are
+   * checked before any link exists, and a refusal goes back to the form with
+   * what was typed - the same answer for a known or unknown address, so it says
+   * nothing about who has an account. The account itself is made when the
+   * link is spent, which is where the fields are saved.
+   */
+  pages.post('/signup', async (c) => {
+    const { pool, config, mailer } = c.get('deps');
+    const form = await formOf(c);
+    const next = safeRedirect(form['next']);
+    const check = validateProfile(form);
+    const email = normaliseEmail(form['email']);
+    if (!check.ok || email === null) {
+      const errors: Record<string, string> = { ...check.errors };
+      if (email === null && errors['email'] === undefined) {
+        errors['email'] = 'That does not look like an email address.';
+      }
+      return c.html(
+        <Layout {...shell(c)} title="Create your account" noindex>
+          <SignupPage {...(next === null ? {} : { next })} values={form} errors={errors} />
+        </Layout>,
+        400,
+      );
+    }
+
+    const link = await startMagicLink(pool, email, next, check.profile);
+    const url = `${config.publicUrl}/auth/callback?token=${link.token}`;
+    const delivered = await deliverMagicLink({
+      mailer,
+      boardName: config.boardName,
+      email,
+      url,
+      redirect: next,
+    });
+    void sweepExpired(pool).catch(() => undefined);
+    return c.html(
+      <Layout {...shell(c)} title="Check your email" noindex>
+        <LoginPage sent={email} unsent={!delivered} />
+      </Layout>,
+    );
+  });
+
+  // The signup form's company-from-work-email helper (@profullstack/profile),
+  // served as a file because the policy allows no inline script.
+  pages.get('/vendor-profile.js', (c) =>
+    c.body(PROFILE_ENHANCE_SCRIPT, 200, {
+      'content-type': 'text/javascript; charset=utf-8',
+      'cache-control': 'public, max-age=3600',
+    }),
+  );
+
   pages.post('/login', async (c) => {
     const { pool, config, mailer } = c.get('deps');
     const form = await formOf(c);
@@ -950,6 +1014,10 @@ export function pageRoutes(): Hono<AppEnv> {
         400,
       );
     }
+
+    // A signup's profile fields, saved now that the account exists. A failure
+    // is logged, never fatal: /me asks again.
+    await saveCarriedProfile(pool, consumed.user, consumed.profile);
 
     const session = await createSession(pool, consumed.user.id, { label: 'browser' });
     setSessionCookie(c, session);
@@ -1055,6 +1123,9 @@ export function pageRoutes(): Hono<AppEnv> {
         listAgents(pool, viewer.id),
       ]);
     const notice = new URL(c.req.url).searchParams.get('coinpay');
+    const contact = await profileStore(pool)
+      .get(viewer.id)
+      .catch(() => null);
 
     return c.html(
       <Layout {...shell(c)} title="You" noindex>
@@ -1076,6 +1147,10 @@ export function pageRoutes(): Hono<AppEnv> {
           updateMax={BODY_MAX}
           recommendations={{ received, given }}
         >
+          <ProfileCard
+            values={{ ...contact, email: contact?.email ?? viewer.email }}
+            saved={new URL(c.req.url).searchParams.get('profile') === 'saved'}
+          />
           <AgentsCard agents={agents} />
           <BillingCard
             enabled={coinpay !== null}
@@ -1088,6 +1163,25 @@ export function pageRoutes(): Hono<AppEnv> {
         </MePage>
       </Layout>,
     );
+  });
+
+  /** The /me contact form; the API twin is PATCH /api/v1/me/profile. */
+  pages.post('/me/profile', async (c) => {
+    const { pool } = c.get('deps');
+    const viewer = requireViewer(c);
+    if (viewer instanceof Response) return viewer;
+    const form = await formOf(c);
+    const check = validateProfile({ ...form, email: form['email'] || viewer.email });
+    if (!check.ok) {
+      return c.html(
+        <Layout {...shell(c)} title="You" noindex>
+          <ProfileCard values={form} errors={check.errors} />
+        </Layout>,
+        400,
+      );
+    }
+    await profileStore(pool).save(viewer.id, check.profile);
+    return c.redirect('/me?profile=saved#profile', 303);
   });
 
   /** Connect a CoinPay account: off to CoinPay, back to /api/v1/coinpay/callback. */

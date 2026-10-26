@@ -6,8 +6,17 @@
  * browser has WebAuthn at all.
  */
 
+import { COLUMNS as PROFILE_COLUMNS, renderProfileFields } from '@profullstack/profile';
+import { raw } from 'hono/html';
 import type { FC } from 'hono/jsx';
 import { Alert, Card, Field } from './layout.tsx';
+
+/**
+ * The rest of the shared profile (@profullstack/profile), asked for on /signup
+ * only. Email is the form's own box, so the package renders the other five. A
+ * plain sign-in never sees or needs them.
+ */
+export const SIGNUP_FIELDS = PROFILE_COLUMNS.filter((field) => field !== 'email');
 
 export const LoginPage: FC<{ sent?: string; error?: string; next?: string; unsent?: boolean }> = ({
   sent,
@@ -50,6 +59,9 @@ export const LoginPage: FC<{ sent?: string; error?: string; next?: string; unsen
               </button>
             </form>
           </Card>
+          <p class="small muted">
+            New here? <a href="/signup">Create an account</a>.
+          </p>
           <Card id="passkey-card" hidden>
             <div class="card-header">
               <h2 class="card-title">Or use a passkey</h2>
@@ -66,6 +78,51 @@ export const LoginPage: FC<{ sent?: string; error?: string; next?: string; unsen
         Signing in from a terminal? Run <code>agenticjobs login</code> and approve the code at{' '}
         <a href="/device">/device</a>.
       </p>
+    </div>
+  </div>
+);
+
+export const SignupPage: FC<{
+  next?: string;
+  values?: Record<string, string>;
+  errors?: Record<string, string>;
+}> = ({ next, values = {}, errors = {} }) => (
+  <div style="max-width:26rem;margin:0 auto">
+    <div class="stack">
+      <h1>Create your account</h1>
+      {Object.keys(errors).length > 0 && (
+        <Alert variant="error">Some fields need fixing.</Alert>
+      )}
+      <Card>
+        <form class="stack" method="post" action="/signup">
+          {next !== undefined && <input type="hidden" name="next" value={next} />}
+          <Field
+            label="Email"
+            name="email"
+            hint="We send a link. There is no password."
+            {...(errors['email'] === undefined ? {} : { error: errors['email'] })}
+          >
+            <input
+              class="input"
+              type="email"
+              id="email"
+              name="email"
+              autocomplete="email"
+              value={values['email'] ?? ''}
+              required
+            />
+          </Field>
+          {raw(renderProfileFields({ fields: SIGNUP_FIELDS, values, errors }))}
+          <button class="btn btn-block" type="submit">
+            Email me a link
+          </button>
+        </form>
+      </Card>
+      <p class="small muted">
+        Already have an account? <a href="/login">Sign in</a>.
+      </p>
+      {/* Fills the company box from a work email. A file, not inline: the CSP allows no inline script. */}
+      <script src="/vendor-profile.js" defer></script>
     </div>
   </div>
 );

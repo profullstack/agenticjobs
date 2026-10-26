@@ -77,6 +77,7 @@ import {
   updateResume,
 } from '../../core/resumes.ts';
 import { importDocument, ImportProblem, MAX_UPLOAD_BYTES } from '../../core/import.ts';
+import { profileHandlers } from '../../core/profile.ts';
 import { deliverMagicLink } from '../../core/mail.ts';
 import { resumeForViewer, tagsFrom, toCandidateSummary, withTags } from '../../core/candidates.ts';
 import {
@@ -842,6 +843,11 @@ export function apiRoutes(): Hono<AppEnv> {
       })),
     });
   });
+
+  // The shared profile (@profullstack/profile): names, company, title, LinkedIn.
+  api.get('/me/profile', (c) => profileHandlers(c.get('deps').pool).GET(c.req.raw, c));
+  api.put('/me/profile', (c) => profileHandlers(c.get('deps').pool).PUT(c.req.raw, c));
+  api.patch('/me/profile', (c) => profileHandlers(c.get('deps').pool).PATCH(c.req.raw, c));
 
   api.get('/me/jobs', async (c) => {
     const viewer = viewerOf(c);

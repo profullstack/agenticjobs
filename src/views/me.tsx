@@ -3,6 +3,8 @@
  * applications you have prepared or sent, and your resumes.
  */
 
+import { COLUMNS as PROFILE_COLUMNS, renderProfileFields } from '@profullstack/profile';
+import { raw } from 'hono/html';
 import type { FC, PropsWithChildren } from 'hono/jsx';
 import type { Job, Organisation } from '../schema/index.ts';
 import type { Resume } from '../core/resumes.ts';
@@ -13,6 +15,38 @@ import { UpdateComposer, UpdateList } from './updates.tsx';
 import type { Following, Update } from '../core/updates.ts';
 import type { Recommendation } from '../core/recommendations.ts';
 import { RecommendationsSection } from './recommendations.tsx';
+
+/**
+ * The shared profile (@profullstack/profile): names, company, title, LinkedIn.
+ * Private to the member; the same fields as /api/v1/me/profile.
+ */
+export const ProfileCard: FC<{
+  values: Record<string, string | null>;
+  errors?: Record<string, string>;
+  saved?: boolean;
+}> = ({ values, errors = {}, saved }) => (
+  <section class="stack" id="profile">
+    <h2>Contact details</h2>
+    <p class="small muted">Private to your account and never shown on any public page.</p>
+    {saved === true && <Alert variant="success">Contact details saved.</Alert>}
+    {Object.keys(errors).length > 0 && <Alert variant="error">Some fields need fixing.</Alert>}
+    <Card>
+      <form class="stack" method="post" action="/me/profile">
+        {raw(
+          renderProfileFields({
+            fields: PROFILE_COLUMNS,
+            values,
+            errors,
+            idPrefix: 'me-profile-',
+          }),
+        )}
+        <button class="btn" type="submit">
+          Save contact details
+        </button>
+      </form>
+    </Card>
+  </section>
+);
 
 export const MePage: FC<
   PropsWithChildren<{

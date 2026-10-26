@@ -409,6 +409,27 @@ export function openApiDocument(config: Config): Record<string, unknown> {
           responses: { 200: ok('The caller.'), 401: err() },
         },
       },
+      '/api/v1/me/profile': {
+        get: {
+          tags: ['auth'],
+          summary:
+            'Your contact details: email, first_name, last_name, company_domain, job_title, linkedin_url. Private to you.',
+          security: [{ bearer: [] }],
+          responses: { 200: ok('The profile and which fields are still missing.'), 401: err() },
+        },
+        put: {
+          tags: ['auth'],
+          summary: 'Replace your contact details. email, first_name and last_name are required.',
+          security: [{ bearer: [] }],
+          responses: { 200: ok('The saved profile.'), 400: err(), 401: err() },
+        },
+        patch: {
+          tags: ['auth'],
+          summary: 'Change only the contact fields you send; null clears one.',
+          security: [{ bearer: [] }],
+          responses: { 200: ok('The saved profile.'), 400: err(), 401: err() },
+        },
+      },
       '/api/v1/me/jobs': {
         get: {
           tags: ['jobs'],

@@ -505,7 +505,8 @@ h3 {
 
 .input,
 .textarea,
-.select {
+.select,
+.pfs-profile input {
   width: 100%;
   background: var(--background);
   color: var(--foreground);
@@ -532,7 +533,8 @@ h3 {
 
 .input:focus-visible,
 .textarea:focus-visible,
-.select:focus-visible {
+.select:focus-visible,
+.pfs-profile input:focus-visible {
   outline: 2px solid var(--ring);
   outline-offset: 1px;
   border-color: var(--ring);
@@ -546,6 +548,44 @@ h3 {
 .error-text {
   color: var(--destructive);
   font-size: 0.82rem;
+}
+
+/* The shared profile fields (@profullstack/profile renderProfileFields): a bare
+   fieldset of label + input rows, laid out like .field and .label above. */
+.pfs-profile {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.pfs-profile__row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.pfs-profile__row label {
+  font-size: 0.88rem;
+  font-weight: 600;
+}
+
+.pfs-profile__optional {
+  color: var(--muted-foreground);
+  font-weight: 400;
+}
+
+.pfs-profile input[aria-invalid='true'] {
+  border-color: var(--destructive);
+}
+
+.pfs-profile__error {
+  color: var(--destructive);
+  font-size: 0.82rem;
+  margin: 0;
 }
 
 fieldset {

@@ -156,17 +156,29 @@ export function safeRedirect(value: unknown): string | null {
   return raw;
 }
 
+/**
+ * `profile` is what a signup form validated (@profullstack/profile). The
+ * account does not exist until the link is spent, so it rides on the link and
+ * is saved by whoever consumes it. Plain sign-in passes nothing.
+ */
 export async function startMagicLink(
   pool: pg.Pool,
   email: string,
   redirect: string | null,
+  profile: Record<string, unknown> | null = null,
 ): Promise<MagicLink> {
   const token = mintToken();
   const result = await pool.query<{ expires_at: string }>(
-    `insert into magic_links (token_hash, email, redirect, expires_at)
-     values ($1, $2, $3, now() + ($4 || ' milliseconds')::interval)
+    `insert into magic_links (token_hash, email, redirect, expires_at, profile)
+     values ($1, $2, $3, now() + ($4 || ' milliseconds')::interval, $5::jsonb)
      returning expires_at`,
-    [hashToken(token), email, redirect, String(MAGIC_TTL_MS)],
+    [
+      hashToken(token),
+      email,
+      redirect,
+      String(MAGIC_TTL_MS),
+      profile === null ? null : JSON.stringify(profile),
+    ],
   );
   return { token, expiresAt: result.rows[0]?.expires_at ?? new Date().toISOString() };
 }
@@ -174,6 +186,8 @@ export async function startMagicLink(
 export interface ConsumedLink {
   user: UserRow;
   redirect: string | null;
+  /** The signup form's profile fields, when the link was asked for from /signup. */
+  profile: Record<string, unknown> | null;
 }
 
 /**
@@ -187,17 +201,21 @@ export async function consumeMagicLink(
   pool: pg.Pool,
   token: string,
 ): Promise<ConsumedLink | null> {
-  const claimed = await pool.query<{ email: string; redirect: string | null }>(
+  const claimed = await pool.query<{
+    email: string;
+    redirect: string | null;
+    profile: Record<string, unknown> | null;
+  }>(
     `update magic_links
         set used_at = now()
       where token_hash = $1 and used_at is null and expires_at > now()
-      returning email, redirect`,
+      returning email, redirect, profile`,
     [hashToken(token)],
   );
   const row = claimed.rows[0];
   if (row === undefined) return null;
   const user = await ensureUser(pool, row.email);
-  return { user, redirect: row.redirect };
+  return { user, redirect: row.redirect, profile: row.profile ?? null };
 }
 
 // --- the device flow ----------------------------------------------------
