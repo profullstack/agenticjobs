@@ -1,6 +1,6 @@
 {
   "name": "@profullstack/agenticjobs",
-  "version": "0.22.7",
+  "version": "0.22.8",
   "description": "An agent-friendly job board you self-host. It posts its own jobs, never scrapes anyone else's, and answers on every surface: web, API, MCP, CLI, TUI, desktop and PWA. Instances find each other through an open directory.",
   "license": "MIT",
   "type": "module",
@@ -58,23 +58,23 @@
     "test:only": "node --test \"test/*.test.ts\""
   },
   "dependencies": {
-    "@hono/node-server": "^1.14.0",
+    "@hono/node-server": "^2.1.5",
     "@profullstack/emailer": "^1.0.3",
     "@profullstack/footer": "latest",
-    "@profullstack/hqtui": "^0.5.0",
+    "@profullstack/hqtui": "^0.11.1",
     "@profullstack/leaderboard": "^0.3.1",
-    "@profullstack/profile": "0.1.3",
-    "@profullstack/synconfig": "^0.1.2",
-    "@profullstack/x402-gateway": "^0.11.0",
-    "@simplewebauthn/server": "^14.0.1",
-    "hono": "^4.6.14",
-    "pg": "^8.13.1"
+    "@profullstack/profile": "0.1.6",
+    "@profullstack/synconfig": "^0.1.3",
+    "@profullstack/x402-gateway": "^0.13.1",
+    "@simplewebauthn/server": "^14.0.3",
+    "hono": "^4.13.14",
+    "pg": "^8.23.1"
   },
   "devDependencies": {
-    "@types/node": "^24.3.0",
-    "@types/pg": "^8.11.10",
-    "prettier": "^3.3.3",
-    "typescript": "^5.9.2"
+    "@types/node": "^24.19.2",
+    "@types/pg": "^8.23.1",
+    "prettier": "^3.9.10",
+    "typescript": "^7.0.2"
   },
   "exports": {
     ".": {

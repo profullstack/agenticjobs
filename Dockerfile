@@ -36,7 +36,7 @@ RUN pnpm install --frozen-lockfile --prod --ignore-scripts
 # Debian 12 (bookworm) is deliberate: it is what node:24-slim was, so pandoc,
 # weasyprint and poppler are the exact versions resumes were converted with
 # before (oven/bun:*-slim is Debian 13, which moves all three).
-FROM oven/bun:1.4.0-slim AS bun
+FROM oven/bun:1.4.4-slim AS bun
 
 FROM debian:bookworm-slim AS runtime
 WORKDIR /app
