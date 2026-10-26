@@ -83,7 +83,14 @@ describe(
       ]) {
         assert.match(signup, new RegExp(`name="${name}"`));
       }
-      assert.equal(signup.match(/name="email"/g)?.length, 1, "one email box, the form's own");
+      // Count inside the signup form only: the shared footer (0.3+) carries its
+      // own newsletter form with an email box of its own.
+      const signupForm = signup.match(/<form[^>]*action="\/signup"[\s\S]*?<\/form>/)?.[0] ?? '';
+      assert.equal(
+        signupForm.match(/<input[^>]*\bname="email"/g)?.length,
+        1,
+        "one email box, the form's own",
+      );
       const login = await (await call('/login')).text();
       assert.doesNotMatch(login, /name="first_name"/);
     });
