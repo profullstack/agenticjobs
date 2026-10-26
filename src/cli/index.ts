@@ -140,6 +140,13 @@ const USAGE = `agenticjobs ${VERSION} - an agent-friendly job board you can self
     applications <slug>       what came in
     decide <id> <status>      reviewing, rejected or hired
 
+  Credit and invites
+    credits                   your credit balance and where it came from
+    redeem <code>             redeem a credit code
+    invites                   your invites, how many are left, your ?ref= link
+    invites create [--note t] make an invite (the link is shown once)
+    signup --invite <code>    create an account with an invite
+
   Watching
     watch <words> [filters]   be told when a matching listing is published
       --remote --agents --tag <t> --workplace <w> --min <n>
@@ -170,6 +177,11 @@ const USAGE = `agenticjobs ${VERSION} - an agent-friendly job board you can self
       --source <stable-id>       reuse this ID for updates to the same source
     tracker forget --fleet <name> --source <id> --yes
     tracker leaderboard
+
+  Operator (runs against DATABASE_URL, like serve)
+    credits mint --cents <n> --label <who> [--max <n>] [--expires-days <n>]
+    credits list              every code: label, uses, revoked
+    credits revoke <id>
 
   Running one
     serve                     start the board
@@ -493,6 +505,16 @@ async function run(args: Args): Promise<number> {
       const { runAgents } = await import('./agents.ts');
       return runAgents(args, clientFor(args), (human, machine) => out(args, human, machine));
     }
+    case 'credits':
+    case 'redeem':
+    case 'invites': {
+      const { runCredits } = await import('./credits.ts');
+      return runCredits(
+        args,
+        () => clientFor(args),
+        (human, machine) => out(args, human, machine),
+      );
+    }
     case 'watch': {
       const { runWatch } = await import('./watches.ts');
       return runWatch(args, clientFor(args), queryFrom(args), (human, machine) =>
@@ -680,6 +702,7 @@ async function commandSignup(args: Args): Promise<number> {
   const sent = await client.request<{ delivered: boolean }>('POST', '/api/v1/auth/magic-link', {
     email,
     redirect: `/device?code=${encodeURIComponent(grant.userCode)}`,
+    ...(flagString(args, 'invite') === undefined ? {} : { invite: flagString(args, 'invite') }),
   });
 
   if (sent.delivered) {

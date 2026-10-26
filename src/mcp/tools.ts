@@ -450,6 +450,24 @@ export const TOOLS: ToolDefinition[] = [
     }),
   },
   {
+    name: 'credits',
+    title: 'Credit and invites',
+    description:
+      'Your credit balance on this board (US cents) and where it came from. Pass invites: true for your invites instead: how many are left of three, which were accepted, and your open ?ref= link. Pass createInvite: true to make an invite; its link is returned once.',
+    inputSchema: object({
+      invites: { type: 'boolean', description: 'List invites instead of credit.' },
+      createInvite: { type: 'boolean', description: 'Make an invite and return its link.' },
+      note: string('Who the new invite is for. Only you see it.'),
+    }),
+  },
+  {
+    name: 'redeem_credit_code',
+    title: 'Redeem a credit code',
+    description:
+      'Redeem a credit code (AJ-XXXX-XXXX-XXXX-XXXX) on this account. Case, spaces and dashes do not matter. Each code works once per account.',
+    inputSchema: object({ code: string('The code.') }, ['code']),
+  },
+  {
     name: 'rankings',
     title: 'Rankings',
     description:
@@ -1077,6 +1095,40 @@ export async function callTool(
       const page = response.body as { items?: unknown[] };
       if ((page.items ?? []).length === 0) return text('No notifications.', response.body);
       return text(JSON.stringify(response.body, null, 2), response.body);
+    }
+
+    case 'credits': {
+      if (args['createInvite'] === true) {
+        const response = await caller.call('POST', '/api/v1/invites', {
+          note: typeof args['note'] === 'string' ? args['note'] : '',
+        });
+        if (response.status === 401) return toolError(signInFirst(caller));
+        if (response.status !== 201)
+          return toolError(message(response.body, 'No invite was made.'));
+        const made = response.body as { url?: string; quota?: { left?: number } };
+        return text(
+          `Invite link (shown once): ${made.url ?? ''}. ${made.quota?.left ?? 0} left.`,
+          response.body,
+        );
+      }
+      const response = await caller.call(
+        'GET',
+        args['invites'] === true ? '/api/v1/invites' : '/api/v1/credits',
+      );
+      if (response.status === 401) return toolError(signInFirst(caller));
+      if (response.status !== 200) return toolError(message(response.body, 'Could not read that.'));
+      return text(JSON.stringify(response.body, null, 2), response.body);
+    }
+
+    case 'redeem_credit_code': {
+      const response = await caller.call('POST', '/api/v1/credits/redeem', {
+        code: typeof args['code'] === 'string' ? args['code'] : '',
+      });
+      if (response.status === 401) return toolError(signInFirst(caller));
+      if (response.status !== 200)
+        return toolError(message(response.body, 'That code was not redeemed.'));
+      const done = response.body as { balance?: string; addedCents?: number };
+      return text(`Redeemed. Balance ${done.balance ?? ''}.`, response.body);
     }
 
     case 'rankings': {

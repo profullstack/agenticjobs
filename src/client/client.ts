@@ -38,6 +38,30 @@ export interface AgentInputRecord {
   public?: boolean;
 }
 
+export interface CreditsRecord {
+  unit: 'usd_cents';
+  balanceCents: number;
+  balance: string;
+  history: { cents: number; kind: 'grant' | 'spend'; source: string; at: string }[];
+}
+
+export interface InvitesRecord {
+  quota: { total: number; used: number; left: number };
+  invites: {
+    id: string;
+    note: string;
+    createdAt: string;
+    expiresAt: string | null;
+    used: boolean;
+    usedAt: string | null;
+    revoked: boolean;
+  }[];
+  affiliateCode: string;
+  affiliateUrl: string;
+  invitedCount: number;
+  bonusCents: number;
+}
+
 export interface WatchRecord {
   id: string;
   query: JobQuery;
@@ -513,6 +537,30 @@ export class BoardClient {
 
   async deleteAgent(slug: string): Promise<{ deleted: boolean }> {
     return this.request('DELETE', `/api/v1/agents/${encodeURIComponent(slug)}`);
+  }
+
+  // --- credit and invites ------------------------------------------------
+
+  async credits(): Promise<CreditsRecord> {
+    return this.request('GET', '/api/v1/credits');
+  }
+
+  async redeemCredit(
+    code: string,
+  ): Promise<{ ok: true; addedCents: number; balanceCents: number; balance: string }> {
+    return this.request('POST', '/api/v1/credits/redeem', { code });
+  }
+
+  async invites(): Promise<InvitesRecord> {
+    return this.request('GET', '/api/v1/invites');
+  }
+
+  async createInvite(note = ''): Promise<{
+    code: string;
+    url: string;
+    quota: { total: number; used: number; left: number };
+  }> {
+    return this.request('POST', '/api/v1/invites', { note });
   }
 
   // --- watches and notifications -------------------------------------------

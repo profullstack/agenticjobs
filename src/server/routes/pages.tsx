@@ -73,6 +73,9 @@ import { EmployerDetail, EmployerList, JobDetail, JobList } from '../../views/jo
 import { DevicePage, LoginPage, SignupPage } from '../../views/auth.tsx';
 import { profileStore, saveCarriedProfile } from '../../core/profile.ts';
 import { MePage, ProfileCard, ResumeEditor } from '../../views/me.tsx';
+import { CreditsCard } from '../../views/credits.tsx';
+import { creditSummary, formatCents, REDEEM_MESSAGES } from '../../core/credits.ts';
+import { applySignupCredits, carried, pendingInvite } from '../signup-credits.ts';
 import { ManageJobPage, NewEmployerPage, PostJobPage } from '../../views/post.tsx';
 import { NetworkPage, NetworkSearchPage } from '../../views/network.tsx';
 import { DocsPage, SpecPage } from '../../views/docs.tsx';
@@ -906,9 +909,10 @@ export function pageRoutes(): Hono<AppEnv> {
   pages.get('/signup', (c) => {
     if (c.get('viewer') !== null) return c.redirect('/me', 302);
     const next = safeRedirect(new URL(c.req.url).searchParams.get('next'));
+    const invite = pendingInvite(c);
     return c.html(
       <Layout {...shell(c)} title="Create your account" noindex>
-        <SignupPage {...(next === null ? {} : { next })} />
+        <SignupPage {...(next === null ? {} : { next })} {...(invite === null ? {} : { invite })} />
       </Layout>,
     );
   });
@@ -933,13 +937,18 @@ export function pageRoutes(): Hono<AppEnv> {
       }
       return c.html(
         <Layout {...shell(c)} title="Create your account" noindex>
-          <SignupPage {...(next === null ? {} : { next })} values={form} errors={errors} />
+          <SignupPage
+            {...(next === null ? {} : { next })}
+            {...invitePropOf(carried(c, form).invite)}
+            values={form}
+            errors={errors}
+          />
         </Layout>,
         400,
       );
     }
 
-    const link = await startMagicLink(pool, email, next, check.profile);
+    const link = await startMagicLink(pool, email, next, check.profile, carried(c, form));
     const url = `${config.publicUrl}/auth/callback?token=${link.token}`;
     const delivered = await deliverMagicLink({
       mailer,
@@ -979,7 +988,7 @@ export function pageRoutes(): Hono<AppEnv> {
     }
 
     const next = safeRedirect(form['next']);
-    const link = await startMagicLink(pool, email, next);
+    const link = await startMagicLink(pool, email, next, null, carried(c, form));
     const url = `${config.publicUrl}/auth/callback?token=${link.token}`;
     const delivered = await deliverMagicLink({
       mailer,
@@ -1018,6 +1027,8 @@ export function pageRoutes(): Hono<AppEnv> {
     // A signup's profile fields, saved now that the account exists. A failure
     // is logged, never fatal: /me asks again.
     await saveCarriedProfile(pool, consumed.user, consumed.profile);
+    // An invite or ?ref= that came with the sign-up, for a new account only.
+    await applySignupCredits(c, consumed);
 
     const session = await createSession(pool, consumed.user.id, { label: 'browser' });
     setSessionCookie(c, session);
@@ -1123,6 +1134,8 @@ export function pageRoutes(): Hono<AppEnv> {
         listAgents(pool, viewer.id),
       ]);
     const notice = new URL(c.req.url).searchParams.get('coinpay');
+    const credit = await creditSummary(pool, viewer.id).catch(() => null);
+    const creditNotice = creditNoticeOf(new URL(c.req.url).searchParams);
     const contact = await profileStore(pool)
       .get(viewer.id)
       .catch(() => null);
@@ -1151,6 +1164,12 @@ export function pageRoutes(): Hono<AppEnv> {
             values={{ ...contact, email: contact?.email ?? viewer.email }}
             saved={new URL(c.req.url).searchParams.get('profile') === 'saved'}
           />
+          {credit !== null && (
+            <CreditsCard
+              summary={credit}
+              {...(creditNotice === null ? {} : { notice: creditNotice })}
+            />
+          )}
           <AgentsCard agents={agents} />
           <BillingCard
             enabled={coinpay !== null}
@@ -1703,6 +1722,27 @@ export function pageRoutes(): Hono<AppEnv> {
   });
 
   return pages;
+}
+
+function invitePropOf(invite: string | null): { invite?: string } {
+  return invite === null ? {} : { invite };
+}
+
+/** The redirect after POST /me/redeem says how it went: ?credit=added&cents=500 or ?credit=<reason>. */
+function creditNoticeOf(
+  params: URLSearchParams,
+): { variant: 'success' | 'error'; text: string } | null {
+  const credit = params.get('credit');
+  if (credit === null) return null;
+  if (credit === 'added') {
+    const cents = Number.parseInt(params.get('cents') ?? '0', 10) || 0;
+    return { variant: 'success', text: `Code redeemed: ${formatCents(cents)} added.` };
+  }
+  const reason = credit as keyof typeof REDEEM_MESSAGES;
+  return {
+    variant: 'error',
+    text: REDEEM_MESSAGES[reason] ?? 'That is not a code. Check it and try again.',
+  };
 }
 
 function setSessionCookie(c: Ctx, token: string): void {

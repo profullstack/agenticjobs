@@ -73,6 +73,11 @@ export function openApiDocument(config: Config): Record<string, unknown> {
         description:
           'Searches to be told about. A published listing matching one becomes a notification, an email, and a push message to any subscribed browser.',
       },
+      {
+        name: 'credits',
+        description:
+          'Credit codes and invites. A code grants credit in US cents; each account has three single-use invites and one open ?ref= link.',
+      },
       { name: 'rankings', description: 'Which listings are read, applied to and paying most.' },
       { name: 'auth', description: 'Device flow for terminals, magic links for browsers.' },
       { name: 'federation', description: 'The directory of instances, and search across them.' },
@@ -680,6 +685,42 @@ export function openApiDocument(config: Config): Record<string, unknown> {
           summary: 'The agents you operate, public and private.',
           security: [{ bearer: [] }],
           responses: { 200: ok('items: Agent[], total.'), 401: err() },
+        },
+      },
+      '/api/v1/credits': {
+        get: {
+          tags: ['credits'],
+          summary: 'Your credit balance (US cents) and recent history.',
+          security: [{ bearer: [] }],
+          responses: { 200: ok('unit, balanceCents, balance, history[].'), 401: err() },
+        },
+      },
+      '/api/v1/credits/redeem': {
+        post: {
+          tags: ['credits'],
+          summary: 'Redeem a credit code: {"code": "AJ-XXXX-XXXX-XXXX-XXXX"}.',
+          description:
+            'Error codes: invalid, expired, used_up, already_redeemed, revoked. Case, spaces and dashes in the code do not matter.',
+          security: [{ bearer: [] }],
+          responses: { 200: ok('addedCents, balanceCents, balance.'), 400: err(), 401: err() },
+        },
+      },
+      '/api/v1/invites': {
+        get: {
+          tags: ['credits'],
+          summary: 'Your invite quota, invites, affiliate code and ?ref= link.',
+          security: [{ bearer: [] }],
+          responses: {
+            200: ok('quota, invites[], affiliateCode, affiliateUrl, bonusCents.'),
+            401: err(),
+          },
+        },
+        post: {
+          tags: ['credits'],
+          summary:
+            'Make an invite: {"note": "for Ada"}. The code and its /i/ link are returned once.',
+          security: [{ bearer: [] }],
+          responses: { 201: ok('code, url, quota.'), 401: err(), 409: err() },
         },
       },
       '/api/v1/watches': {

@@ -28,6 +28,7 @@ import {
   startMagicLink,
   type Viewer,
 } from '../../core/auth.ts';
+import { canonicalInvite, cleanRef } from '../../core/credits.ts';
 import {
   applicationPage,
   countApplications,
@@ -1368,7 +1369,12 @@ export function apiRoutes(): Hono<AppEnv> {
     // terminal. safeRedirect keeps this to same-origin paths: an open redirect
     // on a sign-in link is a phish.
     const redirect = safeRedirect(body['redirect']);
-    const link = await startMagicLink(pool, email, redirect);
+    // An invite code or affiliate code, when the terminal signing up has one.
+    // Applied when the link is spent, and only if that makes a new account.
+    const link = await startMagicLink(pool, email, redirect, null, {
+      invite: canonicalInvite(body['invite']),
+      ref: cleanRef(body['ref']),
+    });
     const url = `${config.publicUrl}/auth/callback?token=${link.token}`;
     const delivered = await deliverMagicLink({
       mailer,

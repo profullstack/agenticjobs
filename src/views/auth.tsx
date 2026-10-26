@@ -86,16 +86,24 @@ export const SignupPage: FC<{
   next?: string;
   values?: Record<string, string>;
   errors?: Record<string, string>;
-}> = ({ next, values = {}, errors = {} }) => (
+  /** An invite code from /i/<code>, carried on the link this form asks for. */
+  invite?: string;
+}> = ({ next, values = {}, errors = {}, invite }) => (
   <div style="max-width:26rem;margin:0 auto">
     <div class="stack">
       <h1>Create your account</h1>
+      {invite !== undefined && (
+        <Alert variant="info">
+          You were invited. The invite is applied when you follow the link we email you.
+        </Alert>
+      )}
       {Object.keys(errors).length > 0 && (
         <Alert variant="error">Some fields need fixing.</Alert>
       )}
       <Card>
         <form class="stack" method="post" action="/signup">
           {next !== undefined && <input type="hidden" name="next" value={next} />}
+          {invite !== undefined && <input type="hidden" name="invite" value={invite} />}
           <Field
             label="Email"
             name="email"

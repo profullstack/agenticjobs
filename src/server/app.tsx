@@ -18,6 +18,8 @@ import { settingsRoutes } from './routes/settings.ts';
 import { trackerRoutes } from './routes/tracker.tsx';
 import { agentRoutes } from './routes/agents.tsx';
 import { watchRoutes } from './routes/watches.tsx';
+import { creditRoutes } from './routes/credits.tsx';
+import { trackRef } from './signup-credits.ts';
 import { rankingRoutes } from './routes/rankings.tsx';
 import { landingRoutes } from './routes/landing.tsx';
 import { createRankings } from '../core/rankings.ts';
@@ -59,7 +61,9 @@ export function createApp(
       coinpay: { apiKey: config.crawl.apiKey },
       payTo: config.crawl.payTo,
       contact: 'mailto:anthony@profullstack.com',
-      openPaths: ['/api/health', '/llms.txt', '/.well-known/'],
+      // /i/ is an invite link: a chat app's link preview must not be sold a
+      // crawl pass for it, and the page spends nothing.
+      openPaths: ['/api/health', '/llms.txt', '/.well-known/', '/i/'],
       exempt: (request) =>
         new RegExp(`(?:^|;\\s*)${SESSION_COOKIE}=`).test(request.headers.get('cookie') ?? ''),
     });
@@ -74,6 +78,8 @@ export function createApp(
     securityHeaders({ formActions: config.coinpay === null ? [] : [config.coinpay.url] }),
   );
   app.use('/api/*', apiCors());
+  // First-touch ?ref= affiliate attribution, kept until a sign-up spends it.
+  app.use('*', trackRef());
 
   // Liveness for the status page: the process answers and the database
   // answers within three seconds. Nothing about why it failed leaves the box.
@@ -102,6 +108,7 @@ export function createApp(
   app.route('/', trackerRoutes());
   app.route('/', agentRoutes());
   app.route('/', watchRoutes());
+  app.route('/', creditRoutes());
   app.route('/', rankingRoutes());
   app.route('/api/v1', apiRoutes());
   // The MCP tools call this same app, so the getter is resolved lazily: the

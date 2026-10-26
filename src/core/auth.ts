@@ -43,6 +43,8 @@ interface UserRow {
   email: string;
   name: string | null;
   is_admin: boolean;
+  /** True only when this call made the account. */
+  created?: boolean;
 }
 
 /**
@@ -68,7 +70,7 @@ export async function ensureUser(pool: pg.Pool, email: string, name?: string): P
   );
   const row = created.rows[0];
   if (row === undefined) throw new Error('user insert returned no row');
-  return row;
+  return { ...row, created: true };
 }
 
 export async function createSession(
@@ -166,11 +168,12 @@ export async function startMagicLink(
   email: string,
   redirect: string | null,
   profile: Record<string, unknown> | null = null,
+  carried: { invite?: string | null; ref?: string | null } = {},
 ): Promise<MagicLink> {
   const token = mintToken();
   const result = await pool.query<{ expires_at: string }>(
-    `insert into magic_links (token_hash, email, redirect, expires_at, profile)
-     values ($1, $2, $3, now() + ($4 || ' milliseconds')::interval, $5::jsonb)
+    `insert into magic_links (token_hash, email, redirect, expires_at, profile, invite_code, ref_code)
+     values ($1, $2, $3, now() + ($4 || ' milliseconds')::interval, $5::jsonb, $6, $7)
      returning expires_at`,
     [
       hashToken(token),
@@ -178,6 +181,8 @@ export async function startMagicLink(
       redirect,
       String(MAGIC_TTL_MS),
       profile === null ? null : JSON.stringify(profile),
+      carried.invite ?? null,
+      carried.ref ?? null,
     ],
   );
   return { token, expiresAt: result.rows[0]?.expires_at ?? new Date().toISOString() };
@@ -188,6 +193,9 @@ export interface ConsumedLink {
   redirect: string | null;
   /** The signup form's profile fields, when the link was asked for from /signup. */
   profile: Record<string, unknown> | null;
+  /** An invite code or ?ref= code that was carried on the link, if any. */
+  invite: string | null;
+  ref: string | null;
 }
 
 /**
@@ -205,17 +213,25 @@ export async function consumeMagicLink(
     email: string;
     redirect: string | null;
     profile: Record<string, unknown> | null;
+    invite_code: string | null;
+    ref_code: string | null;
   }>(
     `update magic_links
         set used_at = now()
       where token_hash = $1 and used_at is null and expires_at > now()
-      returning email, redirect, profile`,
+      returning email, redirect, profile, invite_code, ref_code`,
     [hashToken(token)],
   );
   const row = claimed.rows[0];
   if (row === undefined) return null;
   const user = await ensureUser(pool, row.email);
-  return { user, redirect: row.redirect, profile: row.profile ?? null };
+  return {
+    user,
+    redirect: row.redirect,
+    profile: row.profile ?? null,
+    invite: row.invite_code ?? null,
+    ref: row.ref_code ?? null,
+  };
 }
 
 // --- the device flow ----------------------------------------------------

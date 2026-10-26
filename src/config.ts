@@ -50,6 +50,12 @@ export interface Config {
    * hand-built config in a test can leave it out.
    */
   crawl?: { apiKey: string; payTo: string } | null;
+  /**
+   * What an accepted invite is worth, to each side, and how old the inviter's
+   * account must be before it pays. Optional so a hand-built config in a test
+   * can leave it out; the defaults are in core/credits.ts.
+   */
+  invites?: { bonusCents: number; inviterMinAgeHours: number };
   version: string;
 }
 
@@ -192,12 +198,22 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       env['COINPAY_X402_KEY']?.trim() && env['CRAWL_PAY_TO']?.trim()
         ? { apiKey: env['COINPAY_X402_KEY'].trim(), payTo: env['CRAWL_PAY_TO'].trim() }
         : null,
+    invites: {
+      bonusCents: intOr(env['INVITE_BONUS_CENTS'], 100),
+      inviterMinAgeHours: intOr(env['INVITE_MIN_INVITER_AGE_HOURS'], 24),
+    },
     version: env['npm_package_version']?.trim() || VERSION,
   };
 }
 
+/** A non-negative integer from the environment, or the default. */
+function intOr(value: string | undefined, fallback: number): number {
+  const parsed = Number.parseInt(value?.trim() ?? '', 10);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
+}
+
 /** Kept in step with package.json by the release script. */
-export const VERSION = '0.22.8';
+export const VERSION = '0.23.0';
 export const SOFTWARE_NAME = 'agenticjobs';
 
 /**

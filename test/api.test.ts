@@ -206,8 +206,19 @@ describe('the API', { skip: reason === '' ? false : `no database: ${reason}` }, 
           : path.startsWith('/api/v1/agents')
             ? (agentSlug as string)
             : slug;
-      const concrete = path.replace('{slug}', slugFor).replace('{id}', 'x');
-      const response = await get(concrete);
+      let concrete = path.replace('{slug}', slugFor).replace('{id}', 'x');
+      let response = await get(concrete);
+      // Another test file running in parallel makes its agents private and
+      // deletes them, so a slug read a moment ago can be gone. Read the
+      // directory again and try what is public now before calling it a lie.
+      if (response.status === 404 && path.startsWith('/api/v1/agents/{')) {
+        const fresh = (
+          (await (await get('/api/v1/agents')).json()) as { items: { slug: string }[] }
+        ).items[0]?.slug;
+        if (fresh === undefined) continue;
+        concrete = path.replace('{slug}', fresh).replace('{id}', 'x');
+        response = await get(concrete);
+      }
       // 401 is a pass: the route exists and asked for a credential.
       assert.notEqual(response.status, 404, `${concrete} is documented but 404s`);
       checked.push(concrete);
