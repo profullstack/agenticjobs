@@ -36,8 +36,8 @@ importers:
         specifier: ^0.1.3
         version: 0.1.3
       '@profullstack/x402-gateway':
-        specifier: ^0.15.3
-        version: 0.15.3
+        specifier: ^0.16.0
+        version: 0.16.0
       '@simplewebauthn/server':
         specifier: ^14.0.3
         version: 14.0.3
@@ -205,8 +205,8 @@ packages:
     resolution: {integrity: sha512-Ty/90ibgu2DVlablDeoFdItcobK+c8cMQFvuTfJOUlCfyvQZWoPjgt0JHPwTvq+ynOQ4i1ivBQ3K3PY/S4rObA==}
     engines: {node: '>=22'}
 
-  '@profullstack/x402-gateway@0.15.3':
-    resolution: {integrity: sha512-YtxaHuiNdnEmwQBkNJXGOEvFUb+5k54GPeZw5RiPKqYcKrA/tRTRVTMbyuX4XSGfmaOEo1BCGpa3w8S46+YQUg==}
+  '@profullstack/x402-gateway@0.16.0':
+    resolution: {integrity: sha512-3xN7vlGXmoqdexR7NNAIExZLtYvE5M8nR9fqr7kwLK/xks06lUiymEsjZOc2wCbowfnCVNiZBOe98rvsCE9Mgw==}
     engines: {node: '>=20.11'}
 
   '@simplewebauthn/server@14.0.3':
@@ -594,7 +594,7 @@ snapshots:
 
   '@profullstack/synconfig@0.1.3': {}
 
-  '@profullstack/x402-gateway@0.15.3':
+  '@profullstack/x402-gateway@0.16.0':
     dependencies:
       '@profullstack/keys': 0.1.0
 
