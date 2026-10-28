@@ -1471,7 +1471,11 @@ describe('the API', { skip: reason === '' ? false : `no database: ${reason}` }, 
       // A page that does exist, and a link off the board, both still pass.
       const own = await post(
         '/api/v1/updates',
-        { org: acme.org.slug, body: `Our page, ${Date.now()}.`, link: `http://board.test/employers/${acme.org.slug}` },
+        {
+          org: acme.org.slug,
+          body: `Our page, ${Date.now()}.`,
+          link: `http://board.test/employers/${acme.org.slug}`,
+        },
         acme.auth,
       );
       assert.equal(own.status, 201, await own.text());
@@ -1511,7 +1515,10 @@ describe('the API', { skip: reason === '' ? false : `no database: ${reason}` }, 
 
       const right = await post(
         '/api/v1/updates',
-        { body: 'Open for small research work, cited answers.', link: `http://board.test/candidates/${slug}` },
+        {
+          body: 'Open for small research work, cited answers.',
+          link: `http://board.test/candidates/${slug}`,
+        },
         who.auth,
       );
       assert.equal(right.status, 201, await right.text());
@@ -1843,6 +1850,12 @@ describe('the API', { skip: reason === '' ? false : `no database: ${reason}` }, 
           }
           if (form.get('grant_type') === 'authorization_code' && form.get('code') !== 'good-code') {
             return json({ error: 'invalid_grant' }, 400);
+          }
+          if (form.get('grant_type') === 'refresh_token') {
+            if (form.get('refresh_token') === 'rt-revoked') {
+              return json({ error: 'invalid_grant' }, 400);
+            }
+            if (form.get('refresh_token') === 'rt-down') throw new TypeError('fetch failed');
           }
           return json({
             access_token: `at_${Date.now()}`,
@@ -2379,6 +2392,104 @@ describe('the API', { skip: reason === '' ? false : `no database: ${reason}` }, 
           decodeURIComponent((await connect(second)).headers.get('location') ?? ''),
           '/me?coinpay=connected#billing',
         );
+      });
+
+      test('connecting keeps the wallets and never a CoinPay token', async () => {
+        if (pool === null) return;
+        const grace = await candidate('Grace Tokenless');
+        scopeToGrant = 'openid profile email wallet:read';
+        subToGrant = `merchant-tokenless-${Date.now()}`;
+        assert.equal((await connect(grace)).status, 303);
+        const row = (
+          await pool.query(
+            `select access_token, refresh_token, expires_at, wallets_synced_at,
+                    jsonb_array_length(wallets)::text as n
+               from coinpay_accounts where user_id = $1`,
+            [grace.user.id],
+          )
+        ).rows[0]!;
+        assert.equal(row['access_token'], null);
+        assert.equal(row['refresh_token'], null);
+        assert.equal(row['expires_at'], null);
+        assert.notEqual(row['wallets_synced_at'], null);
+        assert.equal(row['n'], '2');
+        // "Refresh wallets" is a fresh consent, not a stored token.
+        const refresh = await send('POST', '/me/coinpay/refresh', undefined, grace.cookie);
+        assert.equal(refresh.status, 303);
+        assert.equal(refresh.headers.get('location'), '/me/coinpay/connect');
+      });
+
+      test('legacy plaintext tokens are converted once, refused ones dropped, outages retried', async () => {
+        if (pool === null) return;
+        const { createCoinPay, sweepLegacyTokens, legacyTokenCount, getAccount } =
+          await import('../dist/core/coinpay.js');
+        const { coinpayConfig } = await import('../dist/config.js');
+        const client = createCoinPay(
+          coinpayConfig({
+            COINPAY_URL: 'https://coinpay.test',
+            COINPAY_CLIENT_ID: 'cp_board',
+            COINPAY_CLIENT_SECRET: 'cps_board',
+            COINPAY_API_KEY: 'cp_live_board',
+            COINPAY_BUSINESS_ID: 'biz_board',
+          })!,
+          fetchStub,
+        );
+        scopeToGrant = 'openid profile email wallet:read';
+        const legacy = async (name: string, refresh: string) => {
+          const who = await person(name);
+          await pool!.query(
+            `insert into coinpay_accounts
+               (user_id, coinpay_sub, access_token, refresh_token, scope, expires_at, wallets)
+             values ($1, $2, 'at_old', $3, 'openid wallet:read', now() - interval '1 day',
+                     '[{"address":"0xOLD","chain":"ETH"}]'::jsonb)`,
+            [who.user.id, `legacy-${name}-${Date.now()}`, refresh],
+          );
+          return who;
+        };
+        // Clear anything other tests left so the counts are this test's.
+        await sweepLegacyTokens(pool as never, null, { legacy: false });
+        const good = await legacy('LegacyGood', 'rt');
+        const revoked = await legacy('LegacyRevoked', 'rt-revoked');
+        const down = await legacy('LegacyDown', 'rt-down');
+        assert.equal(await legacyTokenCount(pool as never), 3);
+
+        const first = await sweepLegacyTokens(pool as never, client, { legacy: true });
+        assert.deepEqual(first, { migrated: 1, refused: 1, deferred: 1, dropped: 0, remaining: 1 });
+
+        const migrated = await getAccount(pool as never, good.user.id);
+        assert.deepEqual(
+          migrated?.wallets.map((w: { chain: string }) => w.chain),
+          ['USDC_POL', 'BTC'],
+          're-read from CoinPay',
+        );
+        assert.equal(migrated?.usable, true);
+        const kept = await getAccount(pool as never, revoked.user.id);
+        assert.equal(
+          kept?.wallets[0]?.address,
+          '0xOLD',
+          'a refused token keeps the wallets read at connect',
+        );
+        assert.equal(kept?.usable, true);
+        const tokens = (
+          await pool.query(
+            `select user_id, access_token, refresh_token from coinpay_accounts
+              where user_id = any($1::uuid[])`,
+            [`{${good.user.id},${revoked.user.id},${down.user.id}}`],
+          )
+        ).rows;
+        for (const row of tokens) {
+          if (row['user_id'] === down.user.id) {
+            assert.equal(row['refresh_token'], 'rt-down', 'an outage changes nothing');
+          } else {
+            assert.equal(row['access_token'], null);
+            assert.equal(row['refresh_token'], null);
+          }
+        }
+
+        // LEGACY_KEY_MIGRATION=off: never sent anywhere again, only deleted.
+        const off = await sweepLegacyTokens(pool as never, client, { legacy: false });
+        assert.deepEqual(off, { migrated: 0, refused: 0, deferred: 0, dropped: 1, remaining: 0 });
+        assert.equal(await legacyTokenCount(pool as never), 0);
       });
 
       test('a stale or reused state is refused', async () => {

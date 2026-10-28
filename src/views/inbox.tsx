@@ -484,11 +484,13 @@ export const BillingCard: FC<{
           </div>
           <div class="row" style="gap:.4rem;flex-wrap:wrap">
             {account.usable ? (
-              <form method="post" action="/me/coinpay/refresh">
-                <button class="btn btn-secondary btn-sm" type="submit">
-                  Refresh wallets
-                </button>
-              </form>
+              <a
+                class="btn btn-secondary btn-sm"
+                href="/me/coinpay/connect"
+                title="Re-reads your wallets through CoinPay. This board keeps your wallet addresses, never a CoinPay token."
+              >
+                Refresh wallets
+              </a>
             ) : (
               <a class="btn btn-sm" href="/me/coinpay/connect">
                 Reconnect

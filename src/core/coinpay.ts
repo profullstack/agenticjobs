@@ -7,7 +7,10 @@
  *  - A person connects their own CoinPay account over OAuth. The board asks for
  *    `wallet:read` and uses the token for exactly one call, `userinfo`, which
  *    returns the wallets they can be paid to. That is all the token can do;
- *    CoinPay's OAuth has no scope for creating anything.
+ *    CoinPay's OAuth has no scope for creating anything. So the board keeps
+ *    the wallets (addresses, not secrets) and throws the token away in the
+ *    same request: nothing on this server can act as the person on CoinPay.
+ *    "Refresh wallets" is a fresh consent, not a stored token.
  *  - The board has a business key of its own. That is what creates a payment,
  *    with the payee's address as `merchant_wallet_address`, and CoinPay records
  *    who authorised the third-party payout. The board never holds funds.
@@ -63,7 +66,14 @@ export interface Payment {
   txHash: string | null;
 }
 
-export class CoinPayProblem extends Error {}
+export class CoinPayProblem extends Error {
+  /** CoinPay's HTTP status, or undefined when CoinPay never answered. */
+  readonly status: number | undefined;
+  constructor(message: string, status?: number) {
+    super(message);
+    this.status = status;
+  }
+}
 
 /** The site every payment here is for, as CoinPay records it (`property`). */
 export const PROPERTY = 'agenticjobs.work';
@@ -188,6 +198,7 @@ export function createCoinPay(config: CoinPayConfig, fetchImpl: Fetch = fetch): 
       // An HTML error page, usually a wrong COINPAY_URL. Say so.
       throw new CoinPayProblem(
         `CoinPay answered ${response.status} with something that is not JSON.`,
+        response.status,
       );
     }
     return {
@@ -218,7 +229,10 @@ export function createCoinPay(config: CoinPayConfig, fetchImpl: Fetch = fetch): 
       }).toString(),
     });
     if (result.status !== 200) {
-      throw new CoinPayProblem(errorOf(result.body, 'CoinPay refused the token request.'));
+      throw new CoinPayProblem(
+        errorOf(result.body, 'CoinPay refused the token request.'),
+        result.status,
+      );
     }
     return tokenSet(result.body);
   }
@@ -257,7 +271,10 @@ export function createCoinPay(config: CoinPayConfig, fetchImpl: Fetch = fetch): 
         headers: { authorization: `Bearer ${accessToken}` },
       });
       if (result.status !== 200) {
-        throw new CoinPayProblem(errorOf(result.body, 'CoinPay would not say who that token is.'));
+        throw new CoinPayProblem(
+          errorOf(result.body, 'CoinPay would not say who that token is.'),
+          result.status,
+        );
       }
       const sub = str(result.body['sub']);
       if (sub === null) throw new CoinPayProblem('CoinPay returned a user with no id.');
@@ -358,7 +375,9 @@ export interface Account {
   wallets: Wallet[];
   connectedAt: string;
   updatedAt: string;
-  /** False when the token cannot read wallets: the person has to reconnect. */
+  /** When `wallets` was last read from CoinPay (connect, reconnect or the legacy sweep). */
+  walletsSyncedAt: string | null;
+  /** False when the grant could not read wallets: the person has to reconnect. */
   usable: boolean;
 }
 
@@ -367,11 +386,13 @@ interface AccountRow {
   coinpay_sub: string;
   email: string | null;
   name: string | null;
-  access_token: string;
+  /** Legacy only (before 0026): plaintext tokens, migrated away by `sweepLegacyTokens`. */
+  access_token: string | null;
   refresh_token: string | null;
   scope: string;
-  expires_at: string;
+  expires_at: string | null;
   wallets: unknown;
+  wallets_synced_at: string | null;
   connected_at: string;
   updated_at: string;
 }
@@ -387,7 +408,10 @@ function toAccount(row: AccountRow): Account {
     wallets: normaliseWallets(row.wallets),
     connectedAt: row.connected_at,
     updatedAt: row.updated_at,
-    usable: row.access_token !== '' && hasScope(scope),
+    walletsSyncedAt: row.wallets_synced_at,
+    // The wallets were read under a grant that had wallet:read. No token is
+    // needed to pay to them, so none is kept.
+    usable: hasScope(scope),
   };
 }
 
@@ -482,26 +506,25 @@ export async function finishConnect(
     return 'That CoinPay account is already connected to a different account on this board. Disconnect it there first.';
   }
 
+  // The wallets are what the board needs; the tokens are not stored at all.
+  // A reconnect over a legacy row clears its old tokens in the same write.
   const saved = await pool.query<AccountRow>(
     `insert into coinpay_accounts
-       (user_id, coinpay_sub, email, name, access_token, refresh_token, scope, expires_at, wallets)
-     values ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb)
+       (user_id, coinpay_sub, email, name, access_token, refresh_token, scope, expires_at,
+        wallets, wallets_synced_at)
+     values ($1, $2, $3, $4, null, null, $5, null, $6::jsonb, now())
      on conflict (user_id) do update set
        coinpay_sub = excluded.coinpay_sub, email = excluded.email, name = excluded.name,
-       access_token = excluded.access_token,
-       refresh_token = coalesce(excluded.refresh_token, coinpay_accounts.refresh_token),
-       scope = excluded.scope, expires_at = excluded.expires_at, wallets = excluded.wallets,
-       updated_at = now()
+       access_token = null, refresh_token = null, expires_at = null,
+       scope = excluded.scope, wallets = excluded.wallets,
+       wallets_synced_at = now(), updated_at = now()
      returning *`,
     [
       pending.user_id,
       info.sub,
       info.email,
       info.name,
-      tokens.accessToken,
-      tokens.refreshToken,
       tokens.scope.join(' '),
-      tokens.expiresAt,
       JSON.stringify(info.wallets),
     ],
   );
@@ -512,65 +535,130 @@ export async function finishConnect(
   };
 }
 
+// --- legacy tokens ---------------------------------------------------------
+
 /**
- * A token that works right now, refreshing if it is about to stop. Null when
- * the person has to reconnect, which the caller should say plainly.
+ * Before 0026 the board kept each person's CoinPay access and refresh tokens
+ * in plaintext, readable by anyone with the database or root on the box. The
+ * only thing they were ever used for was re-reading wallets, so each legacy
+ * row is converted once: one refresh, one `userinfo`, the wallets written and
+ * every token column nulled in the same update.
+ *
+ *  - CoinPay refuses the refresh or the read (invalid_grant, 401, 403): the
+ *    tokens are deleted anyway. The wallets read at connect time stay, so
+ *    invoices keep working; "Refresh wallets" is a reconnect.
+ *  - CoinPay is down or answers 5xx: nothing changes, the next sweep retries.
+ *  - `legacy: false` (LEGACY_KEY_MIGRATION=off): legacy tokens are never sent
+ *    anywhere again; the sweep just deletes them.
  */
-async function freshToken(
+export type LegacyOutcome = 'migrated' | 'refused' | 'deferred' | 'dropped';
+
+export interface LegacySweep {
+  migrated: number;
+  refused: number;
+  deferred: number;
+  dropped: number;
+  /** Rows still holding a token after this sweep. */
+  remaining: number;
+}
+
+const DROP_TOKENS = `access_token = null, refresh_token = null, expires_at = null`;
+
+function refusedByCoinPay(error: unknown): boolean {
+  return (
+    error instanceof CoinPayProblem &&
+    error.status !== undefined &&
+    error.status >= 400 &&
+    error.status < 500
+  );
+}
+
+export async function migrateLegacyToken(
   pool: pg.Pool,
-  coinpay: CoinPayClient,
-  row: AccountRow,
-): Promise<string | null> {
-  if (!hasScope(row.scope)) return null;
-  if (new Date(row.expires_at).getTime() - Date.now() > EXPIRY_BUFFER_MS) return row.access_token;
-  if (row.refresh_token === null) return null;
-  try {
-    const tokens = await coinpay.refresh(row.refresh_token);
+  coinpay: CoinPayClient | null,
+  row: Pick<AccountRow, 'user_id' | 'access_token' | 'refresh_token' | 'expires_at'>,
+  options: { legacy: boolean },
+): Promise<LegacyOutcome> {
+  if (!options.legacy || coinpay === null) {
     await pool.query(
-      `update coinpay_accounts set access_token = $2, refresh_token = coalesce($3, refresh_token),
-              scope = $4, expires_at = $5, updated_at = now() where user_id = $1`,
+      `update coinpay_accounts set ${DROP_TOKENS}, updated_at = now() where user_id = $1`,
+      [row.user_id],
+    );
+    return 'dropped';
+  }
+  try {
+    let access = row.access_token;
+    let scope: string[] | null = null;
+    const expired =
+      row.expires_at === null ||
+      new Date(row.expires_at).getTime() - Date.now() <= EXPIRY_BUFFER_MS;
+    if (access === null || access === '' || expired) {
+      if (row.refresh_token === null || row.refresh_token === '') {
+        throw new CoinPayProblem('No refresh token.', 400);
+      }
+      const tokens = await coinpay.refresh(row.refresh_token);
+      access = tokens.accessToken;
+      scope = tokens.scope;
+    }
+    const info = await coinpay.userinfo(access);
+    const usable = scope === null || hasScope(scope);
+    await pool.query(
+      `update coinpay_accounts set ${DROP_TOKENS},
+              wallets = case when $2 then $3::jsonb else wallets end,
+              wallets_synced_at = case when $2 then now() else wallets_synced_at end,
+              scope = coalesce($4, scope),
+              email = coalesce($5, email), name = coalesce($6, name), updated_at = now()
+        where user_id = $1`,
       [
         row.user_id,
-        tokens.accessToken,
-        tokens.refreshToken,
-        tokens.scope.join(' '),
-        tokens.expiresAt,
+        usable,
+        JSON.stringify(info.wallets),
+        scope === null ? null : scope.join(' '),
+        info.email,
+        info.name,
       ],
     );
-    return hasScope(tokens.scope) ? tokens.accessToken : null;
-  } catch {
-    return null;
+    return 'migrated';
+  } catch (error) {
+    if (refusedByCoinPay(error)) {
+      await pool.query(
+        `update coinpay_accounts set ${DROP_TOKENS}, updated_at = now() where user_id = $1`,
+        [row.user_id],
+      );
+      return 'refused';
+    }
+    if (error instanceof CoinPayProblem) return 'deferred';
+    throw error;
   }
 }
 
-/**
- * Re-read the wallets from CoinPay. Returns the account as it now stands, or
- * a sentence when the connection no longer works.
- */
-export async function refreshWallets(
+/** How many rows still hold a CoinPay token. Zero once the migration is done. */
+export async function legacyTokenCount(pool: pg.Pool): Promise<number> {
+  const result = await pool.query<{ n: number }>(
+    `select count(*)::int as n from coinpay_accounts
+      where access_token is not null or refresh_token is not null`,
+  );
+  return result.rows[0]?.n ?? 0;
+}
+
+/** Convert every legacy row. Safe to run any number of times. */
+export async function sweepLegacyTokens(
   pool: pg.Pool,
-  coinpay: CoinPayClient,
-  userId: string,
-): Promise<Account | string> {
-  const result = await pool.query<AccountRow>(`select * from coinpay_accounts where user_id = $1`, [
-    userId,
-  ]);
-  const row = result.rows[0];
-  if (row === undefined) return 'No CoinPay account is connected.';
-  const token = await freshToken(pool, coinpay, row);
-  if (token === null) return 'The CoinPay connection has lapsed. Reconnect it.';
-  try {
-    const info = await coinpay.userinfo(token);
-    const saved = await pool.query<AccountRow>(
-      `update coinpay_accounts set wallets = $2::jsonb, email = $3, name = $4, updated_at = now()
-        where user_id = $1 returning *`,
-      [userId, JSON.stringify(info.wallets), info.email, info.name],
-    );
-    return toAccount(saved.rows[0]!);
-  } catch (error) {
-    if (error instanceof CoinPayProblem) return error.message;
-    throw error;
+  coinpay: CoinPayClient | null,
+  options: { legacy: boolean },
+): Promise<LegacySweep> {
+  const rows = await pool.query<
+    Pick<AccountRow, 'user_id' | 'access_token' | 'refresh_token' | 'expires_at'>
+  >(
+    `select user_id, access_token, refresh_token, expires_at from coinpay_accounts
+      where access_token is not null or refresh_token is not null`,
+  );
+  const out: LegacySweep = { migrated: 0, refused: 0, deferred: 0, dropped: 0, remaining: 0 };
+  for (const row of rows.rows) {
+    out[await migrateLegacyToken(pool, coinpay, row, options)] += 1;
   }
+  out.remaining = await legacyTokenCount(pool);
+  return out;
 }
 
 /**

@@ -51,6 +51,13 @@ export interface Config {
    */
   crawl?: { apiKey: string; payTo: string } | null;
   /**
+   * Whether legacy CoinPay tokens (stored in plaintext before 0026) may still
+   * be used once, to re-read wallets before they are deleted. Off
+   * (LEGACY_KEY_MIGRATION=off) means they are only ever deleted. Optional so a
+   * hand-built config in a test can leave it out; absent means on.
+   */
+  legacyKeyMigration?: boolean;
+  /**
    * What an accepted invite is worth, to each side, and how old the inviter's
    * account must be before it pays. Optional so a hand-built config in a test
    * can leave it out; the defaults are in core/credits.ts.
@@ -194,6 +201,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     openaiApiKey: env['OPENAI_API_KEY']?.trim() || null,
     writerModel: env['WRITER_MODEL']?.trim() || null,
     coinpay: coinpayConfig(env),
+    legacyKeyMigration: env['LEGACY_KEY_MIGRATION']?.trim().toLowerCase() !== 'off',
     crawl:
       env['COINPAY_X402_KEY']?.trim() && env['CRAWL_PAY_TO']?.trim()
         ? { apiKey: env['COINPAY_X402_KEY'].trim(), payTo: env['CRAWL_PAY_TO'].trim() }
@@ -213,7 +221,7 @@ function intOr(value: string | undefined, fallback: number): number {
 }
 
 /** Kept in step with package.json by the release script. */
-export const VERSION = '0.23.0';
+export const VERSION = '0.23.1';
 export const SOFTWARE_NAME = 'agenticjobs';
 
 /**

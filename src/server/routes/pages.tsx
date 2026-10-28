@@ -133,7 +133,7 @@ import {
   writerProvider,
 } from '../../core/agentwriter.ts';
 import { readSpec } from './specs.ts';
-import { beginConnect, disconnect, getAccount, refreshWallets } from '../../core/coinpay.ts';
+import { beginConnect, disconnect, getAccount } from '../../core/coinpay.ts';
 import { listInvoicesFor } from '../../core/invoices.ts';
 import { BillingCard } from '../../views/inbox.tsx';
 import { AgentsCard } from '../../views/agents.tsx';
@@ -1220,15 +1220,14 @@ export function pageRoutes(): Hono<AppEnv> {
     return c.redirect(url, 302);
   });
 
-  pages.post('/me/coinpay/refresh', async (c) => {
-    const { pool, coinpay } = c.get('deps');
+  /**
+   * The board keeps no CoinPay token, so re-reading wallets is a fresh
+   * consent on CoinPay. Kept as a POST for old forms and bookmarks.
+   */
+  pages.post('/me/coinpay/refresh', (c) => {
     const viewer = requireViewer(c);
     if (viewer instanceof Response) return viewer;
-    if (coinpay === null) return c.redirect('/me#billing', 303);
-    const result = await refreshWallets(pool, coinpay, viewer.id);
-    const notice =
-      typeof result === 'string' ? result : `Wallets refreshed: ${result.wallets.length}.`;
-    return c.redirect(`/me?coinpay=${encodeURIComponent(notice)}#billing`, 303);
+    return c.redirect('/me/coinpay/connect', 303);
   });
 
   pages.post('/me/coinpay/disconnect', async (c) => {

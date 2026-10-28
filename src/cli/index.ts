@@ -186,6 +186,7 @@ const USAGE = `agenticjobs ${VERSION} - an agent-friendly job board you can self
   Running one
     serve                     start the board
     migrate                   apply migrations and exit
+    coinpay-sweep             convert legacy CoinPay tokens to stored wallets; prints what is left
     seed                      add example data (never on a board with jobs)
     announce                  tell a directory this board exists
     instances                 boards a directory knows about
@@ -263,6 +264,19 @@ async function run(args: Args): Promise<number> {
           ? `Nothing to apply; ${result.alreadyApplied} already there.\n`
           : `Applied: ${result.applied.join(', ')}\n`,
       );
+      await closePool();
+      return 0;
+    }
+    case 'coinpay-sweep': {
+      const { closePool, getPool } = await import('../db/pool.ts');
+      const { loadConfig: serverConfig } = await import('../config.ts');
+      const { createCoinPay, sweepLegacyTokens } = await import('../core/coinpay.ts');
+      const config = serverConfig();
+      const coinpay = config.coinpay === null ? null : createCoinPay(config.coinpay);
+      const result = await sweepLegacyTokens(getPool(config.databaseUrl), coinpay, {
+        legacy: config.legacyKeyMigration !== false,
+      });
+      process.stdout.write(`${JSON.stringify(result)}\n`);
       await closePool();
       return 0;
     }

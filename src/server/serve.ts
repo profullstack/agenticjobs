@@ -9,6 +9,7 @@ import { loadConfig, sameOrigin, type Config } from '../config.ts';
 import { getPool } from '../db/pool.ts';
 import { migrate } from '../db/migrate.ts';
 import { startAnnouncing, type Announcer } from '../directory/announce.ts';
+import { createCoinPay, sweepLegacyTokens } from '../core/coinpay.ts';
 import { sweep } from '../directory/registry.ts';
 import { createApp } from './app.tsx';
 
@@ -73,6 +74,33 @@ export async function startServer(overrides: Partial<Config> = {}): Promise<Runn
     }
   }
 
+  // Plaintext CoinPay tokens from before 0026: converted to stored wallets and
+  // deleted. Runs at boot and then every six hours until none are left; a
+  // CoinPay outage only defers a row, it never loses one.
+  let tokenSweeper: NodeJS.Timeout | null = null;
+  {
+    const coinpay = config.coinpay === null ? null : createCoinPay(config.coinpay);
+    const legacy = config.legacyKeyMigration !== false;
+    const runTokens = (): void => {
+      void sweepLegacyTokens(pool, coinpay, { legacy })
+        .then((r) => {
+          if (r.migrated + r.refused + r.dropped + r.deferred > 0 || r.remaining > 0) {
+            console.log(
+              `coinpay tokens: ${r.migrated} migrated, ${r.refused} refused, ${r.dropped} dropped, ${r.deferred} deferred, ${r.remaining} remaining`,
+            );
+          }
+          if (r.remaining === 0 && tokenSweeper !== null) {
+            clearInterval(tokenSweeper);
+            tokenSweeper = null;
+          }
+        })
+        .catch((error: unknown) => console.error('coinpay token sweep failed', error));
+    };
+    tokenSweeper = setInterval(runTokens, 6 * 60 * 60 * 1000);
+    tokenSweeper.unref?.();
+    setTimeout(runTokens, 15_000).unref?.();
+  }
+
   let sweeper: NodeJS.Timeout | null = null;
   if (config.isDirectory) {
     console.log('  directory   on');
@@ -99,6 +127,7 @@ export async function startServer(overrides: Partial<Config> = {}): Promise<Runn
     stop: async () => {
       announcer?.stop();
       if (sweeper !== null) clearInterval(sweeper);
+      if (tokenSweeper !== null) clearInterval(tokenSweeper);
       await new Promise<void>((resolve) => server.close(() => resolve()));
     },
   };
