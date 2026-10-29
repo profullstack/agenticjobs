@@ -270,6 +270,7 @@ const JOB_PATCH_FIELDS: Record<string, string> = {
   requirements: 'requirements',
   responsibilities: 'responsibilities',
   agentPolicy: 'agentPolicy',
+  applySchema: 'applySchema',
   expiresAt: 'expiresAt',
 };
 

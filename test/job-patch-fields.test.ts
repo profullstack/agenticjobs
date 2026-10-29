@@ -180,3 +180,20 @@ test('a patch with no recognised fields issues no update', async () => {
   assert.ok(!queries.some((sql) => sql.trim().startsWith('update jobs')));
   assert.equal(result?.title, 'Backend Engineer');
 });
+
+test('a patch that sends applySchema writes it', async () => {
+  const job = jobRow();
+  const queries: string[] = [];
+  const schema = { fields: [{ name: 'portfolio', label: 'Portfolio', type: 'url' as const, required: true }] };
+  await patchJob(
+    fakePool(job, queries) as never,
+    'job-1',
+    input({ apply: { via: 'board', schema } as JobInput['apply'] }),
+    new Set(['applySchema']),
+  );
+
+  const sql = updateSql(queries);
+  assert.match(sql, /apply_schema = \$\d+/);
+  assert.ok(!sql.includes('title ='), 'an applySchema patch must not rewrite the title');
+  assert.deepEqual(JSON.parse(job['apply_schema'] as string), schema);
+});

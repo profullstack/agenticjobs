@@ -3197,6 +3197,19 @@ describe('the API', { skip: reason === '' ? false : `no database: ${reason}` }, 
       assert.deepEqual(edited.job.apply.schema.fields, [
         { name: 'portfolio', label: 'Portfolio link', type: 'url', required: true, maxLength: 500 },
       ]);
+
+      // Sending applySchema replaces it; it used to be validated and dropped.
+      const rescoped = (await (
+        await patch(
+          `/api/v1/jobs/${created.job.slug}`,
+          { applySchema: { fields: [{ name: 'github', label: 'GitHub', type: 'url', required: true }] } },
+          auth,
+        )
+      ).json()) as { job: { apply: { schema: { fields: { name: string }[] } } } };
+      assert.deepEqual(
+        rescoped.job.apply.schema.fields.map((field) => field.name),
+        ['github'],
+      );
     });
 
     test("editing someone else's listing is refused", async () => {

@@ -814,7 +814,7 @@ export async function editJob(pool: pg.Pool, id: string, input: JobInput): Promi
             salary_period = $12, salary_equity = $13, salary_unpaid = $14,
             tags = $15, stack = $16, requirements = $17, responsibilities = $18,
             agent_policy = $19, expires_at = $20, pay_lines = $21, pay_method = $22,
-            updated_at = now()
+            apply_schema = $23, updated_at = now()
       where id = $1`,
     [
       id,
@@ -839,6 +839,7 @@ export async function editJob(pool: pg.Pool, id: string, input: JobInput): Promi
       input.expiresAt,
       JSON.stringify(input.pay.lines),
       input.pay.method,
+      JSON.stringify(input.apply.schema),
     ],
   );
   return getJobById(pool, id);
@@ -911,6 +912,7 @@ export async function patchJob(
   if (fields.has('requirements')) set('requirements', input.requirements);
   if (fields.has('responsibilities')) set('responsibilities', input.responsibilities);
   if (fields.has('agentPolicy')) set('agent_policy', input.agentPolicy);
+  if (fields.has('applySchema')) set('apply_schema', JSON.stringify(input.apply.schema));
   if (fields.has('expiresAt')) set('expires_at', input.expiresAt);
   if (fields.has('pay')) {
     const salary = salaryFromPay(input.pay);
