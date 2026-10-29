@@ -354,22 +354,26 @@ export function renderInline(source: string, options: MarkdownOptions = {}): str
 
   text = escapeHtml(text);
 
-  text = replaceInlineLinks(text, options, rel, protectHtml);
+  text = replaceInlineLinks(text, options, rel, protectHtml, restore);
 
   // Bare URLs. Trailing punctuation is left outside the link, because a URL at
   // the end of a sentence is the common case and the full stop is not part of
-  // it.
-  text = text.replace(/(^|[\s(])(https?:\/\/[^\s<>"']+)/g, (_whole, lead: string, href: string) => {
-    // The match ran on escaped text, so decode before trimming: an entity's
-    // own `;` would otherwise count as trailing punctuation and corrupt it.
-    const decoded = unescapeUrl(href);
-    const trimmed = trimBareUrl(decoded);
-    const tail = decoded.slice(trimmed.length);
-    const url = safeUrl(trimmed);
-    if (url === null) return `${lead}${href}`;
-    const html = `<a href="${escapeHtml(url)}" rel="${rel}">${escapeHtml(trimmed)}</a>`;
-    return `${lead}${protectHtml(html)}${tail}`;
-  });
+  // it. The character class also excludes the MARK sentinel, so a code span or
+  // emitted link sitting at the end of a URL is not swallowed into the href.
+  text = text.replace(
+    /(^|[\s(])(https?:\/\/[^\s<>"'\x00]+)/g,
+    (_whole, lead: string, href: string) => {
+      // The match ran on escaped text, so decode before trimming: an entity's
+      // own `;` would otherwise count as trailing punctuation and corrupt it.
+      const decoded = unescapeUrl(href);
+      const trimmed = trimBareUrl(decoded);
+      const tail = decoded.slice(trimmed.length);
+      const url = safeUrl(trimmed);
+      if (url === null) return `${lead}${href}`;
+      const html = `<a href="${escapeHtml(url)}" rel="${rel}">${escapeHtml(trimmed)}</a>`;
+      return `${lead}${protectHtml(html)}${tail}`;
+    },
+  );
 
   return restore(renderEmphasis(text));
 }
@@ -382,6 +386,14 @@ function renderEmphasis(text: string): string {
     .replace(/(^|[^\w_])__([^_\n]+)__(?!\w)/g, '$1<strong>$2</strong>')
     .replace(/(^|[^\w_])_([^_\n]+)_(?!\w)/g, '$1<em>$2</em>')
     .replace(/~~([^~\n]+)~~/g, '<del>$1</del>');
+}
+
+/**
+ * An image description stays literal text (#305), but a code span in it is
+ * restored as its text: `<code>` tags inside an attribute are broken HTML.
+ */
+function plainTextLabel(label: string, restore: (text: string) => string): string {
+  return restore(label).replace(/<\/?code>/g, '');
 }
 
 /** Keep balanced URL parentheses; only surrounding prose belongs outside the link. */
@@ -411,6 +423,7 @@ function replaceInlineLinks(
   options: MarkdownOptions,
   rel: string,
   protectHtml: (html: string) => string,
+  restore: (text: string) => string,
 ): string {
   let result = '';
   let cursor = 0;
@@ -434,7 +447,7 @@ function replaceInlineLinks(
       html =
         options.noImages === true
           ? `<a href="${escapeHtml(url)}" rel="${rel}">${linkLabel}</a>`
-          : `<img src="${escapeHtml(url)}" alt="${label}" loading="lazy" />`;
+          : `<img src="${escapeHtml(url)}" alt="${plainTextLabel(label, restore)}" loading="lazy" />`;
     } else {
       html = `<a href="${escapeHtml(url)}" rel="${rel}">${renderEmphasis(label)}</a>`;
     }
