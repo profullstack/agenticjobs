@@ -137,8 +137,9 @@ import {
   sendInvoice,
   syncInvoice,
 } from '../../core/invoices.ts';
-import { disconnect, finishConnect, getAccount } from '../../core/coinpay.ts';
-import { coinpayRedirectUri } from './pages.tsx';
+import { disconnect, finishConnect, getAccount, hasOtherSignIn } from '../../core/coinpay.ts';
+import { getCookie, deleteCookie } from 'hono/cookie';
+import { COINPAY_STATE_COOKIE, coinpayRedirectUri, setSessionCookie } from './pages.tsx';
 import { descriptorFor } from './descriptor.ts';
 import { openApiDocument } from './openapi.ts';
 import { afterPublish, countView } from '../publish.ts';
@@ -1785,6 +1786,14 @@ export function apiRoutes(): Hono<AppEnv> {
     const { pool } = c.get('deps');
     const viewer = viewerOf(c);
     if (viewer === null) return fail(c, 401, 'unauthenticated', 'Sign in first.');
+    if (!(await hasOtherSignIn(pool, viewer.id))) {
+      return fail(
+        c,
+        409,
+        'only_sign_in',
+        'CoinPay is the only way into this account. Add a passkey first, then disconnect.',
+      );
+    }
     return c.json({ ok: await disconnect(pool, viewer.id) });
   });
 
@@ -1798,6 +1807,9 @@ export function apiRoutes(): Hono<AppEnv> {
     const params = new URL(c.req.url).searchParams;
     const code = params.get('code') ?? '';
     const state = params.get('state') ?? '';
+    // Set by /auth/coinpay for a sign-in; spent whatever happens next.
+    const browserState = getCookie(c, COINPAY_STATE_COOKIE) ?? null;
+    if (browserState !== null) deleteCookie(c, COINPAY_STATE_COOKIE, { path: '/api/v1/coinpay' });
     if (params.get('error') !== null) {
       const said = params.get('error_description') ?? params.get('error') ?? 'refused';
       return c.redirect(`/me?coinpay=${encodeURIComponent(`CoinPay said: ${said}`)}#billing`, 303);
@@ -1809,9 +1821,19 @@ export function apiRoutes(): Hono<AppEnv> {
       state,
       code,
       redirectUri: coinpayRedirectUri(config.publicUrl),
+      browserState,
     });
     if (typeof done === 'string') {
       return c.redirect(`/me?coinpay=${encodeURIComponent(done)}#billing`, 303);
+    }
+    if (done.kind === 'sign-in-failed') {
+      console.warn(`[coinpay] sign-in failed: ${done.message}`);
+      return c.redirect('/login?coinpay=failed', 303);
+    }
+    if (done.kind === 'signed-in') {
+      const session = await createSession(pool, done.userId, { label: 'browser' });
+      setSessionCookie(c, session);
+      return c.redirect(done.redirect ?? (done.created ? '/me?coinpay=welcome' : '/me'), 303);
     }
     const back = done.redirect ?? '/me#billing';
     if (back.startsWith('/me')) return c.redirect('/me?coinpay=connected#billing', 303);

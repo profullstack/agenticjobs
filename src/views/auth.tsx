@@ -18,12 +18,33 @@ import { Alert, Card, Field } from './layout.tsx';
  */
 export const SIGNUP_FIELDS = PROFILE_COLUMNS.filter((field) => field !== 'email');
 
-export const LoginPage: FC<{ sent?: string; error?: string; next?: string; unsent?: boolean }> = ({
-  sent,
-  error,
-  next,
-  unsent,
-}) => (
+/**
+ * Sign in with CoinPay: the first option on sign-in and sign-up. One CoinPay
+ * account signs in across every Profullstack site; it binds to the CoinPay
+ * account itself, never to an email address.
+ */
+export const CoinPayButton: FC<{ next?: string }> = ({ next }) => (
+  <Card>
+    <a
+      class="btn btn-block"
+      href={`/auth/coinpay${next === undefined ? '' : `?next=${encodeURIComponent(next)}`}`}
+    >
+      Sign in with CoinPay
+    </a>
+    <p class="small muted" style="margin-top:.5rem">
+      Your CoinPay account signs you in here. New to this board? It makes your account.
+    </p>
+  </Card>
+);
+
+export const LoginPage: FC<{
+  sent?: string;
+  error?: string;
+  next?: string;
+  unsent?: boolean;
+  /** Sign in with CoinPay is configured on this board. */
+  coinpay?: boolean;
+}> = ({ sent, error, next, unsent, coinpay }) => (
   <div style="max-width:26rem;margin:0 auto">
     <div class="stack">
       <h1>Sign in</h1>
@@ -41,6 +62,7 @@ export const LoginPage: FC<{ sent?: string; error?: string; next?: string; unsen
         </Card>
       ) : (
         <>
+          {coinpay === true && <CoinPayButton {...(next === undefined ? {} : { next })} />}
           <Card>
             <form class="stack" method="post" action="/login">
               {next !== undefined && <input type="hidden" name="next" value={next} />}
@@ -88,7 +110,8 @@ export const SignupPage: FC<{
   errors?: Record<string, string>;
   /** An invite code from /i/<code>, carried on the link this form asks for. */
   invite?: string;
-}> = ({ next, values = {}, errors = {}, invite }) => (
+  coinpay?: boolean;
+}> = ({ next, values = {}, errors = {}, invite, coinpay }) => (
   <div style="max-width:26rem;margin:0 auto">
     <div class="stack">
       <h1>Create your account</h1>
@@ -100,6 +123,7 @@ export const SignupPage: FC<{
       {Object.keys(errors).length > 0 && (
         <Alert variant="error">Some fields need fixing.</Alert>
       )}
+      {coinpay === true && <CoinPayButton {...(next === undefined ? {} : { next })} />}
       <Card>
         <form class="stack" method="post" action="/signup">
           {next !== undefined && <input type="hidden" name="next" value={next} />}

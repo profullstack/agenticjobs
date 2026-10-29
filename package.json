@@ -60,6 +60,7 @@
   "dependencies": {
     "@hono/node-server": "^2.1.5",
     "@profullstack/affiliates": "^0.2.0",
+    "@profullstack/coinpay-onboard": "0.3.1",
     "@profullstack/emailer": "^1.0.3",
     "@profullstack/footer": "latest",
     "@profullstack/hqtui": "^0.11.1",

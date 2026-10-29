@@ -1834,6 +1834,24 @@ describe('the API', { skip: reason === '' ? false : `no database: ${reason}` }, 
       let scopeToGrant = 'openid profile email wallet:read';
       /** Who CoinPay says the token belongs to. One CoinPay account, one person here, so each test is its own merchant. */
       let subToGrant = 'merchant-default';
+      /** The email CoinPay reports: unverified contact info, never an account key. */
+      let emailToGrant = 'grace@coinpay.test';
+      /** The nonce the last authorize URL carried, echoed in the id_token like CoinPay does. */
+      let nonceToGrant = '';
+      const idTokenFor = (sub: string, nonce: string) =>
+        [
+          Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url'),
+          Buffer.from(
+            JSON.stringify({
+              iss: 'https://coinpay.test',
+              aud: 'cp_board',
+              sub,
+              exp: Math.floor(Date.now() / 1000) + 600,
+              nonce,
+            }),
+          ).toString('base64url'),
+          'sig',
+        ].join('.');
       const payments = new Map<string, Record<string, unknown>>();
       const WEBHOOK_SECRET = 'whsec_test_board';
       const fetchStub: typeof fetch = async (input, init) => {
@@ -1863,6 +1881,9 @@ describe('the API', { skip: reason === '' ? false : `no database: ${reason}` }, 
             token_type: 'Bearer',
             expires_in: 3600,
             scope: scopeToGrant,
+            ...(scopeToGrant.includes('openid')
+              ? { id_token: idTokenFor(subToGrant, nonceToGrant) }
+              : {}),
           });
         }
         if (url.pathname === '/api/oauth/userinfo') {
@@ -1870,7 +1891,8 @@ describe('the API', { skip: reason === '' ? false : `no database: ${reason}` }, 
           if (!auth.startsWith('Bearer at_')) return json({ error: 'invalid_token' }, 401);
           return json({
             sub: subToGrant,
-            email: 'grace@coinpay.test',
+            email: emailToGrant,
+            email_verified: false,
             name: 'Grace',
             ...(scopeToGrant.includes('wallet:read')
               ? {
@@ -1978,6 +2000,9 @@ describe('the API', { skip: reason === '' ? false : `no database: ${reason}` }, 
           'http://board.test/api/v1/coinpay/callback',
         );
         assert.ok(authorize.searchParams.get('scope')?.includes('wallet:read'));
+        assert.equal(authorize.searchParams.get('code_challenge_method'), 'S256');
+        nonceToGrant = authorize.searchParams.get('nonce') ?? '';
+        assert.ok(nonceToGrant.length > 20, 'every authorization carries a nonce');
         const state = authorize.searchParams.get('state') ?? '';
         // The callback is completed by the state, not by the cookie.
         return send(
@@ -2490,6 +2515,115 @@ describe('the API', { skip: reason === '' ? false : `no database: ${reason}` }, 
         const off = await sweepLegacyTokens(pool as never, client, { legacy: false });
         assert.deepEqual(off, { migrated: 0, refused: 0, deferred: 0, dropped: 1, remaining: 0 });
         assert.equal(await legacyTokenCount(pool as never), 0);
+      });
+
+      /** Sign in with CoinPay the way a browser would: start, consent, callback with the pinned cookie. */
+      const signIn = async (opts: { cookie?: boolean; nonce?: string } = {}) => {
+        const away = await send('GET', '/auth/coinpay?next=/me');
+        assert.equal(away.status, 302);
+        const authorize = new URL(away.headers.get('location') ?? '');
+        assert.equal(
+          authorize.origin + authorize.pathname,
+          'https://coinpay.test/api/oauth/authorize',
+        );
+        assert.equal(authorize.searchParams.get('code_challenge_method'), 'S256');
+        assert.ok(authorize.searchParams.get('code_challenge'));
+        assert.equal(
+          authorize.searchParams.get('redirect_uri'),
+          'http://board.test/api/v1/coinpay/callback',
+        );
+        const state = authorize.searchParams.get('state') ?? '';
+        nonceToGrant = opts.nonce ?? authorize.searchParams.get('nonce') ?? '';
+        const pinned = /aj_coinpay_state=([^;]+)/.exec(away.headers.get('set-cookie') ?? '')?.[1];
+        assert.equal(pinned, state, 'the state is pinned to the browser');
+        const back = await send(
+          'GET',
+          `/api/v1/coinpay/callback?code=good-code&state=${encodeURIComponent(state)}`,
+          undefined,
+          opts.cookie === false ? {} : { cookie: `aj_coinpay_state=${state}` },
+        );
+        const session = /aj_session=([^;]+)/.exec(back.headers.get('set-cookie') ?? '')?.[1];
+        return { back, session };
+      };
+
+      const whoIs = async (session: string | undefined) => {
+        const { viewerFromToken } = await import('../dist/core/auth.js');
+        return session === undefined ? null : viewerFromToken(pool as never, session);
+      };
+
+      test('Sign in with CoinPay is first on /login and /signup', async () => {
+        if (pool === null) return;
+        for (const path of ['/login', '/signup']) {
+          const html = await (await send('GET', path)).text();
+          const button = html.indexOf('Sign in with CoinPay');
+          assert.ok(button > 0, `${path} offers CoinPay`);
+          assert.ok(button < html.indexOf('Email me a link'), `${path} puts CoinPay first`);
+        }
+      });
+
+      test('a first CoinPay sign-in makes a new account bound to the sub, never an admin', async () => {
+        if (pool === null) return;
+        subToGrant = `signin-new-${Date.now()}`;
+        emailToGrant = `fresh-${Date.now()}@example.com`;
+        const { back, session } = await signIn();
+        assert.equal(back.status, 303);
+        assert.equal(back.headers.get('location'), '/me');
+        const viewer = await whoIs(session);
+        assert.ok(viewer, 'signed in');
+        assert.match(viewer.email, /@coinpay\.agenticjobs\.invalid$/);
+        assert.equal(viewer.isAdmin, false);
+        // The same CoinPay account signs into the same board account again.
+        const again = await signIn();
+        assert.equal((await whoIs(again.session))?.id, viewer.id);
+        // And CoinPay is its only way in, so it cannot be disconnected.
+        const refused = await send('DELETE', '/api/v1/coinpay', undefined, {
+          authorization: `Bearer ${session}`,
+        });
+        assert.equal(refused.status, 409);
+        emailToGrant = 'grace@coinpay.test';
+      });
+
+      test('a CoinPay email equal to an existing account does NOT sign into that account', async () => {
+        if (pool === null) return;
+        const victim = await person('Victim');
+        subToGrant = `signin-attacker-${Date.now()}`;
+        emailToGrant = victim.user.email;
+        const { session } = await signIn();
+        const viewer = await whoIs(session);
+        assert.ok(viewer);
+        assert.notEqual(viewer.id, victim.user.id);
+        assert.notEqual(viewer.email.toLowerCase(), victim.user.email.toLowerCase());
+        const linked = await pool.query(`select 1 from coinpay_accounts where user_id = $1`, [
+          victim.user.id,
+        ]);
+        assert.equal(linked.rows.length, 0);
+        emailToGrant = 'grace@coinpay.test';
+      });
+
+      test('a connected CoinPay account signs into the account that connected it', async () => {
+        if (pool === null) return;
+        const grace = await candidate('Grace Signs In');
+        subToGrant = `signin-linked-${Date.now()}`;
+        assert.equal((await connect(grace)).status, 303);
+        const { session } = await signIn();
+        assert.equal((await whoIs(session))?.id, grace.user.id);
+        // She has a real address too, so she may disconnect.
+        assert.equal((await send('DELETE', '/api/v1/coinpay', undefined, grace.auth)).status, 200);
+      });
+
+      test('a sign-in without the pinned cookie, or with a wrong nonce, is refused', async () => {
+        if (pool === null) return;
+        subToGrant = `signin-csrf-${Date.now()}`;
+        const noCookie = await signIn({ cookie: false });
+        assert.equal(noCookie.session, undefined);
+        assert.equal(noCookie.back.headers.get('location'), '/login?coinpay=failed');
+        const badNonce = await signIn({ nonce: 'not-the-nonce' });
+        assert.equal(badNonce.session, undefined);
+        assert.equal(badNonce.back.headers.get('location'), '/login?coinpay=failed');
+        const made = await pool.query(`select 1 from coinpay_accounts where coinpay_sub = $1`, [
+          subToGrant,
+        ]);
+        assert.equal(made.rows.length, 0);
       });
 
       test('a stale or reused state is refused', async () => {

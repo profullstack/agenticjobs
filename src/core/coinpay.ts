@@ -25,6 +25,7 @@
  */
 
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
+import { checkIdToken, sameState } from '@profullstack/coinpay-onboard/oauth';
 import type pg from 'pg';
 import type { CoinPayConfig } from '../config.ts';
 
@@ -47,6 +48,8 @@ export interface TokenSet {
   refreshToken: string | null;
   scope: string[];
   expiresAt: string;
+  /** The OIDC id_token, when `openid` was granted. Checked, never stored. */
+  idToken: string | null;
 }
 
 export interface UserInfo {
@@ -80,7 +83,12 @@ export const PROPERTY = 'agenticjobs.work';
 
 export interface CoinPayClient {
   readonly config: CoinPayConfig;
-  authorizeUrl(input: { state: string; codeChallenge: string; redirectUri: string }): string;
+  authorizeUrl(input: {
+    state: string;
+    codeChallenge: string;
+    redirectUri: string;
+    nonce?: string;
+  }): string;
   exchangeCode(input: {
     code: string;
     redirectUri: string;
@@ -154,6 +162,7 @@ function tokenSet(body: Record<string, unknown>): TokenSet {
     refreshToken: str(body['refresh_token']),
     scope: (str(body['scope']) ?? '').split(/\s+/).filter(Boolean),
     expiresAt: new Date(Date.now() + expiresIn * 1000).toISOString(),
+    idToken: str(body['id_token']),
   };
 }
 
@@ -240,7 +249,7 @@ export function createCoinPay(config: CoinPayConfig, fetchImpl: Fetch = fetch): 
   return {
     config,
 
-    authorizeUrl({ state, codeChallenge, redirectUri }) {
+    authorizeUrl({ state, codeChallenge, redirectUri, nonce }) {
       const params = new URLSearchParams({
         client_id: config.clientId,
         redirect_uri: redirectUri,
@@ -249,6 +258,7 @@ export function createCoinPay(config: CoinPayConfig, fetchImpl: Fetch = fetch): 
         state,
         code_challenge: codeChallenge,
         code_challenge_method: 'S256',
+        ...(nonce === undefined ? {} : { nonce }),
       });
       return `${api}/oauth/authorize?${params.toString()}`;
     },
@@ -437,30 +447,97 @@ export async function beginConnect(
   redirectUri: string,
   next: string | null,
 ): Promise<string> {
-  const { verifier, challenge } = pkcePair();
-  const state = base64url(randomBytes(24));
-  await pool.query(`delete from coinpay_oauth_states where expires_at < now()`);
-  await pool.query(
-    `insert into coinpay_oauth_states (state, user_id, code_verifier, redirect, expires_at)
-     values ($1, $2, $3, $4, $5)`,
-    [state, userId, verifier, next, new Date(Date.now() + STATE_TTL_MS).toISOString()],
-  );
-  return coinpay.authorizeUrl({ state, codeChallenge: challenge, redirectUri });
+  return (await beginAuthorization(pool, coinpay, { mode: 'connect', userId, redirectUri, next }))
+    .url;
 }
 
 /**
- * Finish connecting. Returns where to send the person, or a sentence.
+ * Begin "Sign in with CoinPay" for someone with no session. Returns the URL
+ * to send them to and the state, which the caller also pins to the browser in
+ * a cookie: a sign-in completed in a browser that did not start it would be
+ * login CSRF (someone else's account, signed in under your nose).
+ */
+export async function beginSignIn(
+  pool: pg.Pool,
+  coinpay: CoinPayClient,
+  redirectUri: string,
+  next: string | null,
+): Promise<{ url: string; state: string }> {
+  return beginAuthorization(pool, coinpay, { mode: 'login', userId: null, redirectUri, next });
+}
+
+async function beginAuthorization(
+  pool: pg.Pool,
+  coinpay: CoinPayClient,
+  input: {
+    mode: 'connect' | 'login';
+    userId: string | null;
+    redirectUri: string;
+    next: string | null;
+  },
+): Promise<{ url: string; state: string }> {
+  const { verifier, challenge } = pkcePair();
+  const state = base64url(randomBytes(24));
+  const nonce = base64url(randomBytes(24));
+  await pool.query(`delete from coinpay_oauth_states where expires_at < now()`);
+  await pool.query(
+    `insert into coinpay_oauth_states (state, user_id, code_verifier, redirect, expires_at, mode, nonce)
+     values ($1, $2, $3, $4, $5, $6, $7)`,
+    [
+      state,
+      input.userId,
+      verifier,
+      input.next,
+      new Date(Date.now() + STATE_TTL_MS).toISOString(),
+      input.mode,
+      nonce,
+    ],
+  );
+  return {
+    url: coinpay.authorizeUrl({
+      state,
+      codeChallenge: challenge,
+      redirectUri: input.redirectUri,
+      nonce,
+    }),
+    state,
+  };
+}
+
+/** What a finished CoinPay authorization did. */
+export type Finished =
+  | { kind: 'connected'; userId: string; redirect: string | null; account: Account }
+  | {
+      kind: 'signed-in';
+      userId: string;
+      /** True when this sign-in made the account. */
+      created: boolean;
+      redirect: string | null;
+    }
+  /** A sign-in that did not finish; the message is for the log, not the page. */
+  | { kind: 'sign-in-failed'; message: string };
+
+/** The placeholder address of an account Sign in with CoinPay made. */
+export const PLACEHOLDER_DOMAIN = 'coinpay.agenticjobs.invalid';
+
+/**
+ * Finish a CoinPay authorization: a connect started by a signed-in person, or
+ * a sign-in. Returns what happened, or a sentence for the person.
  *
- * The account is attached to whoever *started* the flow, read off the state,
+ * A connect is attached to whoever *started* the flow, read off the state,
  * not to whoever is signed in when the callback lands: those are the same
  * person in every honest case and a different one in the case this protects
- * against.
+ * against. A sign-in must land in the browser that started it
+ * (`browserState`, from a cookie set at the start).
+ *
+ * Either way the CoinPay account is matched by `sub`, never by email: CoinPay
+ * does not verify addresses, so its email is contact information only.
  */
 export async function finishConnect(
   pool: pg.Pool,
   coinpay: CoinPayClient,
-  input: { state: string; code: string; redirectUri: string },
-): Promise<{ userId: string; redirect: string | null; account: Account } | string> {
+  input: { state: string; code: string; redirectUri: string; browserState?: string | null },
+): Promise<Finished | string> {
   // The state travels into a SQL parameter, and a NUL byte is not text:
   // PostgreSQL refuses it outright, so `?state=%00` on
   // GET /api/v1/coinpay/callback answered 500 where every state that matches
@@ -468,16 +545,24 @@ export async function finishConnect(
   // away to nothing matches nothing.
   const state = input.state.replace(/\0/g, '').trim();
   const claimed = await pool.query<{
-    user_id: string;
+    user_id: string | null;
     code_verifier: string;
     redirect: string | null;
+    mode: string;
+    nonce: string | null;
   }>(
     `delete from coinpay_oauth_states where state = $1 and expires_at > now()
-     returning user_id, code_verifier, redirect`,
+     returning user_id, code_verifier, redirect, mode, nonce`,
     [state],
   );
   const pending = claimed.rows[0];
   if (pending === undefined) return 'That connection attempt has expired. Start again.';
+  const signIn = pending.mode === 'login';
+  const failed = (message: string): Finished | string =>
+    signIn ? { kind: 'sign-in-failed', message } : message;
+  if (signIn && !sameState(input.browserState, state)) {
+    return failed('That sign-in did not start in this browser. Start again.');
+  }
 
   let tokens: TokenSet;
   let info: UserInfo;
@@ -487,11 +572,31 @@ export async function finishConnect(
       redirectUri: input.redirectUri,
       codeVerifier: pending.code_verifier,
     });
-    info = await coinpay.userinfo(tokens.accessToken);
+    // Every authorization since 0027 carries a nonce; one already in flight
+    // when that shipped has none and is finished the way it was started.
+    if (pending.nonce !== null || signIn) {
+      const claims = checkIdToken({
+        idToken: tokens.idToken,
+        clientId: coinpay.config.clientId,
+        nonce: pending.nonce ?? '',
+        issuer: coinpay.config.url,
+      });
+      info = await coinpay.userinfo(tokens.accessToken);
+      if (claims.sub !== info.sub)
+        throw new CoinPayProblem('CoinPay answered for two different people.');
+    } else {
+      info = await coinpay.userinfo(tokens.accessToken);
+    }
   } catch (error) {
-    if (error instanceof CoinPayProblem) return error.message;
+    if (error instanceof CoinPayProblem) return failed(error.message);
+    if (error instanceof Error && /^id_token|CoinPay returned no id_token/.test(error.message)) {
+      return failed(`CoinPay sign-in could not be verified (${error.message}). Start again.`);
+    }
     throw error;
   }
+
+  if (signIn) return finishSignIn(pool, tokens, info, pending.redirect);
+  if (pending.user_id === null) return 'That connection attempt has expired. Start again.';
 
   if (!hasScope(tokens.scope)) {
     return `CoinPay connected the account but did not grant ${REQUIRED_SCOPE}, so no wallet can be read. Check the OAuth client's registered scopes on CoinPay.`;
@@ -506,7 +611,17 @@ export async function finishConnect(
     return 'That CoinPay account is already connected to a different account on this board. Disconnect it there first.';
   }
 
-  // The wallets are what the board needs; the tokens are not stored at all.
+  const account = await saveAccount(pool, pending.user_id, tokens, info);
+  return { kind: 'connected', userId: pending.user_id, redirect: pending.redirect, account };
+}
+
+/** The wallets are what the board needs; the tokens are not stored at all. */
+async function saveAccount(
+  pool: pg.Pool,
+  userId: string,
+  tokens: TokenSet,
+  info: UserInfo,
+): Promise<Account> {
   // A reconnect over a legacy row clears its old tokens in the same write.
   const saved = await pool.query<AccountRow>(
     `insert into coinpay_accounts
@@ -519,20 +634,60 @@ export async function finishConnect(
        scope = excluded.scope, wallets = excluded.wallets,
        wallets_synced_at = now(), updated_at = now()
      returning *`,
-    [
-      pending.user_id,
-      info.sub,
-      info.email,
-      info.name,
-      tokens.scope.join(' '),
-      JSON.stringify(info.wallets),
-    ],
+    [userId, info.sub, info.email, info.name, tokens.scope.join(' '), JSON.stringify(info.wallets)],
   );
-  return {
-    userId: pending.user_id,
-    redirect: pending.redirect,
-    account: toAccount(saved.rows[0]!),
-  };
+  return toAccount(saved.rows[0]!);
+}
+
+/**
+ * Sign in with CoinPay. The `sub` decides the account: the one it is already
+ * connected to, or a new one. Never an existing account with the same email.
+ * A new account gets a random, unroutable placeholder address (contact
+ * email stays on the CoinPay connection) and is never an administrator.
+ */
+async function finishSignIn(
+  pool: pg.Pool,
+  tokens: TokenSet,
+  info: UserInfo,
+  redirect: string | null,
+): Promise<Finished> {
+  const linked = await pool.query<{ user_id: string }>(
+    `select user_id from coinpay_accounts where coinpay_sub = $1`,
+    [info.sub],
+  );
+  const existing = linked.rows[0]?.user_id;
+  if (existing !== undefined) {
+    // Wallets refreshed only when this grant could read them.
+    if (hasScope(tokens.scope)) await saveAccount(pool, existing, tokens, info);
+    return { kind: 'signed-in', userId: existing, created: false, redirect };
+  }
+
+  const placeholder = `${base64url(randomBytes(12))
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '')}@${PLACEHOLDER_DOMAIN}`;
+  const created = await pool.query<{ id: string }>(
+    `insert into users (email, name, is_admin) values ($1, $2, false) returning id`,
+    [placeholder, info.name === null ? null : info.name.slice(0, 120)],
+  );
+  const userId = created.rows[0]!.id;
+  await saveAccount(pool, userId, tokens, info);
+  return { kind: 'signed-in', userId, created: true, redirect };
+}
+
+/**
+ * Whether a person can still get in without CoinPay: a real address for the
+ * magic link, or a passkey. An account Sign in with CoinPay made has neither
+ * until they add a passkey, so disconnecting would lock them out.
+ */
+export async function hasOtherSignIn(pool: pg.Pool, userId: string): Promise<boolean> {
+  const result = await pool.query<{ email: string; passkeys: number }>(
+    `select u.email, (select count(*)::int from passkeys p where p.user_id = u.id) as passkeys
+       from users u where u.id = $1`,
+    [userId],
+  );
+  const row = result.rows[0];
+  if (row === undefined) return false;
+  return !row.email.toLowerCase().endsWith(`@${PLACEHOLDER_DOMAIN}`) || row.passkeys > 0;
 }
 
 // --- legacy tokens ---------------------------------------------------------

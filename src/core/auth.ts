@@ -35,6 +35,9 @@ export const SESSION_COOKIE = 'aj_session';
 export function normaliseEmail(value: unknown): string | null {
   const email = clean(value, 200).toLowerCase();
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return null;
+  // RFC 2606 reserves .invalid, and accounts Sign in with CoinPay made hold a
+  // placeholder there: nobody may type one in to sign up or sign in.
+  if (email.endsWith('.invalid')) return null;
   return email;
 }
 
