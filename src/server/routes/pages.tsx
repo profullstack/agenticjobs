@@ -133,7 +133,13 @@ import {
   writerProvider,
 } from '../../core/agentwriter.ts';
 import { readSpec } from './specs.ts';
-import { beginConnect, disconnect, getAccount } from '../../core/coinpay.ts';
+import {
+  beginConnect,
+  beginSignIn,
+  disconnect,
+  getAccount,
+  hasOtherSignIn,
+} from '../../core/coinpay.ts';
 import { listInvoicesFor } from '../../core/invoices.ts';
 import { BillingCard } from '../../views/inbox.tsx';
 import { AgentsCard } from '../../views/agents.tsx';
@@ -176,8 +182,13 @@ export function coinpayRedirectUri(publicUrl: string): string {
   return `${publicUrl}/api/v1/coinpay/callback`;
 }
 
+/** Pins a Sign in with CoinPay to the browser that started it (login CSRF). */
+export const COINPAY_STATE_COOKIE = 'aj_coinpay_state';
+
 /** The one-word states the callback redirects with, said in a sentence. */
 export function coinpayNotice(code: string): string {
+  if (code === 'welcome')
+    return 'Welcome. This account was made with CoinPay, which is how you sign in. Add a passkey below for a second way in.';
   if (code === 'connected')
     return 'CoinPay connected. Invoices you send settle to the wallets below.';
   if (code === 'disconnected')
@@ -896,12 +907,46 @@ export function pageRoutes(): Hono<AppEnv> {
 
   // --- sign in ----------------------------------------------------------
 
-  pages.get('/login', (c) => {
+  /**
+   * Sign in with CoinPay: off to CoinPay's consent, back to
+   * /api/v1/coinpay/callback. The state is pinned to this browser by a cookie.
+   */
+  pages.get('/auth/coinpay', async (c) => {
+    const { pool, coinpay, config } = c.get('deps');
+    if (coinpay === null) return c.redirect('/login', 302);
     if (c.get('viewer') !== null) return c.redirect('/me', 302);
     const next = safeRedirect(new URL(c.req.url).searchParams.get('next'));
+    const { url, state } = await beginSignIn(
+      pool,
+      coinpay,
+      coinpayRedirectUri(config.publicUrl),
+      next,
+    );
+    setCookie(c, COINPAY_STATE_COOKIE, state, {
+      path: '/api/v1/coinpay',
+      httpOnly: true,
+      // Lax: the callback is a top-level navigation back from CoinPay.
+      sameSite: 'Lax',
+      secure: config.publicUrl.startsWith('https://'),
+      maxAge: 10 * 60,
+    });
+    return c.redirect(url, 302);
+  });
+
+  pages.get('/login', (c) => {
+    if (c.get('viewer') !== null) return c.redirect('/me', 302);
+    const params = new URL(c.req.url).searchParams;
+    const next = safeRedirect(params.get('next'));
+    const notice = params.get('coinpay');
     return c.html(
       <Layout {...shell(c)} title="Sign in" noindex>
-        <LoginPage {...(next === null ? {} : { next })} />
+        <LoginPage
+          {...(next === null ? {} : { next })}
+          coinpay={c.get('deps').coinpay !== null}
+          {...(notice === null
+            ? {}
+            : { error: 'Sign in with CoinPay did not finish. Start again, or use your email.' })}
+        />
       </Layout>,
     );
   });
@@ -912,7 +957,11 @@ export function pageRoutes(): Hono<AppEnv> {
     const invite = pendingInvite(c);
     return c.html(
       <Layout {...shell(c)} title="Create your account" noindex>
-        <SignupPage {...(next === null ? {} : { next })} {...(invite === null ? {} : { invite })} />
+        <SignupPage
+          {...(next === null ? {} : { next })}
+          {...(invite === null ? {} : { invite })}
+          coinpay={c.get('deps').coinpay !== null}
+        />
       </Layout>,
     );
   });
@@ -938,6 +987,7 @@ export function pageRoutes(): Hono<AppEnv> {
       return c.html(
         <Layout {...shell(c)} title="Create your account" noindex>
           <SignupPage
+            coinpay={c.get('deps').coinpay !== null}
             {...(next === null ? {} : { next })}
             {...invitePropOf(carried(c, form).invite)}
             values={form}
@@ -1234,6 +1284,12 @@ export function pageRoutes(): Hono<AppEnv> {
     const { pool } = c.get('deps');
     const viewer = requireViewer(c);
     if (viewer instanceof Response) return viewer;
+    if (!(await hasOtherSignIn(pool, viewer.id))) {
+      return c.redirect(
+        `/me?coinpay=${encodeURIComponent('CoinPay is the only way into this account. Add a passkey first, then disconnect.')}#billing`,
+        303,
+      );
+    }
     await disconnect(pool, viewer.id);
     return c.redirect('/me?coinpay=disconnected#billing', 303);
   });
@@ -1744,7 +1800,7 @@ function creditNoticeOf(
   };
 }
 
-function setSessionCookie(c: Ctx, token: string): void {
+export function setSessionCookie(c: Ctx, token: string): void {
   const { config } = c.get('deps');
   setCookie(c, SESSION_COOKIE, token, {
     path: '/',
