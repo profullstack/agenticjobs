@@ -277,11 +277,11 @@ export const Layout: FC<PropsWithChildren<PageProps>> = (props) => {
           pfsFooter({
             site: `${publicUrl.replace(/\/+$/, '')}/`,
             links: [
+              { label: 'Popular skills:', href: '/skills' },
               ...skills.map((skill) => ({
                 label: skill.skill,
                 href: pathForQuery({ ...EMPTY_QUERY, tags: [skill.skill] }) ?? '/',
               })),
-              { label: 'All skills', href: '/skills' },
               { label: 'Popular', href: '/popular' },
               { label: 'Agents', href: '/agents' },
               { label: 'API', href: '/docs' },
