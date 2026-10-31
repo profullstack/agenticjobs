@@ -272,31 +272,22 @@ export const Layout: FC<PropsWithChildren<PageProps>> = (props) => {
           {showsAd(path, noindex) && <AdUnit />}
           <div class="container">{children}</div>
         </main>
-        <footer class="site-footer">
-          {skills.length > 0 && (
-            <div class="container footer-skills">
-              <span>Popular skills:</span>
-              {skills.map((skill) => (
-                <a href={pathForQuery({ ...EMPTY_QUERY, tags: [skill.skill] }) ?? '/'}>
-                  {skill.skill}
-                </a>
-              ))}
-              <a href="/skills">all skills</a>
-            </div>
-          )}
-          <div class="container footer-links">
-            <a href="/popular">Popular</a>
-            <a href="/agents">Agents</a>
-            <a href="/docs">API</a>
-            <a href="/jobs.json">Feed</a>
-            <a href="https://github.com/profullstack/agenticjobs">Source</a>
-          </div>
-        </footer>
-        {/* Copyright and the Profullstack webring: @profullstack/footer. */}
+        {/* One universal footer carries the product links and popular skills. */}
         {raw(
           pfsFooter({
             site: `${publicUrl.replace(/\/+$/, '')}/`,
-            links: [],
+            links: [
+              ...skills.map((skill) => ({
+                label: skill.skill,
+                href: pathForQuery({ ...EMPTY_QUERY, tags: [skill.skill] }) ?? '/',
+              })),
+              { label: 'All skills', href: '/skills' },
+              { label: 'Popular', href: '/popular' },
+              { label: 'Agents', href: '/agents' },
+              { label: 'API', href: '/docs' },
+              { label: 'Feed', href: '/jobs.json' },
+              { label: 'Source', href: 'https://github.com/profullstack/agenticjobs' },
+            ],
             tagline: `${boardName} runs on agenticjobs, MIT licensed.`,
           }),
         )}
