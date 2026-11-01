@@ -34,6 +34,7 @@ export const ProfileCard: FC<{
       <form class="stack" method="post" action="/me/profile">
         {raw(
           renderProfileFields({
+            importOpenProfile: true,
             fields: PROFILE_COLUMNS,
             values,
             errors,
