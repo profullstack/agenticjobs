@@ -27,6 +27,8 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { checkIdToken, sameState } from '@profullstack/coinpay-onboard/oauth';
 import type pg from 'pg';
+import { saveOpenProfileContact } from '@profullstack/profile';
+import { profileStore } from './profile.ts';
 import type { CoinPayConfig } from '../config.ts';
 
 export const REQUIRED_SCOPE = 'wallet:read';
@@ -56,6 +58,7 @@ export interface UserInfo {
   sub: string;
   email: string | null;
   name: string | null;
+  openprofile_url?: string;
   wallets: Wallet[];
 }
 
@@ -292,6 +295,7 @@ export function createCoinPay(config: CoinPayConfig, fetchImpl: Fetch = fetch): 
         sub,
         email: str(result.body['email']),
         name: str(result.body['name']),
+        ...(typeof result.body['openprofile_url'] === 'string' ? { openprofile_url: result.body['openprofile_url'] } : {}),
         wallets: normaliseWallets(result.body['wallets']),
       };
     },
@@ -612,6 +616,10 @@ export async function finishConnect(
   }
 
   const account = await saveAccount(pool, pending.user_id, tokens, info);
+  if (info.openprofile_url) {
+    try { await saveOpenProfileContact(profileStore(pool), pending.user_id, info.openprofile_url); }
+    catch { console.warn('[coinpay] OpenProfile import skipped'); }
+  }
   return { kind: 'connected', userId: pending.user_id, redirect: pending.redirect, account };
 }
 
