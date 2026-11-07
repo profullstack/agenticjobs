@@ -37,6 +37,12 @@ export interface Config {
    */
   anthropicApiKey: string | null;
   openaiApiKey: string | null;
+  /**
+   * c0mpute peer network, tried before either key. On unless C0MPUTE_DISABLED
+   * is set; C0MPUTE_API_KEY and the other C0MPUTE_* settings are read by
+   * @profullstack/ai-providers.
+   */
+  c0mputeEnabled: boolean;
   /** Overrides the per-provider default model. */
   writerModel: string | null;
   /**
@@ -199,6 +205,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     mailFrom: env['MAIL_FROM']?.trim() || defaultMailFrom(publicUrl, boardName),
     anthropicApiKey: env['ANTHROPIC_API_KEY']?.trim() || null,
     openaiApiKey: env['OPENAI_API_KEY']?.trim() || null,
+    c0mputeEnabled: !flag(env['C0MPUTE_DISABLED']),
     writerModel: env['WRITER_MODEL']?.trim() || null,
     coinpay: coinpayConfig(env),
     legacyKeyMigration: env['LEGACY_KEY_MIGRATION']?.trim().toLowerCase() !== 'off',

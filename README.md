@@ -171,12 +171,16 @@ address is not necessarily whoever owns it.
 
 ### Writing a listing with a model
 
-An employer with a brief and no time can have a model expand it into the form. Set
-one key and the box appears on `/post`; set neither and it does not:
+An employer with a brief and no time can have a model expand it into the form. The
+[c0mpute](https://c0mpute.com) peer network answers first with no vendor key, so the
+box appears on `/post` out of the box; set `C0MPUTE_DISABLED=1` and no vendor key and
+it does not:
 
 ```bash
-ANTHROPIC_API_KEY=sk-ant-...   # tried first
-OPENAI_API_KEY=sk-...          # either alone works; with both, OpenAI is the fallback
+C0MPUTE_API_KEY=ik_live_...    # optional Infernet account key; without one, the free tier
+C0MPUTE_DISABLED=1             # optional; skip c0mpute
+ANTHROPIC_API_KEY=sk-ant-...   # paid fallback, tried after c0mpute
+OPENAI_API_KEY=sk-...          # paid fallback, tried after Anthropic
 WRITER_MODEL=gpt-5.2-codex     # optional; defaults to claude-opus-5 / gpt-5.2, and only
                                # applies to the provider it names (claude-* = Anthropic)
 ```

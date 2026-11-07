@@ -22,6 +22,7 @@
  */
 
 import type pg from 'pg';
+import { createAiProviders } from '@profullstack/ai-providers';
 import type { Config } from '../config.ts';
 import {
   AGENT_POLICIES,
@@ -35,16 +36,18 @@ import { parsePayLine } from '../schema/pay.ts';
 /** The model was asked and could not answer. Never fatal to the page. */
 export class AgentWriterProblem extends Error {}
 
-export type WriterProvider = 'anthropic' | 'openai';
+export type WriterProvider = 'c0mpute' | 'anthropic' | 'openai';
 
 /**
  * The providers this instance can use, in the order they are tried.
  *
- * Anthropic first when both are set, so the same brief goes to the same model
- * whenever it can; OpenAI only answers when Anthropic could not.
+ * c0mpute first: the peer network needs no vendor account, so a board drafts
+ * out of the box (C0MPUTE_DISABLED=1 turns it off). Then Anthropic, then
+ * OpenAI, as paid fallbacks when their keys are set.
  */
 export function writerProviders(config: Config): WriterProvider[] {
   const providers: WriterProvider[] = [];
+  if (config.c0mputeEnabled) providers.push('c0mpute');
   if (config.anthropicApiKey !== null) providers.push('anthropic');
   if (config.openaiApiKey !== null) providers.push('openai');
   return providers;
@@ -159,9 +162,11 @@ export async function draftListing(
   for (const provider of providers) {
     try {
       const raw =
-        provider === 'anthropic'
-          ? await askAnthropic(prompt, config, fetchImpl)
-          : await askOpenAi(prompt, config, fetchImpl);
+        provider === 'c0mpute'
+          ? await askC0mpute(prompt, fetchImpl)
+          : provider === 'anthropic'
+            ? await askAnthropic(prompt, config, fetchImpl)
+            : await askOpenAi(prompt, config, fetchImpl);
       return fieldsFromModelJson(raw);
     } catch (error) {
       if (!(error instanceof AgentWriterProblem)) throw error;
@@ -172,6 +177,42 @@ export async function draftListing(
     }
   }
   throw problem ?? new AgentWriterProblem('This board has no model configured.');
+}
+
+/**
+ * Peer nodes write about two tokens a second, so a full listing takes a minute
+ * or two. The vendors answer in seconds; this is the slow tier's ceiling.
+ */
+export const C0MPUTE_WRITER_TIMEOUT_MS = Number(process.env['C0MPUTE_TIMEOUT_MS']) || 180_000;
+
+/**
+ * The c0mpute peer network, through @profullstack/ai-providers.
+ *
+ * C0MPUTE_API_KEY (an Infernet account key) bills per job; without one the
+ * network's small free tier answers. The provider's own error is logged for
+ * whoever runs the board and never shown, the same as the vendors below.
+ */
+async function askC0mpute(prompt: string, fetchImpl: typeof fetch): Promise<string> {
+  const [provider] = createAiProviders({
+    paidFallback: false,
+    c0mpute: { fetch: fetchImpl, timeoutMs: C0MPUTE_WRITER_TIMEOUT_MS },
+  }).primary;
+  if (provider === undefined) throw new AgentWriterProblem('c0mpute is turned off on this board.');
+  let text: string;
+  try {
+    ({ text } = await provider.generate({
+      system: SYSTEM,
+      user: prompt,
+      maxTokens: 4000,
+      json: true,
+      feature: 'agenticjobs.writer',
+    }));
+  } catch (error) {
+    console.error(`agent writer: c0mpute failed: ${String(error).slice(0, 300)}`);
+    throw new AgentWriterProblem('The c0mpute network could not draft that one. Try again shortly.');
+  }
+  if (text.trim() === '') throw new AgentWriterProblem('The model returned nothing.');
+  return text;
 }
 
 /**

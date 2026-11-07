@@ -14,6 +14,9 @@ importers:
       '@profullstack/affiliates':
         specifier: ^0.2.0
         version: 0.2.0
+      '@profullstack/ai-providers':
+        specifier: 0.2.0
+        version: 0.2.0
       '@profullstack/coinpay-onboard':
         specifier: 0.3.1
         version: 0.3.1
@@ -22,7 +25,7 @@ importers:
         version: 1.0.3
       '@profullstack/footer':
         specifier: latest
-        version: 0.6.15
+        version: 0.6.19
       '@profullstack/hqtui':
         specifier: ^0.11.1
         version: 0.11.1
@@ -158,6 +161,11 @@ packages:
     engines: {node: '>=22.13'}
     hasBin: true
 
+  '@profullstack/ai-providers@0.2.0':
+    resolution: {integrity: sha512-xY7a4gHThur7uTUnmzft47TnqVK+NVA57K60LThSAeHhITbSNLhkt9Sp7uNKCSg0wC55b5wLFEFGsGzblCiT6Q==}
+    engines: {node: '>=20'}
+    hasBin: true
+
   '@profullstack/coinpay-onboard@0.3.1':
     resolution: {integrity: sha512-+K7D6uaX10y+0V5sg7To1jKwNG8iCNbN9SSW6q5ACzoiDNswMox3G7gzY/Swxd128klq7ecN2Ni4JVNr50nRIQ==}
     engines: {node: '>=20'}
@@ -166,8 +174,8 @@ packages:
   '@profullstack/emailer@1.0.3':
     resolution: {integrity: sha512-VyAtCcfnSI6LOwJvWogCr3ZNmEsaZw+iuWrqnosLsdcKsbRyCrCmXigMNZJZEjlgYlR+lK//PwNPG+xtCFvWAw==}
 
-  '@profullstack/footer@0.6.15':
-    resolution: {integrity: sha512-kkkSG8Xw0VnyzYk76ko0aiIgVT/MXmKkKUiJ5u1DZkeLZcDh0d2GjFShwTcCd8AsQr5fBet39wbzSwPeUYwuWg==}
+  '@profullstack/footer@0.6.19':
+    resolution: {integrity: sha512-DAS2jHDJFnH1w6lDtYbEnvuV2n4NY2vrRwnUKeQPC+Nwfg1f2Me9ClZ6KlXs6Dv0pgJSg2ATLSX0hV+Mq7co3w==}
     engines: {node: '>=18'}
     hasBin: true
     peerDependencies:
@@ -970,6 +978,8 @@ snapshots:
     transitivePeerDependencies:
       - react
 
+  '@profullstack/ai-providers@0.2.0': {}
+
   '@profullstack/coinpay-onboard@0.3.1':
     dependencies:
       '@modelcontextprotocol/sdk': 1.32.2(zod@4.6.7)
@@ -980,7 +990,7 @@ snapshots:
 
   '@profullstack/emailer@1.0.3': {}
 
-  '@profullstack/footer@0.6.15': {}
+  '@profullstack/footer@0.6.19': {}
 
   '@profullstack/hqtui@0.11.1': {}
 

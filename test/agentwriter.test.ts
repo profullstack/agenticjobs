@@ -22,6 +22,7 @@ const CONFIG = {
   boardName: 'Test Board',
   anthropicApiKey: null,
   openaiApiKey: null,
+  c0mputeEnabled: false,
   writerModel: null,
 };
 
@@ -114,6 +115,62 @@ test('the configured key decides the provider, and neither means off', () => {
     'anthropic',
     'a board with both has to pick one, and it has to pick the same one every time',
   );
+});
+
+test('c0mpute leads when it is on, ahead of either key', () => {
+  const on = { ...CONFIG, c0mputeEnabled: true };
+  assert.equal(writerProvider(on), 'c0mpute', 'a board drafts with no vendor key at all');
+  assert.equal(writerProvider({ ...on, anthropicApiKey: 'sk-y', openaiApiKey: 'sk-x' }), 'c0mpute');
+});
+
+/** An Infernet chat job: create, then an SSE stream of tokens and done. */
+function c0mputeFake(answer, calls) {
+  return async (url, init) => {
+    calls.push(String(url));
+    if (String(url).endsWith('/api/chat')) {
+      calls.body = JSON.parse(init.body);
+      return new Response(JSON.stringify({ jobId: 'job1', source: 'p2p' }), { status: 200 });
+    }
+    if (String(url).includes('api.anthropic.com')) {
+      return new Response(JSON.stringify({ content: [{ type: 'text', text: FULL }] }), { status: 200 });
+    }
+    if (answer === null) {
+      return new Response('event: error\ndata: {"message":"node died"}\n\n', {
+        headers: { 'content-type': 'text/event-stream' },
+      });
+    }
+    const body =
+      `event: meta\ndata: {"model":"qwen-test"}\n\n` +
+      `event: token\ndata: ${JSON.stringify({ text: answer })}\n\n` +
+      `event: done\ndata: {}\n\n`;
+    return new Response(body, { headers: { 'content-type': 'text/event-stream' } });
+  };
+}
+
+test('c0mpute drafts the listing through the peer network', async () => {
+  const calls = [];
+  const values = await draftListing(
+    'Senior Go engineer, remote, payments.',
+    { boardName: 'Test Board', orgName: 'Acme' },
+    { ...CONFIG, c0mputeEnabled: true, anthropicApiKey: 'sk-ant' },
+    c0mputeFake(FULL, calls),
+  );
+  assert.equal(values['title'], 'Senior Go Engineer');
+  assert.ok(calls[0].endsWith('/api/chat'));
+  assert.equal(calls.body.p2p_only, true, 'peer nodes only, never the billed hosted fallback');
+  assert.ok(!calls.some((u) => u.includes('anthropic')), 'the paid tier is not touched');
+});
+
+test('a failed c0mpute job falls through to the paid tier', async () => {
+  const calls = [];
+  const values = await draftListing(
+    'Senior Go engineer, remote, payments.',
+    { boardName: 'Test Board', orgName: 'Acme' },
+    { ...CONFIG, c0mputeEnabled: true, anthropicApiKey: 'sk-ant' },
+    c0mputeFake(null, calls),
+  );
+  assert.equal(values['title'], 'Senior Go Engineer');
+  assert.ok(calls.some((u) => u.includes('api.anthropic.com')));
 });
 
 test('the Anthropic request is the shape that API takes', async () => {
