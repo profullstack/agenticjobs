@@ -36,7 +36,10 @@ import { descriptorFor } from './descriptor.ts';
 import type { AppEnv } from '../deps.ts';
 
 /** Ring member slugs the ring assigned that are not simply the host with dots as dashes. */
-const RING_SLUGS: Record<string, string> = { 'agenticjobs.work': 'agenticjobs-work-3' };
+const RING_SLUGS: Record<string, string> = {
+  'agenticjobs.pwa.pit.world': 'agenticjobs-work-3',
+  'agenticjobs.work': 'agenticjobs-work-3',
+};
 
 function publicDir(): string {
   // dist/server/routes/discovery.js -> package root -> web/public
