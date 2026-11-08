@@ -42,9 +42,9 @@ const network = {
       {
         key: 'server',
         label: 'Board URL',
-        placeholder: 'https://agenticjobs.work',
+        placeholder: 'https://agenticjobs.pwa.pit.world',
         help: 'The board to post to. Your own instance, or a public one.',
-        default: 'https://agenticjobs.work',
+        default: 'https://agenticjobs.pwa.pit.world',
       },
       {
         key: 'org',
@@ -55,7 +55,7 @@ const network = {
       },
     ],
     note: 'The board shows a short code; approve it in a browser. No password is typed here.',
-    docsUrl: 'https://agenticjobs.work/docs',
+    docsUrl: 'https://agenticjobs.pwa.pit.world/docs',
   },
   caps: {
     charLimit: 0,
@@ -71,7 +71,7 @@ const network = {
   },
 
   async login(input, ctx) {
-    const server = normaliseServer(input.server || 'https://agenticjobs.work');
+    const server = normaliseServer(input.server || 'https://agenticjobs.pwa.pit.world');
     const client = new BoardClient(server, { userAgent: 'myna-plugin-agenticjobs/0.1.0' });
 
     let name = server;

@@ -47,7 +47,7 @@ export async function readManifest(): Promise<Manifest | null> {
 }
 
 /** The line a person can paste, used in more than one message. */
-export function installLine(site = 'https://agenticjobs.work'): string {
+export function installLine(site = 'https://agenticjobs.pwa.pit.world'): string {
   return `curl -fsSL ${site}/install.sh | sh`;
 }
 

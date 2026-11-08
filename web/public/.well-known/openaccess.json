@@ -1,10 +1,10 @@
 {
   "openaccess": "0.1",
   "name": "Agentic Jobs",
-  "url": "https://agenticjobs.work",
+  "url": "https://agenticjobs.pwa.pit.world",
   "operator": "https://logicsrc.com/.well-known/openprofile.md",
   "redirect_uris": [
-    "https://agenticjobs.work/api/v1/openaccess/callback"
+    "https://agenticjobs.pwa.pit.world/api/v1/openaccess/callback"
   ],
   "jwks": {
     "keys": [
@@ -22,7 +22,7 @@
   "honours": [
     "profullstack.com/all-access"
   ],
-  "webhooks": "https://agenticjobs.work/api/v1/openaccess/events",
+  "webhooks": "https://agenticjobs.pwa.pit.world/api/v1/openaccess/events",
   "hubs": [
     "https://openaccess.logicsrc.com"
   ]

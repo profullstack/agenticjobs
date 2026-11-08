@@ -272,7 +272,7 @@ async function viaFetch(
       response = await fetcher(current.toString(), {
         headers: {
           accept: 'text/html, text/markdown, text/plain;q=0.9, */*;q=0.1',
-          'user-agent': 'agenticjobs (+https://agenticjobs.work)',
+          'user-agent': 'agenticjobs (+https://agenticjobs.pwa.pit.world)',
         },
         redirect: 'manual',
         signal: controller.signal,

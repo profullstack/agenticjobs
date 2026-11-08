@@ -42,7 +42,7 @@ services:
       BOARD_NAME: ${BOARD_NAME:-Agentic Jobs}
       BOARD_TAGLINE: ${BOARD_TAGLINE:-Jobs posted here, not scraped from somewhere else.}
       BOARD_TOPICS: ${BOARD_TOPICS:-agentic,ai,engineering}
-      DIRECTORY_URL: ${DIRECTORY_URL:-https://agenticjobs.work}
+      DIRECTORY_URL: ${DIRECTORY_URL:-https://agenticjobs.pwa.pit.world}
       ANNOUNCE: ${ANNOUNCE:-false}
       DIRECTORY: ${DIRECTORY:-false}
       RESEND_API_KEY: ${RESEND_API_KEY:-}

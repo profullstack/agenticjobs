@@ -17,7 +17,7 @@ const pool = {
   },
 };
 const config = loadConfig({
-  PUBLIC_URL: 'https://agenticjobs.work',
+  PUBLIC_URL: 'https://agenticjobs.pwa.pit.world',
   COINPAY_X402_KEY: 'cp_live_test_crawl_key',
   CRAWL_PAY_TO: '0xCC3b072391AE7A8d10cF00DdC5F61DB2cA5541E5',
 });
