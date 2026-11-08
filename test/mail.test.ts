@@ -156,13 +156,13 @@ test('a board is not listed in its own directory', () => {
   // are the comparisons that keep it out of its own listing.
   assert.equal(sameOrigin('https://agenticjobs.pwa.pit.world', 'https://agenticjobs.pwa.pit.world'), true);
   assert.equal(sameOrigin('https://agenticjobs.pwa.pit.world/', 'https://agenticjobs.pwa.pit.world'), true);
-  assert.equal(sameOrigin('https://AgenticJobs.work', 'https://agenticjobs.pwa.pit.world'), true);
+  assert.equal(sameOrigin('https://AgenticJobs.pwa.pit.world', 'https://agenticjobs.pwa.pit.world'), true);
   assert.equal(sameOrigin('https://agenticjobs.pwa.pit.world:443', 'https://agenticjobs.pwa.pit.world'), true);
 
   // A different board, a different scheme and a different host are all other
   // boards, and must still be able to announce.
   assert.equal(sameOrigin('https://www.agenticjobs.work', 'https://agenticjobs.pwa.pit.world'), false);
-  assert.equal(sameOrigin('https://agenticjobs.pwa.pit.world', 'https://agenticjobs.pwa.pit.world'), false);
+  assert.equal(sameOrigin('http://agenticjobs.pwa.pit.world', 'https://agenticjobs.pwa.pit.world'), false);
   assert.equal(sameOrigin('https://jobs.example.com', 'https://agenticjobs.pwa.pit.world'), false);
   assert.equal(sameOrigin(null, 'https://agenticjobs.pwa.pit.world'), false);
   assert.equal(sameOrigin('not a url', 'https://agenticjobs.pwa.pit.world'), false);
