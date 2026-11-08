@@ -199,13 +199,13 @@ test('a subscription is accepted only in the shape the browser hands over', () =
 
 test('the VAPID contact is the mail sender, or the site when there is no address', () => {
   assert.equal(
-    pushSubject('"Agentic Jobs" <jobs@agenticjobs.work>', 'https://agenticjobs.work'),
+    pushSubject('"Agentic Jobs" <jobs@agenticjobs.work>', 'https://agenticjobs.pwa.pit.world'),
     'mailto:jobs@agenticjobs.work',
   );
   assert.equal(pushSubject('jobs@localhost', 'http://localhost:8787'), 'mailto:jobs@localhost');
   assert.equal(
-    pushSubject('not an address', 'https://agenticjobs.work'),
-    'https://agenticjobs.work',
+    pushSubject('not an address', 'https://agenticjobs.pwa.pit.world'),
+    'https://agenticjobs.pwa.pit.world',
   );
 });
 

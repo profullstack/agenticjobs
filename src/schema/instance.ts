@@ -66,7 +66,7 @@ export const HEARTBEAT_MS = 10 * 60 * 1000;
 /** Dropped from the directory after this many consecutive failures. */
 export const MAX_FAILURES = 48;
 
-export const DEFAULT_DIRECTORY = 'https://agenticjobs.work';
+export const DEFAULT_DIRECTORY = 'https://agenticjobs.pwa.pit.world';
 
 /**
  * A URL the directory is willing to list.

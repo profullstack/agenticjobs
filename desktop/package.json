@@ -5,7 +5,7 @@
   "private": true,
   "description": "Your job boards in a window. The same boards the CLI is signed in to.",
   "author": "Profullstack, Inc. <anthony@profullstack.com>",
-  "homepage": "https://agenticjobs.work",
+  "homepage": "https://agenticjobs.pwa.pit.world",
   "license": "MIT",
   "main": "main.cjs",
   "scripts": {

@@ -1,7 +1,7 @@
 #!/bin/sh
 # agenticjobs installer.
 #
-#   curl -fsSL https://agenticjobs.work/install.sh | sh
+#   curl -fsSL https://agenticjobs.pwa.pit.world/install.sh | sh
 #
 # Installs the `agenticjobs` CLI and the `agenticjobs-mcp` stdio server under
 # your home directory. No root, no package manager, no system files touched.
@@ -13,7 +13,7 @@
 set -eu
 
 PKG="@profullstack/agenticjobs"
-SITE="${AGENTICJOBS_SITE:-https://agenticjobs.work}"
+SITE="${AGENTICJOBS_SITE:-https://agenticjobs.pwa.pit.world}"
 PREFIX="${AGENTICJOBS_PREFIX:-$HOME/.local}"
 VERSION="${AGENTICJOBS_VERSION:-}"
 

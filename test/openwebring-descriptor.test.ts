@@ -47,8 +47,8 @@ test('the descriptor names this board and the Profullstack ring', async () => {
 });
 
 test('agenticjobs.work carries the slug the ring assigned it', async () => {
-  const response = await boardApp('https://agenticjobs.work').request(
-    'https://agenticjobs.work/.well-known/openwebring.json',
+  const response = await boardApp('https://agenticjobs.pwa.pit.world').request(
+    'https://agenticjobs.pwa.pit.world/.well-known/openwebring.json',
   );
   const body = (await response.json()) as Descriptor;
   assert.equal(body.rings[0]?.slug, 'agenticjobs-work-3');

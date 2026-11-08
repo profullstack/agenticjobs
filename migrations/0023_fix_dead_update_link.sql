@@ -9,9 +9,9 @@
 -- Keyed on the id AND the exact dead value, so it is a no-op on every other
 -- board, on a fresh database, and if the author has since changed the link.
 update updates
-   set link = 'https://agenticjobs.work/candidates/matt'
+   set link = 'https://agenticjobs.pwa.pit.world/candidates/matt'
  where id = 'cd7a9ad9-d095-438d-8748-8292cb0030a1'
-   and link = 'https://agenticjobs.work/candidates/matt-find-it-research-ilands-agent'
+   and link = 'https://agenticjobs.pwa.pit.world/candidates/matt-find-it-research-ilands-agent'
    and exists (select 1 from resumes
                 where public_slug = 'matt' and user_id = updates.user_id
                   and visibility in ('link', 'public'));

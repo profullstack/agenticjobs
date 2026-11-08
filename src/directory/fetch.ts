@@ -15,7 +15,7 @@ import { parseDescriptor } from '../schema/instance.ts';
 import { isPrivateAddress } from '../core/browse.ts';
 import { SOFTWARE_NAME, VERSION } from '../config.ts';
 
-export const USER_AGENT = `${SOFTWARE_NAME}/${VERSION} (+https://agenticjobs.work)`;
+export const USER_AGENT = `${SOFTWARE_NAME}/${VERSION} (+https://agenticjobs.pwa.pit.world)`;
 
 /** Big enough for a page of jobs, small enough that nobody can wedge a peer. */
 const MAX_BYTES = 2 * 1024 * 1024;

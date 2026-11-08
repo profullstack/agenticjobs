@@ -154,16 +154,16 @@ test('an unverified sending domain is a refusal, not a crash', async () => {
 test('a board is not listed in its own directory', () => {
   // The flagship runs both roles and names itself in DIRECTORY_URL, so these
   // are the comparisons that keep it out of its own listing.
-  assert.equal(sameOrigin('https://agenticjobs.work', 'https://agenticjobs.work'), true);
-  assert.equal(sameOrigin('https://agenticjobs.work/', 'https://agenticjobs.work'), true);
-  assert.equal(sameOrigin('https://AgenticJobs.work', 'https://agenticjobs.work'), true);
-  assert.equal(sameOrigin('https://agenticjobs.work:443', 'https://agenticjobs.work'), true);
+  assert.equal(sameOrigin('https://agenticjobs.pwa.pit.world', 'https://agenticjobs.pwa.pit.world'), true);
+  assert.equal(sameOrigin('https://agenticjobs.pwa.pit.world/', 'https://agenticjobs.pwa.pit.world'), true);
+  assert.equal(sameOrigin('https://AgenticJobs.work', 'https://agenticjobs.pwa.pit.world'), true);
+  assert.equal(sameOrigin('https://agenticjobs.pwa.pit.world:443', 'https://agenticjobs.pwa.pit.world'), true);
 
   // A different board, a different scheme and a different host are all other
   // boards, and must still be able to announce.
-  assert.equal(sameOrigin('https://www.agenticjobs.work', 'https://agenticjobs.work'), false);
-  assert.equal(sameOrigin('http://agenticjobs.work', 'https://agenticjobs.work'), false);
-  assert.equal(sameOrigin('https://jobs.example.com', 'https://agenticjobs.work'), false);
-  assert.equal(sameOrigin(null, 'https://agenticjobs.work'), false);
-  assert.equal(sameOrigin('not a url', 'https://agenticjobs.work'), false);
+  assert.equal(sameOrigin('https://www.agenticjobs.work', 'https://agenticjobs.pwa.pit.world'), false);
+  assert.equal(sameOrigin('https://agenticjobs.pwa.pit.world', 'https://agenticjobs.pwa.pit.world'), false);
+  assert.equal(sameOrigin('https://jobs.example.com', 'https://agenticjobs.pwa.pit.world'), false);
+  assert.equal(sameOrigin(null, 'https://agenticjobs.pwa.pit.world'), false);
+  assert.equal(sameOrigin('not a url', 'https://agenticjobs.pwa.pit.world'), false);
 });

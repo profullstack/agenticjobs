@@ -124,8 +124,8 @@ test('a board link whose slug carries a NUL byte is cleaned, not sent raw', asyn
   const { pool, calls } = recordingPool();
   const problem = await boardLinkProblem(
     pool,
-    'https://agenticjobs.work/candidates/sa%00m',
-    'https://agenticjobs.work',
+    'https://agenticjobs.pwa.pit.world/candidates/sa%00m',
+    'https://agenticjobs.pwa.pit.world',
     'author-1',
     { kind: 'employer', orgId: 'org-1' },
   );
@@ -139,8 +139,8 @@ test('a board link with a malformed escape answers the sentence, not a crash', a
   const { pool, calls } = recordingPool();
   const problem = await boardLinkProblem(
     pool,
-    'https://agenticjobs.work/candidates/%E0%A4%A',
-    'https://agenticjobs.work',
+    'https://agenticjobs.pwa.pit.world/candidates/%E0%A4%A',
+    'https://agenticjobs.pwa.pit.world',
     'author-1',
     { kind: 'employer', orgId: 'org-1' },
   );
@@ -155,8 +155,8 @@ test('a well-formed board link still reaches the lookup unchanged', async () => 
   const { pool, calls } = recordingPool();
   await boardLinkProblem(
     pool,
-    'https://agenticjobs.work/candidates/sam',
-    'https://agenticjobs.work',
+    'https://agenticjobs.pwa.pit.world/candidates/sam',
+    'https://agenticjobs.pwa.pit.world',
     'author-1',
     { kind: 'employer', orgId: 'org-1' },
   );
@@ -170,7 +170,7 @@ test('a callback state of only NUL bytes expires instead of erroring', async () 
   const result = await finishConnect(pool, {} as never, {
     state: '\0',
     code: 'code',
-    redirectUri: 'https://agenticjobs.work/api/v1/coinpay/callback',
+    redirectUri: 'https://agenticjobs.pwa.pit.world/api/v1/coinpay/callback',
   });
   assert.equal(result, 'That connection attempt has expired. Start again.');
   assert.deepEqual(calls, [['']]);

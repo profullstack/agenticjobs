@@ -114,4 +114,4 @@ export function rememberDirectory(url: string): void {
   saveConfig(config);
 }
 
-export const DEFAULT_SERVER = 'https://agenticjobs.work';
+export const DEFAULT_SERVER = 'https://agenticjobs.pwa.pit.world';

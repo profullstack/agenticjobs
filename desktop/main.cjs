@@ -15,7 +15,7 @@ const { readFileSync } = require('node:fs');
 const { homedir } = require('node:os');
 const { join } = require('node:path');
 
-const DEFAULT_SERVER = 'https://agenticjobs.work';
+const DEFAULT_SERVER = 'https://agenticjobs.pwa.pit.world';
 
 /** The same file `agenticjobs login` writes. One sign-in, both surfaces. */
 function configPath() {
