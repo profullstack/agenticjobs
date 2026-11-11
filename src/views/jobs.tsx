@@ -221,7 +221,14 @@ export const JobCard: FC<{
 };
 
 export const Filters: FC<{ query: JobQuery; action?: string }> = ({ query, action = '/' }) => (
-  <form class="filters" method="get" action={action}>
+  <form
+    class="filters"
+    method="get"
+    action={action}
+    toolname="filter_jobs"
+    tooldescription="Filter the job list on this page by search text, workplace, employment type, seniority and agent policy."
+    toolautosubmit=""
+  >
     {/*
      * A GET form submits its own fields and nothing else, so anything set by
      * a link rather than a control is dropped the moment somebody searches.

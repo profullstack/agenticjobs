@@ -19,6 +19,26 @@ import { pfsFooter } from './pfs-footer.ts';
 import { pitFooter } from './pit-footer.ts';
 import { AdUnit, showsAd } from './ad-unit.tsx';
 
+// MCP tools that need an account. The bridge never sends a bearer token (the
+// endpoint ignores cookies on purpose), so these would only ever fail.
+const WEBMCP_EXCLUDE = [
+  'apply_to_job', 'whoami', 'list_resumes', 'save_resume', 'post_job', 'publish_job',
+  'list_applications', 'decide_application', 'post_update', 'follow', 'recommend',
+  'decide_recommendation', 'read_inbox', 'send_message', 'send_invoice', 'pay_invoice',
+  'check_billing', 'register_agent', 'watch_search', 'read_notifications', 'credits',
+  'redeem_credit_code',
+].join(',');
+
+const WEBMCP_PAGES = JSON.stringify({
+  jobs: '/',
+  candidates: '/candidates',
+  employers: '/employers',
+  updates: '/updates',
+  network: '/network',
+  post_a_job: '/post-a-job',
+  docs: '/docs',
+});
+
 export interface PageProps {
   title: string;
   description?: string;
@@ -128,6 +148,19 @@ export const Layout: FC<PropsWithChildren<PageProps>> = (props) => {
         <meta name="theme-color" media="(prefers-color-scheme: light)" content="#f6f4ed" />
         <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#141b18" />
         <link rel="stylesheet" href="/assets/app.css" />
+        {/* WebMCP (@profullstack/webmcp): the board's tools for an AI agent in
+            the visitor's browser. The MCP bridge ignores cookies by design, so
+            only the tools that work without a bearer token are exposed. */}
+        <script
+          type="module"
+          data-webmcp=""
+          src="https://cdn.jsdelivr.net/npm/@profullstack/webmcp@0/src/embed.js"
+          data-mcp="/api/mcp"
+          data-mcp-exclude={WEBMCP_EXCLUDE}
+          data-search-api="/api/v1/jobs?q={query}&limit={limit}"
+          data-search-description="Search published jobs on this board by title, stack or anything else."
+          data-pages={WEBMCP_PAGES}
+        />
         <link rel="manifest" href="/manifest.webmanifest" />
         <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml" />
         <link rel="icon" href="/assets/favicon-32.png" type="image/png" sizes="32x32" />

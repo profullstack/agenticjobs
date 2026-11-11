@@ -106,7 +106,7 @@ export function securityHeaders(
     `form-action ${formActions}`,
     `frame-ancestors 'none'`,
     `object-src 'none'`,
-    `script-src 'self' https://crawlproof.com`,
+    `script-src 'self' https://crawlproof.com https://cdn.jsdelivr.net`,
     // The one ad unit is a cross-origin CrawlProof frame (/api/ads/frame), so
     // it costs this entry and nothing else: no script, no style, no storage.
     `frame-src https://crawlproof.com`,
