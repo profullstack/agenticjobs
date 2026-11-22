@@ -59,3 +59,9 @@ test('a browser and the status check are not charged', async () => {
   const monitor = await app.request('/api/health', { headers: { 'user-agent': 'GPTBot/1.2' } });
   assert.equal(monitor.status, 200);
 });
+
+test('a forged session cookie does not exempt GPTBot (x402-gateway 0.18.3 sessionCookie)', async () => {
+  const { SESSION_COOKIE } = await import('../dist/core/auth.js');
+  const res = await app.request('/', { headers: { 'user-agent': GPTBOT, accept: 'application/json', cookie: `${SESSION_COOKIE}=forged` } });
+  assert.equal(res.status, 402);
+});

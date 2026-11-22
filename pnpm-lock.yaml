@@ -22,7 +22,7 @@ importers:
         version: 1.0.3
       '@profullstack/footer':
         specifier: latest
-        version: 0.6.15
+        version: 0.7.0
       '@profullstack/hqtui':
         specifier: ^0.11.1
         version: 0.11.1
@@ -39,8 +39,8 @@ importers:
         specifier: ^0.1.3
         version: 0.1.3
       '@profullstack/x402-gateway':
-        specifier: ^0.16.0
-        version: 0.16.0
+        specifier: ^0.18.3
+        version: 0.18.3
       '@simplewebauthn/server':
         specifier: ^14.0.3
         version: 14.0.3
@@ -166,8 +166,8 @@ packages:
   '@profullstack/emailer@1.0.3':
     resolution: {integrity: sha512-VyAtCcfnSI6LOwJvWogCr3ZNmEsaZw+iuWrqnosLsdcKsbRyCrCmXigMNZJZEjlgYlR+lK//PwNPG+xtCFvWAw==}
 
-  '@profullstack/footer@0.6.15':
-    resolution: {integrity: sha512-kkkSG8Xw0VnyzYk76ko0aiIgVT/MXmKkKUiJ5u1DZkeLZcDh0d2GjFShwTcCd8AsQr5fBet39wbzSwPeUYwuWg==}
+  '@profullstack/footer@0.7.0':
+    resolution: {integrity: sha512-Xvisf7+VTTy7VsX7UTY0VijybHr+Cx3hxlnNT0ExOHq6i1sUxQ1yM1wjYQJumP86oan93vgBODR6DQ0uZKINoA==}
     engines: {node: '>=18'}
     hasBin: true
     peerDependencies:
@@ -227,8 +227,8 @@ packages:
     resolution: {integrity: sha512-Ty/90ibgu2DVlablDeoFdItcobK+c8cMQFvuTfJOUlCfyvQZWoPjgt0JHPwTvq+ynOQ4i1ivBQ3K3PY/S4rObA==}
     engines: {node: '>=22'}
 
-  '@profullstack/x402-gateway@0.16.0':
-    resolution: {integrity: sha512-3xN7vlGXmoqdexR7NNAIExZLtYvE5M8nR9fqr7kwLK/xks06lUiymEsjZOc2wCbowfnCVNiZBOe98rvsCE9Mgw==}
+  '@profullstack/x402-gateway@0.18.3':
+    resolution: {integrity: sha512-p0bU1TyKX76IlwRqgLGMlCOGNktVVXAZpXPi2L02lIXm0Lj8IzJmuDe0ddtfXQzPZpKiTIJVvcfUmHqD8fmCMA==}
     engines: {node: '>=20.11'}
 
   '@simplewebauthn/server@14.0.3':
@@ -980,7 +980,7 @@ snapshots:
 
   '@profullstack/emailer@1.0.3': {}
 
-  '@profullstack/footer@0.6.15': {}
+  '@profullstack/footer@0.7.0': {}
 
   '@profullstack/hqtui@0.11.1': {}
 
@@ -1000,7 +1000,7 @@ snapshots:
 
   '@profullstack/synconfig@0.1.3': {}
 
-  '@profullstack/x402-gateway@0.16.0':
+  '@profullstack/x402-gateway@0.18.3':
     dependencies:
       '@profullstack/keys': 0.1.0
 

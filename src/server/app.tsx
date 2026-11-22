@@ -67,8 +67,10 @@ export function createApp(
       // /i/ is an invite link: a chat app's link preview must not be sold a
       // crawl pass for it, and the page spends nothing.
       openPaths: ['/api/health', '/llms.txt', '/.well-known/', '/i/'],
-      exempt: (request) =>
-        new RegExp(`(?:^|;\\s*)${SESSION_COOKIE}=`).test(request.headers.get('cookie') ?? ''),
+      // A session cookie that is merely present is a hint, never a pass (x402-gateway
+      // 0.18.3): it spares a signed-in reader's odd browser string, but GPTBot with a
+      // made-up cookie is still charged. It used to be `exempt`, which let it read free.
+      sessionCookie: SESSION_COOKIE,
     });
     app.use('*', x402Gateway(crawlGateway));
   }
