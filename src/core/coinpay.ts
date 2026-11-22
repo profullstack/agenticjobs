@@ -184,6 +184,9 @@ function payment(body: Record<string, unknown>): Payment {
   };
 }
 
+/** Who CoinPay sees calling: every fleet app shares one host and one IP. */
+export const COINPAY_UA = `agenticjobs.work${process.env.npm_package_version ? `/${process.env.npm_package_version}` : ''} (+https://agenticjobs.work)`;
+
 export function createCoinPay(config: CoinPayConfig, fetchImpl: Fetch = fetch): CoinPayClient {
   const api = `${config.url}/api`;
 
@@ -195,7 +198,7 @@ export function createCoinPay(config: CoinPayConfig, fetchImpl: Fetch = fetch): 
     try {
       response = await fetchImpl(`${api}${path}`, {
         method: init.method ?? 'GET',
-        headers: init.headers ?? {},
+        headers: { 'user-agent': COINPAY_UA, ...(init.headers ?? {}) },
         ...(init.body === undefined ? {} : { body: init.body }),
         signal: AbortSignal.timeout(15_000),
       });
