@@ -32,7 +32,7 @@ import { apiCors, securityHeaders, withViewer } from './middleware.ts';
 import { Layout } from '../views/layout.tsx';
 import { createMailer } from '../core/mail.ts';
 import type { Mailer } from '../core/mail.ts';
-import { createCoinPay, type CoinPayClient } from '../core/coinpay.ts';
+import { COINPAY_UA, createCoinPay, type CoinPayClient } from '../core/coinpay.ts';
 import type { AppEnv, Deps } from './deps.ts';
 
 /**
@@ -59,6 +59,9 @@ export function createApp(
       siteUrl: config.publicUrl,
       siteName: config.boardName,
       coinpay: { apiKey: config.crawl.apiKey },
+      // x402-gateway 0.16 has no user-agent option; name this site to CoinPay through its fetch.
+      fetch: ((url: RequestInfo | URL, init: RequestInit = {}) =>
+        fetch(url, { ...init, headers: { ...((init.headers as Record<string, string>) ?? {}), 'user-agent': COINPAY_UA } })) as typeof fetch,
       payTo: config.crawl.payTo,
       contact: 'mailto:anthony@profullstack.com',
       // /i/ is an invite link: a chat app's link preview must not be sold a
